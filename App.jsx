@@ -726,8 +726,9 @@ export default function App() {
                 background: i === 0 ? "linear-gradient(135deg, #00f5ff, #0080ff)" : "#0d1220",
                 color: i === 0 ? "#000" : "#555",
                 fontWeight: 700, fontSize: 12, cursor: "pointer",
-                border: i !== 0 ? "1px solid #ffffff0d" : "none",
-              }}>{f}</button>
+
+          
+             }}>{f}</button>
             ))}
           </div>
           <div style={{ textAlign: "center", padding: "40px 0", color: "#333", fontSize: 13 }}>
@@ -740,7 +741,7 @@ export default function App() {
           <div style={{ display: "flex", gap: 6, marginBottom: 14, flexWrap: "wrap" }}>
             {[t.all, t.completed, t.pending, t.cancelled].map((f, i) => (
               <button key={i} onClick={() => setHistoryFilter(f)} style={{
-                padding: "8px 14px", borderRadius: 20, border: "none",
+                padding: "8px 14px", borderRadius: 20 ,
                 background: historyFilter === f
                   ? "linear-gradient(135deg, #00f5ff, #0080ff)"
                   : "#0d1220",
