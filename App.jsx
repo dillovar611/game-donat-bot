@@ -301,7 +301,6 @@ export default function App() {
     langBtn: (active) => ({
       padding: "4px 10px",
       borderRadius: 8,
-      border: "none",
       cursor: "pointer",
       fontSize: 12,
       fontWeight: 700,
