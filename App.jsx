@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 const translations = {
   tj: {
@@ -230,6 +230,8 @@ const PAY_METHODS = [
 ];
 
 export default function App() {
+  const tg = window.Telegram?.WebApp;
+
   const [lang, setLang] = useState("tj");
   const [tab, setTab] = useState("home");
   const [selectedGame, setSelectedGame] = useState(null);
@@ -247,7 +249,23 @@ export default function App() {
 
   const t = translations[lang];
 
+  const tgUser = tg?.initDataUnsafe?.user;
+  const displayName = tgUser
+    ? `${tgUser.first_name}${tgUser.last_name ? " " + tgUser.last_name : ""}`
+    : "Guest";
+  const userUsername = tgUser?.username ? `@${tgUser.username}` : "@guest";
+  const userInitial = displayName.charAt(0).toUpperCase();
+
+  useEffect(() => {
+    if (!tg) return;
+    tg.ready();
+    tg.expand();
+    try { tg.setHeaderColor("#080b14"); } catch {}
+    try { tg.setBackgroundColor("#080b14"); } catch {}
+  }, []);
+
   const openGame = (game) => {
+    tg?.HapticFeedback?.impactOccurred("light");
     setSelectedGame(game);
     setProductTab(0);
     setSelectedProduct(null);
@@ -592,7 +610,11 @@ export default function App() {
               </div>
             </div>
           </div>
-          <button style={styles.buyBtn(game.color)}>{t.buyNow}</button>
+          {!tg && (
+            <button style={styles.buyBtn(game.color)} onClick={() =>
+              alert(`Харид: ${selectedProduct.name} — ${selectedProduct.price} ${t.somoni}`)
+            }>{t.buyNow}</button>
+          )}
         </div>
       );
     }
@@ -657,7 +679,7 @@ export default function App() {
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
             {currentProducts.map(p => (
               <div key={p.id} style={styles.productCard(selectedProduct?.id === p.id)}
-                onClick={() => setSelectedProduct(p)}>
+                onClick={() => { tg?.HapticFeedback?.selectionChanged(); setSelectedProduct(p); }}>
                 <div>
                   <div style={{ fontWeight: 800, fontSize: 14 }}>{p.name}</div>
                   <div style={{ fontSize: 12, color: game.color, marginTop: 2 }}>{p.price} {t.somoni}</div>
@@ -667,8 +689,10 @@ export default function App() {
             ))}
           </div>
 
-          {selectedProduct && (
-            <button style={styles.buyBtn(game.color)} onClick={() => {}}>
+          {selectedProduct && !tg && (
+            <button style={styles.buyBtn(game.color)} onClick={() =>
+              alert(`Харид: ${selectedProduct.name} — ${selectedProduct.price} ${t.somoni}`)
+            }>
               {t.buyNow} — {selectedProduct.price} {t.somoni}
             </button>
           )}
@@ -785,7 +809,19 @@ export default function App() {
           onChange={e => { setCustomAmount(e.target.value); setTopUpAmount(0); }}
           type="number"
         />
-        <button style={styles.buyBtn("#00f5ff")} disabled={!chosen}>
+        <button
+          style={styles.buyBtn("#00f5ff")}
+          disabled={!chosen}
+          onClick={() => {
+            if (!chosen) return;
+            tg?.HapticFeedback?.impactOccurred("medium");
+            if (tg) {
+              tg.sendData(JSON.stringify({ action: "topup", amount: chosen }));
+            } else {
+              alert(`Пур кардан: ${chosen} ${t.somoni}`);
+            }
+          }}
+        >
           {t.continue} {chosen ? `— ${chosen} ${t.somoni}` : ""}
         </button>
 
@@ -820,10 +856,10 @@ export default function App() {
             borderRadius: "50%",
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 24, fontWeight: 900, color: "#000",
-          }}>G</div>
+          }}>{userInitial}</div>
           <div>
-            <div style={{ fontWeight: 900, fontSize: 17 }}>Guest</div>
-            <div style={{ fontSize: 12, color: "#555" }}>@guest</div>
+            <div style={{ fontWeight: 900, fontSize: 17 }}>{displayName}</div>
+            <div style={{ fontSize: 12, color: "#555" }}>{userUsername}</div>
           </div>
           <div style={{ marginLeft: "auto", cursor: "pointer", fontSize: 18, color: "#333" }}>🌙</div>
         </div>
@@ -940,6 +976,48 @@ export default function App() {
 
   const isGameOpen = !!selectedGame;
 
+  useEffect(() => {
+    if (!tg?.BackButton) return;
+    const shouldShow = isGameOpen || tab === "topup";
+    if (shouldShow) {
+      const handler = () => goBack();
+      tg.BackButton.show();
+      tg.BackButton.onClick(handler);
+      return () => tg.BackButton.offClick(handler);
+    } else {
+      tg.BackButton.hide();
+    }
+  }, [isGameOpen, tab, selectedProduct, selectedGame, topUpStep]);
+
+  useEffect(() => {
+    if (!tg?.MainButton) return;
+    if (selectedProduct && currentGame) {
+      tg.MainButton.setText(`${t.buyNow} — ${selectedProduct.price} ${t.somoni}`);
+      tg.MainButton.show();
+      const handlePurchase = () => {
+        tg.HapticFeedback?.notificationOccurred("success");
+        tg.sendData(
+          JSON.stringify({
+            action: "buy",
+            game: currentGame.id,
+            gameName: currentGame.name,
+            product: selectedProduct.name,
+            price: selectedProduct.price,
+            playerId,
+            region,
+          })
+        );
+      };
+      tg.MainButton.onClick(handlePurchase);
+      return () => {
+        tg.MainButton.offClick(handlePurchase);
+        tg.MainButton.hide();
+      };
+    } else {
+      tg.MainButton.hide();
+    }
+  }, [selectedProduct, currentGame, playerId, region, lang]);
+
   return (
     <div style={styles.app}>
       <style>{`
@@ -951,12 +1029,14 @@ export default function App() {
 
       {/* Header */}
       <div style={styles.header}>
-        {isGameOpen || tab === "topup" ? (
+        {(isGameOpen || tab === "topup") && !tg ? (
           <button onClick={goBack} style={{
             background: "#141a2e", border: "1px solid #ffffff11",
             color: "#aaa", padding: "8px 14px", borderRadius: 10,
             cursor: "pointer", fontSize: 13, fontWeight: 700,
           }}>← {lang === "tj" ? "Назад" : "Назад"}</button>
+        ) : (isGameOpen || tab === "topup") && tg ? (
+          <div style={{ width: 60 }} />
         ) : (
           <div style={styles.logo}>{t.appName}</div>
         )}
