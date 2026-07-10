@@ -7,6 +7,9 @@ on:
       - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -33,3 +36,13 @@ jobs:
         with:
           name: DCNotifier-APK
           path: dc-notifier/app/build/outputs/apk/debug/app-debug.apk
+
+      - name: Publish APK to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp dc-notifier/app/build/outputs/apk/debug/app-debug.apk DCNotifier.apk
+          gh release create dcnotifier-v1 --title "DC Notifier" \
+            --notes "Барномаи Android барои автопардохти DC Next" \
+            --target ${{ github.sha }} || true
+          gh release upload dcnotifier-v1 DCNotifier.apk --clobber
