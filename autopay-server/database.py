@@ -1475,3 +1475,29 @@ async def mark_kod_matched(kod: str, order_id: int):
             )
 
 
+async def find_kod_for_order(order_id: int):
+    """Kod-и пардохте, ки аллакай ба ин фармоиш баста (резерв) шудааст."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT kod FROM dc_kods WHERE matched_order_id=%s "
+                "ORDER BY received_at DESC LIMIT 1",
+                (order_id,)
+            )
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+
+async def claim_order_for_donate(order_id: int) -> bool:
+    """Атомикӣ: фармоишро ба 'paid' мегузаронад, ФАҚАТ агар он ҳанӯз дар
+    ҳолати автопардохт бошад. False = касе аллакай гирифтааст (такрор!)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET status='paid' WHERE id=%s "
+                "AND status IN ('awaiting_autopay','autopay_search')",
+                (order_id,)
+            )
+            return cur.rowcount > 0
+
+

@@ -34,6 +34,9 @@ router = Router()
 
 _SUMMA_RE = re.compile(r"Summa\s+([\d.,]+)\s*TJS", re.IGNORECASE)
 _KOD_RE = re.compile(r"Kod\s+(\d+)", re.IGNORECASE)
+# Коменти пардохт: мо ба линк c=card_8848 мегузорем, DC онро ҳамчун
+# "card§8848" (ё card_8848) дар notification нишон медиҳад
+_CARD_RE = re.compile(r"card\D{0,3}(\d{1,10})", re.IGNORECASE)
 
 MAX_AGE_MINUTES = 15      # мӯҳлати умумии фармоиши автопардохт
 SEARCH_TIMEOUT_MIN = 10   # чек омад, вале пардохт то ин дақиқа ёфт нашуд → ба админ
@@ -50,7 +53,8 @@ def esc(text) -> str:
 
 
 def _parse_notification(text: str):
-    """Summa ва Kod-ро аз матни хом мебарорад. None = ин пардохти воридотӣ нест."""
+    """Summa, Kod ва рақами фармоиш (аз комент)-ро аз матни хом мебарорад.
+    None = ин пардохти воридотӣ нест."""
     if not text:
         return None
     if "снятие" in text.lower():
@@ -63,7 +67,9 @@ def _parse_notification(text: str):
         summa = round(float(m_summa.group(1).replace(",", ".")), 2)
     except ValueError:
         return None
-    return summa, m_kod.group(1)
+    m_card = _CARD_RE.search(text)
+    order_ref = int(m_card.group(1)) if m_card else None
+    return summa, m_kod.group(1), order_ref
 
 
 @router.channel_post(F.chat.id == config.NOTIFIER_CHAT_ID)
@@ -73,27 +79,65 @@ async def handle_dc_notification(message: Message):
     parsed = _parse_notification(text)
     if not parsed:
         return
-    summa, kod = parsed
+    summa, kod, order_ref = parsed
 
     if await db.is_kod_seen(kod):
         logger.info(f"Autopay: Kod {kod} такрорист — нодида гирифта шуд")
         return
     await db.record_kod(kod, summa)
 
-    # 1) Фармоише ки ЧЕК аллакай фиристодааст ва мунтазири пардохт аст
+    # ==== Роҳи асосӣ: РАҚАМИ ФАРМОИШ аз коменти пардохт (card_8848) ====
+    if order_ref:
+        order = await db.get_order(order_ref)
+        if (order and order.get("payment_method") == "dushanbe_city"
+                and order.get("status") in ("autopay_search", "awaiting_autopay")):
+            # Маблағро месанҷем — бояд бо нархи фармоиш баробар бошад
+            if abs(float(order["price"]) - summa) > 0.011:
+                await _notify_admins_wrong_amount(message.bot, order, summa, kod)
+                return
+            # Kod-ро ба ин фармоиш мебандем (резерв, зидди такрор)
+            await db.mark_kod_matched(kod, order_ref)
+            if order["status"] == "autopay_search":
+                # Чек аллакай омадааст → фавран донат
+                asyncio.create_task(run_donate(message.bot, order, kod))
+            else:
+                # Чек ҳанӯз наомадааст → интизор; вақте чек ояд,
+                # buy.py ҳамин Kod-и резервшударо меёбад
+                logger.info(f"Autopay: пардохти #{order_ref} омад, чек интизор")
+            return
+        # order_ref ҳаст, вале фармоиши мувофиқ нест — поён fallback
+
+    # ==== Роҳи эҳтиётӣ: муқоисаи МАБЛАҒ (агар комент наомада бошад) ====
     order = await db.find_awaiting_order_by_price(summa, "dushanbe_city", MAX_AGE_MINUTES)
     if order:
         asyncio.create_task(run_donate(message.bot, order, kod))
         return
 
-    # 2) Фармоиш ҳаст, вале чек ҳанӯз наомадааст — интизор мешавем
-    #    (вақте чек ояд, buy.py худаш ин Kod-ро аз база меёбад)
     if await db.has_awaiting_order_by_price(summa, "dushanbe_city", MAX_AGE_MINUTES):
         logger.info(f"Autopay: пардохти {summa} омад, чек ҳанӯз нест — интизор")
         return
 
-    # 3) Ҳеҷ фармоиши мувофиқ нест — огоҳӣ ба админ
+    # ==== Ҳеҷ фармоиши мувофиқ нест — огоҳӣ ба админ ====
     await _notify_admins_unmatched(message.bot, summa, kod)
+
+
+async def _notify_admins_wrong_amount(bot: Bot, order: dict, summa: float, kod: str):
+    """Фармоиш ёфт шуд, вале маблағ мувофиқ нест — донати худкор НАМЕШАВАД."""
+    text = (
+        f"⚠️ <b>Маблағи пардохт МУВОФИҚ НЕСТ!</b>\n\n"
+        f"🆔 Фармоиш: #{order['id']}\n"
+        f"👤 Корбар: <code>{order['user_id']}</code>\n"
+        f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
+        f"💵 Бояд мебуд: <b>{float(order['price']):.2f} сомонӣ</b>\n"
+        f"💵 Воқеан омад: <b>{summa:.2f} сомонӣ</b>\n"
+        f"🔑 Kod: <code>{kod}</code>\n\n"
+        f"Донати худкор НАШУД — дастӣ ҳал кунед (мизоҷ кам/зиёд фиристод)."
+    )
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, text, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Огоҳии маблағи нодуруст ба {admin_id} нарасид: {e}")
 
 
 async def _notify_admins_unmatched(bot: Bot, summa: float, kod: str):
@@ -177,8 +221,12 @@ async def run_donate(bot: Bot, order: dict, kod: str):
     user_id = order["user_id"]
     price = float(order["price"])
 
+    # Ҳимояи атомикӣ аз ду бор донат шудан (race): танҳо ЯК даъват
+    # метавонад фармоишро аз autopay_search/awaiting ба 'paid' гузаронад
+    if not await db.claim_order_for_donate(order_id):
+        logger.info(f"Autopay: фармоиши #{order_id} аллакай дар кор аст — такрор нашуд")
+        return
     await db.mark_kod_matched(kod, order_id)
-    await db.update_order_status(order_id, "paid")
 
     # ---- Марҳилаи 1: пардохт ёфта шуд ----
     try:

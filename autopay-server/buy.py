@@ -552,10 +552,11 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
     is_autopay = (method == "dushanbe_city" and not is_cart)
 
     if is_autopay:
-        # Автопардохт: БЕ тахфифи сатҳ (нарх бояд дақиқ мувофиқ ояд),
-        # нархро каме нодир мекунем то мизоҷро аз рӯи маблағ шиносем
+        # Автопардохт: БЕ тахфифи сатҳ. Мизоҷро аз рӯи РАҚАМИ ФАРМОИШ
+        # мешиносем (коменти card_XXXX дар линки пардохт), пас нархро
+        # тағйир додан лозим нест — нархи оддии рӯйхат мемонад.
         disc_pct, disc_amt = 0.0, 0.0
-        price = await _unique_autopay_price(round(float(data["price"]), 2))
+        price = round(float(data["price"]), 2)
         await state.update_data(price=price)
     elif data.get("is_custom_price"):
         # Нархи шахсии мизоҷ — тахфифи сатҳ ба ин намерасад
@@ -602,6 +603,13 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
             payment_method="dushanbe_city",
         )
         await state.update_data(autopay_order_id=awaiting_order_id)
+        # Линки пардохт бо РАҚАМИ ФАРМОИШИ ВОҚЕӢ дар комент — DC онро
+        # дар notification бармегардонад (card§8848) ва бот фармоишро
+        # мустақим аз рӯи он меёбад
+        pay_url = (
+            f"http://pay.expresspay.tj/?A=9762000236840137&s={price:g}"
+            f"&c=card_{awaiting_order_id}&f1=133"
+        )
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Пардохт", url=pay_url)],
             [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="id_ok")],
@@ -678,8 +686,11 @@ async def receive_check(message: Message, state: FSMContext):
             f"Натиҷа ҳозир хабар дода мешавад...",
             parse_mode="HTML"
         )
-        # Шояд пардохт аллакай ПЕШ аз чек омада бошад — тафтиш мекунем
-        kod = await db.find_unmatched_kod(float(order["price"]), autopay.MAX_AGE_MINUTES)
+        # Шояд пардохт аллакай ПЕШ аз чек омада бошад — тафтиш мекунем:
+        # аввал Kod-и ба ҳамин фармоиш резервшуда (аз коменти card_XXXX),
+        # баъд ҳамчун эҳтиёт — аз рӯи маблағ
+        kod = await db.find_kod_for_order(autopay_order_id) \
+            or await db.find_unmatched_kod(float(order["price"]), autopay.MAX_AGE_MINUTES)
         if kod:
             order = await db.get_order(autopay_order_id)
             asyncio.create_task(autopay.run_donate(message.bot, order, kod))
