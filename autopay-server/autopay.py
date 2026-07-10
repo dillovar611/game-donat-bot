@@ -129,8 +129,7 @@ async def _notify_admins_wrong_amount(bot: Bot, order: dict, summa: float, kod: 
         f"👤 Корбар: <code>{order['user_id']}</code>\n"
         f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
         f"💵 Бояд мебуд: <b>{float(order['price']):.2f} сомонӣ</b>\n"
-        f"💵 Воқеан омад: <b>{summa:.2f} сомонӣ</b>\n"
-        f"🔑 Kod: <code>{kod}</code>\n\n"
+        f"💵 Воқеан омад: <b>{summa:.2f} сомонӣ</b>\n\n"
         f"Донати худкор НАШУД — дастӣ ҳал кунед (мизоҷ кам/зиёд фиристод)."
     )
     for admin_id in config.ADMIN_IDS:
@@ -173,8 +172,7 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
         f"🕒 Вақти харид: {time_str}\n\n"
         f"🆔 Фармоиш: #{order['id']}\n"
         f"{api_line}"
-        f"🎁 {order['label']} → <code>{order['game_id']}</code>\n"
-        f"🔑 Kod: <code>{kod}</code>"
+        f"🎁 {order['label']} → <code>{order['game_id']}</code>"
     )
     for admin_id in config.ADMIN_IDS:
         try:
@@ -201,8 +199,7 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
         f"💵 Маблағ: {float(order['price']):.2f} сомонӣ\n\n"
         f"🆔 Фармоиш: #{order['id']}\n"
         f"{api_line}"
-        f"🎁 {order['label']} → <code>{order['game_id']}</code>\n"
-        f"🔑 Kod: <code>{kod}</code>\n\n"
+        f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
         f"Пули мизоҷ ҚАБУЛ шудааст — ҳатман ҳал кунед!"
     )
     for admin_id in config.ADMIN_IDS:

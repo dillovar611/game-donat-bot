@@ -552,11 +552,10 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
     is_autopay = (method == "dushanbe_city" and not is_cart)
 
     if is_autopay:
-        # Автопардохт: БЕ тахфифи сатҳ. Мизоҷро аз рӯи РАҚАМИ ФАРМОИШ
-        # мешиносем (коменти card_XXXX дар линки пардохт), пас нархро
-        # тағйир додан лозим нест — нархи оддии рӯйхат мемонад.
+        # Автопардохт: БЕ тахфифи сатҳ. Нархи каме нодир (мисли пештара)
+        # + коменти card_XXXX бо рақами фармоиш — ду роҳи шинохт якҷоя.
         disc_pct, disc_amt = 0.0, 0.0
-        price = round(float(data["price"]), 2)
+        price = await _unique_autopay_price(round(float(data["price"]), 2))
         await state.update_data(price=price)
     elif data.get("is_custom_price"):
         # Нархи шахсии мизоҷ — тахфифи сатҳ ба ин намерасад
