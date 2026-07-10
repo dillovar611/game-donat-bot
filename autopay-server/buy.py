@@ -547,7 +547,17 @@ async def _unique_autopay_price(base_price: float) -> float:
 @router.callback_query(F.data == "terms_accept", BuyState.choose_payment)
 async def show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    if data.get("is_custom_price"):
+    method = data.get("pending_payment_method", "alif")
+    is_cart = bool(data.get("cart_items"))
+    is_autopay = (method == "dushanbe_city" and not is_cart)
+
+    if is_autopay:
+        # Автопардохт: БЕ тахфифи сатҳ (нарх бояд дақиқ мувофиқ ояд),
+        # нархро каме нодир мекунем то мизоҷро аз рӯи маблағ шиносем
+        disc_pct, disc_amt = 0.0, 0.0
+        price = await _unique_autopay_price(round(float(data["price"]), 2))
+        await state.update_data(price=price)
+    elif data.get("is_custom_price"):
         # Нархи шахсии мизоҷ — тахфифи сатҳ ба ин намерасад
         price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     else:
@@ -557,15 +567,8 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
     eskhata_note = ""
     discount_note = f"\n🏅 Тахфифи сатҳи шумо: -{disc_pct:.0f}% (-{disc_amt:.2f} сом)\n" if disc_pct else ""
 
-    method = data.get("pending_payment_method", "alif")
-    is_cart = bool(data.get("cart_items"))
-
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
-        if not is_cart:
-            # Автопардохт: нархро нодир мекунем, то мизоҷро аз рӯи маблағ шиносем
-            price = await _unique_autopay_price(price)
-            await state.update_data(price=price)
         pay_url = f"http://pay.expresspay.tj/?A=9762000236840137&s={price:g}&c=card_{order_id}&f1=133"
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
@@ -587,7 +590,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
     )
 
     # ==== АВТОПАРДОХТ: Душанбе Сити, як маҳсулот (на сабад) ====
-    if method == "dushanbe_city" and not is_cart:
+    if is_autopay:
         awaiting_order_id = await db.create_awaiting_order(
             user_id=call.from_user.id,
             game_id=data["player_id"],
@@ -598,7 +601,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
             offer_id=data.get("offer_id", ""),
             payment_method="dushanbe_city",
         )
-        await state.clear()
+        await state.update_data(autopay_order_id=awaiting_order_id)
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Пардохт", url=pay_url)],
             [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="id_ok")],
@@ -608,15 +611,18 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
             f"💳 <b>{method_name}</b>\n\n"
             f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
             f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n"
-            f"{discount_note}\n"
+            f"🆔 Фармоиш: #{awaiting_order_id}\n\n"
             f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
-            f"2️⃣ Маблағи <b>дақиқ {price:.2f} сом</b>-ро пардохт кунед (на кам, на зиёд!)\n\n"
-            f"⚡ <b>Тасдиқ ХУДКОР аст — чек фиристодан лозим НЕСТ!</b>\n"
-            f"Пас аз пардохт алмазҳо худкор фиристода мешаванд.\n\n"
-            f"⏳ Шумо <b>15 дақиқа</b> вақт доред.\n"
-            f"🆔 Фармоиш: #{awaiting_order_id}",
+            f"2️⃣ Маблағи <b>дақиқ {price:.2f} сом</b>-ро пардохт кунед "
+            f"(на кам, на зиёд — тин ба тин!)\n"
+            f"3️⃣ Расми чекро ба ҳамин чат фиристед\n\n"
+            f"⚡ Пас аз фиристодани чек, системаи мо пардохти шуморо "
+            f"<b>худкор</b> тафтиш мекунад ва алмазҳо худкор фиристода "
+            f"мешаванд — интизории админ лозим нест!\n\n"
+            f"⏳ Шумо <b>15 дақиқа</b> вақт доред.",
             kb
         )
+        await state.set_state(BuyState.wait_check)
         return
 
     # ==== Тартиби кӯҳна (Алиф / Эсхата / сабад) — бо чек ====
@@ -649,6 +655,36 @@ async def receive_check(message: Message, state: FSMContext):
     await state.clear()
 
     file_id = message.photo[-1].file_id
+
+    # ==== АВТОПАРДОХТ (Душанбе Сити): чек омад → ҷустуҷӯи пардохт ====
+    autopay_order_id = data.get("autopay_order_id")
+    if autopay_order_id:
+        import autopay
+        order = await db.get_order(autopay_order_id)
+        if not order or order["status"] not in ("awaiting_autopay",):
+            await message.answer(
+                "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол мӯҳлаташ гузашт "
+                "ё аллакай коркард шудааст).\n"
+                f"Агар пардохт карда бошед: {config.SUPPORT_USERNAME}",
+                parse_mode="HTML"
+            )
+            return
+        await db.set_autopay_check(autopay_order_id, file_id)
+        await message.answer(
+            f"✅ <b>Чек қабул шуд!</b>\n\n"
+            f"🆔 Фармоиш: #{autopay_order_id}\n\n"
+            f"🔍 Системаи мо ҳоло пардохти шуморо <b>худкор</b> ҷустуҷӯ "
+            f"мекунад — одатан 5-30 сония мегирад.\n"
+            f"Натиҷа ҳозир хабар дода мешавад...",
+            parse_mode="HTML"
+        )
+        # Шояд пардохт аллакай ПЕШ аз чек омада бошад — тафтиш мекунем
+        kod = await db.find_unmatched_kod(float(order["price"]), autopay.MAX_AGE_MINUTES)
+        if kod:
+            order = await db.get_order(autopay_order_id)
+            asyncio.create_task(autopay.run_donate(message.bot, order, kod))
+        return
+
     _pm = data.get("payment_method")
     if _pm == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"

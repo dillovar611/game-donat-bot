@@ -1319,12 +1319,13 @@ async def delete_premium_product(product_id: int):
 
 # ==================== АВТОПАРДОХТ (DC Next) ====================
 async def get_active_awaiting_prices(payment_method: str) -> set:
-    """Нархҳои фармоишҳои 'awaiting_autopay'-и фаъол — барои он ки ду мизоҷ
+    """Нархҳои фармоишҳои автопардохти фаъол — барои он ки ду мизоҷ
     дар як вақт ҳамон як маблағро нагиранд."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT price FROM orders WHERE status='awaiting_autopay' "
+                "SELECT price FROM orders "
+                "WHERE status IN ('awaiting_autopay','autopay_search') "
                 "AND payment_method=%s AND created_at >= NOW() - INTERVAL 30 MINUTE",
                 (payment_method,)
             )
@@ -1349,17 +1350,82 @@ async def create_awaiting_order(user_id, game_id, nickname, amount, price, label
 
 async def find_awaiting_order_by_price(price: float, payment_method: str,
                                         max_age_minutes: int = 15):
-    """Фармоиши 'awaiting_autopay'-ро бо нархи дақиқ (дар доираи вақт) меёбад."""
+    """Фармоишеро меёбад, ки ЧЕК фиристодааст ('autopay_search') ва
+    мунтазири пардохт бо ҳамин нархи дақиқ аст."""
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
-                "SELECT * FROM orders WHERE status='awaiting_autopay' "
+                "SELECT * FROM orders WHERE status='autopay_search' "
                 "AND payment_method=%s AND price=%s "
                 "AND created_at >= NOW() - INTERVAL %s MINUTE "
                 "ORDER BY created_at ASC LIMIT 1",
                 (payment_method, price, max_age_minutes)
             )
             return await cur.fetchone()
+
+
+async def has_awaiting_order_by_price(price: float, payment_method: str,
+                                       max_age_minutes: int = 15) -> bool:
+    """Оё фармоиши 'awaiting_autopay' (чек ҳанӯз наомада) бо ин нарх ҳаст?"""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT 1 FROM orders WHERE status='awaiting_autopay' "
+                "AND payment_method=%s AND price=%s "
+                "AND created_at >= NOW() - INTERVAL %s MINUTE LIMIT 1",
+                (payment_method, price, max_age_minutes)
+            )
+            return (await cur.fetchone()) is not None
+
+
+async def set_autopay_check(order_id: int, file_id: str):
+    """Чеки фармоиши автопардохтро сабт карда, статусро 'autopay_search'
+    мегузорад — аз ҳамин лаҳза ҷустуҷӯи пардохт фаъол мешавад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET check_file_id=%s, status='autopay_search' "
+                "WHERE id=%s AND status='awaiting_autopay'",
+                (file_id, order_id)
+            )
+            return cur.rowcount > 0
+
+
+async def find_unmatched_kod(summa: float, max_age_minutes: int = 15):
+    """Kod-и пардохти аллакай омада (вале ҳанӯз ба фармоиш пайванднашуда)
+    бо ҳамин маблағро меёбад — барои ҳолате ки пардохт ПЕШ аз чек омад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT kod FROM dc_kods WHERE matched_order_id IS NULL "
+                "AND summa=%s AND received_at >= NOW() - INTERVAL %s MINUTE "
+                "ORDER BY received_at ASC LIMIT 1",
+                (summa, max_age_minutes)
+            )
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+
+async def get_stale_search_orders(max_age_minutes: int = 10) -> list:
+    """Фармоишҳои 'autopay_search', ки аз онҳо зиёда аз N дақиқа гузашт
+    ва пардохташон ёфт нашуд — статусро 'paid' мегузорад (барои тафтиши
+    дастии админ) ва рӯйхаташонро бармегардонад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders WHERE status='autopay_search' "
+                "AND created_at < NOW() - INTERVAL %s MINUTE",
+                (max_age_minutes,)
+            )
+            stale = await cur.fetchall()
+            if stale:
+                ids = [o["id"] for o in stale]
+                fmt = ",".join(["%s"] * len(ids))
+                await cur.execute(
+                    f"UPDATE orders SET status='paid' WHERE id IN ({fmt})",
+                    tuple(ids)
+                )
+            return stale
 
 
 async def expire_stale_awaiting_orders(max_age_minutes: int = 15) -> list:
