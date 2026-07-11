@@ -1,8 +1,11 @@
 package tj.dilovar.dcnotifier
 
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.PowerManager
 import android.provider.Settings
@@ -11,6 +14,11 @@ import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlin.concurrent.thread
 
 class MainActivity : AppCompatActivity() {
@@ -31,12 +39,25 @@ class MainActivity : AppCompatActivity() {
         etToken.setText(prefs.getString("token", ""))
         etChatId.setText(prefs.getString("chat_id", ""))
 
+        // Иҷозати нишон додани notification (Android 13+, барои хизмати доимӣ)
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1
+            )
+        }
+
+        startKeepAlive()
+
         findViewById<Button>(R.id.btnSave).setOnClickListener {
             prefs.edit()
                 .putString("token", etToken.text.toString().trim())
                 .putString("chat_id", etChatId.text.toString().trim())
                 .apply()
             Toast.makeText(this, "Сабт шуд ✅", Toast.LENGTH_SHORT).show()
+            startKeepAlive()
             updateStatus()
         }
 
@@ -52,7 +73,7 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     Toast.makeText(
                         this,
-                        if (ok) "Фиристода шуд ✅ Гурӯҳро тафтиш кунед!" else "ХАТО ❌ Токен/chat_id ё интернетро тафтиш кунед",
+                        if (ok) "Фиристода шуд ✅ Каналро тафтиш кунед!" else "ХАТО ❌ Токен/chat_id ё интернетро тафтиш кунед",
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -77,6 +98,15 @@ class MainActivity : AppCompatActivity() {
         updateStatus()
     }
 
+    private fun startKeepAlive() {
+        try {
+            val svc = Intent(this, KeepAliveService::class.java)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc)
+            else startService(svc)
+        } catch (e: Exception) {
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         updateStatus()
@@ -93,12 +123,23 @@ class MainActivity : AppCompatActivity() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val batteryOk = pm.isIgnoringBatteryOptimizations(packageName)
 
+        val lastSent = prefs.getLong("last_sent_at", 0)
+        val lastStr = if (lastSent > 0)
+            SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault()).format(Date(lastSent))
+        else "—"
+
+        val queueLen = try {
+            org.json.JSONArray(prefs.getString("queue", "[]")).length()
+        } catch (e: Exception) { 0 }
+
         tvStatus.text = buildString {
             append("Ҳолат:\n")
             append(if (hasCfg) "✅ Токен/chat_id сабт шудааст\n" else "❌ Токен/chat_id холӣ\n")
             append(if (hasAccess) "✅ Иҷозати notification дода шудааст\n" else "❌ Иҷозати notification ЛОЗИМ аст!\n")
             append(if (batteryOk) "✅ Сарфаи батарея хомӯш аст\n" else "⚠️ Сарфаи батарея фаъол (тавсия: хомӯш кунед)\n")
-            append("\nПаёмҳои фиристодашуда: ${prefs.getInt("sent_count", 0)}")
+            append("\n📤 Фиристода шуд: ${prefs.getInt("sent_count", 0)}\n")
+            append("🕒 Охирин: $lastStr\n")
+            append("📦 Дар навбат: $queueLen")
         }
     }
 }
