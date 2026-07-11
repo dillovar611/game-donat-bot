@@ -579,7 +579,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
             return
     else:
         method_name = "💳 Алиф"
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=923003341"
 
     await state.update_data(payment_method=method)
 
@@ -1147,7 +1147,7 @@ async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
             return
     else:
         method_name = "💳 Алиф"
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=923003341"
 
     await state.update_data(payment_method=method)
 
@@ -1450,7 +1450,7 @@ async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
             return
     else:
         method_name = "💳 Алиф"
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=923003341"
 
     await state.update_data(payment_method=method)
 
@@ -1743,7 +1743,7 @@ async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
             return
     else:
         method_name = "💳 Алиф"
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=923003341"
 
     await state.update_data(payment_method=method)
 
@@ -2013,7 +2013,7 @@ async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
             return
     else:
         method_name = "💳 Алиф"
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=923003341"
 
     await state.update_data(payment_method=method)
 
