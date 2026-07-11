@@ -7,22 +7,27 @@ import android.app.Service
 import android.content.Intent
 import android.os.Build
 import android.os.Handler
-import android.os.IBinder
 import android.os.Looper
+import android.os.IBinder
 
 /**
  * Хизмати доимии foreground — Android барномаро дигар "хоб" карда
- * наметавонад. Дар панели notification як сатри хурди доимӣ меистад
- * (ин талаботи Android аст). Ҳар 45 сония навбати нафиристодаро
- * аз нав мефиристад.
+ * наметавонад. Ҳар 40 сония:
+ *   - navбати нафиристодаро аз нав мефиристад,
+ *   - хизмати шунавандаро аз нав пайваст мекунад (агар қатъ шуда бошад),
+ *   - панели notification-ро аз нав месканад (агар notification-е гум
+ *     шуда бошад, мегирад).
  */
 class KeepAliveService : Service() {
 
     private val handler = Handler(Looper.getMainLooper())
-    private val flusher = object : Runnable {
+    private val tick = object : Runnable {
         override fun run() {
-            Sender.flushAsync(applicationContext)
-            handler.postDelayed(this, 45_000)
+            try {
+                Sender.flushAsync(applicationContext)
+                DcListenerService.kick(applicationContext)
+            } catch (e: Exception) {}
+            handler.postDelayed(this, 40_000)
         }
     }
 
@@ -50,15 +55,15 @@ class KeepAliveService : Service() {
             .setOngoing(true)
             .build()
         startForeground(1, notif)
-        handler.post(flusher)
+        handler.post(tick)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        return START_STICKY  // агар система кушад — худкор аз нав мехезад
+        return START_STICKY
     }
 
     override fun onDestroy() {
-        handler.removeCallbacks(flusher)
+        handler.removeCallbacks(tick)
         super.onDestroy()
     }
 

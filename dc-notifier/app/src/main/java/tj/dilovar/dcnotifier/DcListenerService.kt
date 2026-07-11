@@ -1,78 +1,143 @@
 package tj.dilovar.dcnotifier
 
 import android.app.Notification
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import org.json.JSONObject
 
 /**
  * Notification-ҳоро мехонад ва онҳоеро, ки ба пули воридотӣ монанданд,
- * ба канали Telegram мефиристад. Парсинги дақиқ дар СЕРВЕР мешавад.
+ * ба канали Telegram мефиристад.
  *
- * Филтр васеъ аст: калимаҳои "зачисление/поступление/перевод" Ё калимаи
- * "summa"/"TJS" — то ягон намуди паёми пулӣ гум нашавад. Паёми зиёдатӣ
- * мушкил нест — сервер танҳо ба он паёмҳо ҷавоб медиҳад, ки Summa+Kod
- * доранд.
+ * Ду қабати муҳофизат зидди "гум шудан":
+ *  1. onNotificationPosted — вақти воқеии омадани notification.
+ *  2. rescanActive() — ҳар 40 сония (аз KeepAliveService) ҲАМАИ
+ *     notification-ҳои дар панел мавҷударо аз нав тафтиш мекунад, то
+ *     агар хизмат лаҳзае қатъ шуда бошад ҳам, ҳеҷ пардохт гум нашавад.
+ *  3. Дедупликатсия бо hash — ҳамон паём ду бор фиристода намешавад.
  */
 class DcListenerService : NotificationListenerService() {
 
-    private val keywords = listOf(
-        "зачисление", "zachislenie", "поступление", "postuplenie",
-        "перевод", "perevod", "summa", "сумма", "tjs"
-    )
+    companion object {
+        @Volatile
+        private var instance: DcListenerService? = null
 
-    override fun onCreate() {
-        super.onCreate()
-        // Хизмати доимиро сар мекунем (агар ҳанӯз сар нашуда бошад)
-        try {
-            val svc = Intent(this, KeepAliveService::class.java)
-            if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc)
-            else startService(svc)
-        } catch (e: Exception) {
+        private val keywords = listOf(
+            "зачисление", "zachislenie", "поступление", "postuplenie",
+            "перевод", "perevod", "summa", "сумма", "tjs"
+        )
+
+        /** Аз KeepAliveService даъват мешавад. Агар хизмат зинда бошад —
+         *  панелро аз нав месканад; вагарна аз система rebind мехоҳад. */
+        fun kick(ctx: Context) {
+            val inst = instance
+            if (inst != null) {
+                try { inst.rescanActive() } catch (e: Exception) {}
+            } else if (Build.VERSION.SDK_INT >= 24) {
+                try {
+                    requestRebind(ComponentName(ctx, DcListenerService::class.java))
+                } catch (e: Exception) {}
+            }
         }
-    }
 
-    override fun onNotificationPosted(sbn: StatusBarNotification) {
-        try {
-            if (sbn.packageName == packageName) return
-
+        private fun extractText(sbn: StatusBarNotification): String {
             val extras = sbn.notification.extras
             val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
             val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
             val big = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
             val lines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
                 ?.joinToString("\n") { it.toString() } ?: ""
-
-            // Пурратарин матн: big > lines > text
             val body = listOf(big, lines, text).firstOrNull { it.isNotBlank() } ?: ""
-            val full = "$title\n$body".trim()
-            if (full.isBlank()) return
-
-            val lower = full.lowercase()
-            if (keywords.none { lower.contains(it) }) return
-
-            // Зидди такрори ҳамон як notification (update-ҳои паси ҳам):
-            // айнан ҳамон матн дар 45 сонияи охир дубора намеравад.
-            // (Такрори воқеӣ дар сервер бо Kod филтр мешавад.)
-            val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
-            val hash = full.hashCode().toString()
-            val lastHash = prefs.getString("last_hash", "")
-            val lastTime = prefs.getLong("last_time", 0)
-            val now = System.currentTimeMillis()
-            if (hash == lastHash && now - lastTime < 45_000) return
-            prefs.edit().putString("last_hash", hash).putLong("last_time", now).apply()
-
-            Sender.enqueue(this, "DCNOTIF [${sbn.packageName}]\n$full")
-            Sender.flushAsync(this)
-        } catch (e: Exception) {
-            // ҳеҷ гоҳ crash накунем
+            return "$title\n$body".trim()
         }
     }
 
     override fun onListenerConnected() {
         super.onListenerConnected()
+        instance = this
+        rescanActive()
         Sender.flushAsync(this)
+    }
+
+    override fun onListenerDisconnected() {
+        instance = null
+        // фавран кӯшиши баргардонидан
+        if (Build.VERSION.SDK_INT >= 24) {
+            try { requestRebind(ComponentName(this, DcListenerService::class.java)) } catch (e: Exception) {}
+        }
+        super.onListenerDisconnected()
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        instance = this
+        try {
+            val svc = Intent(this, KeepAliveService::class.java)
+            if (Build.VERSION.SDK_INT >= 26) startForegroundService(svc) else startService(svc)
+        } catch (e: Exception) {}
+    }
+
+    override fun onNotificationPosted(sbn: StatusBarNotification) {
+        process(sbn)
+    }
+
+    /** Ҳамаи notification-ҳои ҳозира дар панелро аз нав тафтиш мекунад. */
+    fun rescanActive() {
+        try {
+            val active = activeNotifications ?: return
+            for (sbn in active) process(sbn)
+        } catch (e: Exception) {}
+        Sender.flushAsync(this)
+    }
+
+    private fun process(sbn: StatusBarNotification) {
+        try {
+            if (sbn.packageName == packageName) return
+            val full = extractText(sbn)
+            if (full.isBlank()) return
+            val lower = full.lowercase()
+            if (keywords.none { lower.contains(it) }) return
+
+            // Дедупликатсия: ҳамон матн дар 10 дақиқаи охир дубора не.
+            // (Такрори воқеии пардохт дар сервер бо Kod филтр мешавад.)
+            val hash = full.hashCode().toString()
+            if (isDuplicate(hash)) return
+
+            Sender.enqueue(this, "DCNOTIF [${sbn.packageName}]\n$full")
+            Sender.flushAsync(this)
+        } catch (e: Exception) {}
+    }
+
+    /** hash-ро дар рӯйхати кӯтоҳ (бо вақт) нигоҳ медорад, то дар сканҳои
+     *  такрорӣ ҳамон паём боз фиристода нашавад. */
+    @Synchronized
+    private fun isDuplicate(hash: String): Boolean {
+        val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val obj = try { JSONObject(prefs.getString("seen_hashes", "{}") ?: "{}") } catch (e: Exception) { JSONObject() }
+
+        // тозакунии кӯҳнаҳо (>10 дақиқа) ва санҷиш
+        val fresh = JSONObject()
+        val keys = obj.keys()
+        var seen = false
+        while (keys.hasNext()) {
+            val k = keys.next()
+            val t = obj.optLong(k, 0)
+            if (now - t < 10 * 60 * 1000) {
+                fresh.put(k, t)
+                if (k == hash) seen = true
+            }
+        }
+        if (seen) {
+            prefs.edit().putString("seen_hashes", fresh.toString()).apply()
+            return true
+        }
+        fresh.put(hash, now)
+        prefs.edit().putString("seen_hashes", fresh.toString()).apply()
+        return false
     }
 }
