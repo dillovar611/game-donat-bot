@@ -2,6 +2,7 @@
 Танзимоти бот — env.py переменнаҳоро сохт.
 """
 import env  # noqa: F401
+import json
 import os
 
 # ==================== TELEGRAM ====================
@@ -49,6 +50,30 @@ FF_CATEGORY_VALIDATE = os.getenv("FF_CATEGORY_VALIDATE", "free_fire")    # ба�
 # Free Fire Indonesia (FFID) — category-и фармоиш ва тафтиши ID метавонанд фарқ кунанд
 FFID_CATEGORY_ORDER = os.getenv("FFID_CATEGORY_ORDER", "free_fire_id")
 FFID_CATEGORY_VALIDATE = os.getenv("FFID_CATEGORY_VALIDATE", "free_fire_id")
+
+# ==================== MooGold API (провайдери эҳтиётӣ — fallback) ====================
+# Агар FazerCards фармоишро рад кунад ё дастрас набошад, бот худкор ба
+# MooGold мегузарад (донат гум намешавад).
+# Барои фаъол кардан:
+#   1. Ба менеҷери MooGold муроҷиат кунед (сомонаи расмии moogold.com,
+#      бахши reseller/API) — USER_ID, PARTNER_ID ва SECRET гиред.
+#   2. Дар панели MooGold маҳсулоти Free Fire (СНГ)-ро ёбед — барои ҳар
+#      як миқдори алмос category ва product-id мебошад.
+#   3. MOOGOLD_PRODUCT_MAP-ро пур кунед: калид = offer_id-и ҳамон
+#      маҳсулот дар FazerCards (ҳамон ки дар буи маҳсулот истифода
+#      мешавад), қимат = {"category": "...", "product_id": "..."}.
+#      Формат дар env.py: JSON-и як сатрӣ.
+#      Мисол:
+#      MOOGOLD_PRODUCT_MAP={"ff_110":{"category":"123","product_id":"456"}}
+#   Агар барои як offer_id дар харита чизе набошад — fallback барои
+#   ҳамон маҳсулот кор намекунад (танҳо FazerCards), хатогӣ дар лог сабт мешавад.
+MOOGOLD_USER_ID = os.getenv("MOOGOLD_USER_ID", "")
+MOOGOLD_PARTNER_ID = os.getenv("MOOGOLD_PARTNER_ID", "")
+MOOGOLD_SECRET = os.getenv("MOOGOLD_SECRET", "")
+try:
+    MOOGOLD_PRODUCT_MAP = json.loads(os.getenv("MOOGOLD_PRODUCT_MAP", "{}") or "{}")
+except Exception:
+    MOOGOLD_PRODUCT_MAP = {}
 
 # ==================== RapidAPI (номи аккаунти FF) ====================
 # Калидҳо бо вергул ҷудо мешаванд
