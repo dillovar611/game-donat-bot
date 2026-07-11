@@ -1323,11 +1323,13 @@ async def get_active_awaiting_prices(payment_method: str) -> set:
     дар як вақт ҳамон як маблағро нагиранд."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
+            # Ҳам DC ва ҳам Алиф — ҳарду ба ҳамон корти DC меоянд, пас
+            # маблағ бояд дар байни ҲАРДУ усул нодир бошад
             await cur.execute(
                 "SELECT price FROM orders "
                 "WHERE status IN ('awaiting_autopay','autopay_search') "
-                "AND payment_method=%s AND created_at >= NOW() - INTERVAL 30 MINUTE",
-                (payment_method,)
+                "AND payment_method IN ('dushanbe_city','alif') "
+                "AND created_at >= NOW() - INTERVAL 30 MINUTE"
             )
             rows = await cur.fetchall()
             return {round(float(r[0]), 2) for r in rows}
@@ -1356,10 +1358,10 @@ async def find_awaiting_order_by_price(price: float, payment_method: str,
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
                 "SELECT * FROM orders WHERE status='autopay_search' "
-                "AND payment_method=%s AND price=%s "
+                "AND payment_method IN ('dushanbe_city','alif') AND price=%s "
                 "AND created_at >= NOW() - INTERVAL %s MINUTE "
                 "ORDER BY created_at ASC LIMIT 1",
-                (payment_method, price, max_age_minutes)
+                (price, max_age_minutes)
             )
             return await cur.fetchone()
 
@@ -1371,9 +1373,9 @@ async def has_awaiting_order_by_price(price: float, payment_method: str,
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT 1 FROM orders WHERE status='awaiting_autopay' "
-                "AND payment_method=%s AND price=%s "
+                "AND payment_method IN ('dushanbe_city','alif') AND price=%s "
                 "AND created_at >= NOW() - INTERVAL %s MINUTE LIMIT 1",
-                (payment_method, price, max_age_minutes)
+                (price, max_age_minutes)
             )
             return (await cur.fetchone()) is not None
 

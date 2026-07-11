@@ -89,7 +89,7 @@ async def handle_dc_notification(message: Message):
     # ==== Роҳи асосӣ: РАҚАМИ ФАРМОИШ аз коменти пардохт (card_8848) ====
     if order_ref:
         order = await db.get_order(order_ref)
-        if (order and order.get("payment_method") == "dushanbe_city"
+        if (order and order.get("payment_method") in ("dushanbe_city", "alif")
                 and order.get("status") in ("autopay_search", "awaiting_autopay")):
             # Маблағро месанҷем — бояд бо нархи фармоиш баробар бошад
             if abs(float(order["price"]) - summa) > 0.011:

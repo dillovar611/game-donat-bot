@@ -549,17 +549,23 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     method = data.get("pending_payment_method", "alif")
     is_cart = bool(data.get("cart_items"))
-    is_autopay = (method == "dushanbe_city" and not is_cart)
+    # Автопардохт: ҳам Душанбе Сити, ҳам Алиф (ҳарду ба корти DC меоянд)
+    is_autopay = (method in ("dushanbe_city", "alif") and not is_cart)
 
     if is_autopay:
-        # Автопардохт: БЕ тахфифи сатҳ. Нархи каме нодир (мисли пештара)
-        # + коменти card_XXXX бо рақами фармоиш — ду роҳи шинохт якҷоя.
+        # Автопардохт: БЕ тахфифи сатҳ. Нархи каме нодир — то система
+        # пардохтро аз рӯи маблағ шиносад (барои DC инчунин коменти
+        # card_XXXX бо рақами фармоиш кор мекунад).
         disc_pct, disc_amt = 0.0, 0.0
         price = await _unique_autopay_price(round(float(data["price"]), 2))
         await state.update_data(price=price)
     elif data.get("is_custom_price"):
         # Нархи шахсии мизоҷ — тахфифи сатҳ ба ин намерасад
         price, disc_pct, disc_amt = data["price"], 0.0, 0.0
+    elif method == "alif":
+        # Алиф (сабад): бе тахфифи сатҳ
+        price, disc_pct, disc_amt = round(float(data["price"]), 2), 0.0, 0.0
+        await state.update_data(price=price)
     else:
         price, disc_pct, disc_amt = await _apply_level_discount(call.from_user.id, data["price"])
         await state.update_data(price=price)
@@ -589,7 +595,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
         price, method_name, str(order_id)
     )
 
-    # ==== АВТОПАРДОХТ: Душанбе Сити, як маҳсулот (на сабад) ====
+    # ==== АВТОПАРДОХТ: Душанбе Сити / Алиф, як маҳсулот (на сабад) ====
     if is_autopay:
         awaiting_order_id = await db.create_awaiting_order(
             user_id=call.from_user.id,
@@ -599,16 +605,20 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
             price=price,
             label=data["label"],
             offer_id=data.get("offer_id", ""),
-            payment_method="dushanbe_city",
+            payment_method=method,
         )
         await state.update_data(autopay_order_id=awaiting_order_id)
-        # Линки пардохт бо РАҚАМИ ФАРМОИШИ ВОҚЕӢ дар комент — DC онро
-        # дар notification бармегардонад (card§8848) ва бот фармоишро
-        # мустақим аз рӯи он меёбад
-        pay_url = (
-            f"http://pay.expresspay.tj/?A=9762000236840137&s={price:g}"
-            f"&c=card_{awaiting_order_id}&f1=133"
-        )
+        if method == "dushanbe_city":
+            # Линки пардохт бо РАҚАМИ ФАРМОИШИ ВОҚЕӢ дар комент — DC онро
+            # дар notification бармегардонад (card§8848) ва бот фармоишро
+            # мустақим аз рӯи он меёбад
+            pay_url = (
+                f"http://pay.expresspay.tj/?A=9762000236840137&s={price:g}"
+                f"&c=card_{awaiting_order_id}&f1=133"
+            )
+        else:
+            # Алиф — комент надорад, шинохт аз рӯи маблағи нодир
+            pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=923003341"
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="💳 Пардохт", url=pay_url)],
             [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="id_ok")],
