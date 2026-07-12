@@ -87,47 +87,54 @@ def _flat_diamond(draw, cx, cy, size, fill, outline=None, width=0):
 
 def _gem_realistic(img, cx, cy, s):
     """
-    Алмоси "буришхӯрда" (faceted gem) бо якчанд рахи рӯшноӣ — ба алмоси
-    воқеӣ монандтар аз ромби содда: сатҳи боло (table) + 2 факети паҳлӯ
-    (як равшан — тарафи рӯшноӣ, як торик — тарафи соя) + нӯги поён +
-    милтии рӯшноӣ (sparkle).
+    Алмоси "буришхӯрда" (faceted gem) — фан аз якчанд факет (мисли
+    алмоси воқеӣ аз боло дида шуда), ҳар факет аз рӯи самти нурафканӣ
+    (top-left) ранги худро мегирад (аз равшан то торик) — намуди
+    3D-и воқеитар аз 2 факети сода.
     """
+    import math
     draw = ImageDraw.Draw(img)
-
-    top_l = (cx - 0.34 * s, cy - s)
-    top_r = (cx + 0.34 * s, cy - s)
-    top_mid = (cx, cy - s)
-    sh_l = (cx - 0.98 * s, cy - 0.42 * s)
-    sh_r = (cx + 0.98 * s, cy - 0.42 * s)
-    point = (cx, cy + s)
 
     # Соя дар зери гем (умқ медиҳад)
     shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
     sd = ImageDraw.Draw(shadow)
-    sd.ellipse((cx - 0.7 * s, cy + s - 0.15 * s, cx + 0.7 * s, cy + s + 0.35 * s),
-               fill=(0, 0, 0, 90))
-    shadow = shadow.filter(ImageFilter.GaussianBlur(s * 0.12))
+    sd.ellipse((cx - 0.75 * s, cy + s - 0.15 * s, cx + 0.75 * s, cy + s + 0.4 * s),
+               fill=(0, 0, 0, 100))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(s * 0.14))
     img.alpha_composite(shadow)
     draw = ImageDraw.Draw(img)
 
-    # Ду факети асосӣ (чап равшан, рост торик) — ҳиссиёти 3D
-    draw.polygon([top_l, sh_l, point, top_mid], fill=ACCENT_LIGHT)
-    draw.polygon([top_mid, point, sh_r, top_r], fill=ACCENT_DARK)
-    # Сатҳи боло (table) — рахи миёна
-    draw.polygon([top_l, top_r, (cx + 0.2 * s, cy - 0.82 * s), (cx - 0.2 * s, cy - 0.82 * s)],
-                 fill=ACCENT)
+    outline = [
+        (cx - 0.30 * s, cy - s),        # table чап
+        (cx + 0.30 * s, cy - s),        # table рост
+        (cx + 0.68 * s, cy - 0.58 * s), # китфи рост
+        (cx + 0.32 * s, cy + 0.04 * s), # камари рост
+        (cx, cy + s),                   # нӯги поён
+        (cx - 0.32 * s, cy + 0.04 * s), # камари чап
+        (cx - 0.68 * s, cy - 0.58 * s), # китфи чап
+    ]
+    center = (cx, cy - 0.60 * s)
+    light_angle = math.radians(-130)  # сарчашмаи нур — болоичап
+    n = len(outline)
 
-    # Хатҳои факет (буришҳо)
-    edge_w = max(1, int(s * 0.035))
-    for a, b in [(top_l, sh_l), (top_r, sh_r), (sh_l, point), (sh_r, point),
-                 (top_mid, point), (top_l, top_r)]:
-        draw.line([a, b], fill=WHITE, width=edge_w)
-    draw.polygon([top_l, sh_l, point, top_mid], outline=WHITE, width=edge_w)
-    draw.polygon([top_mid, point, sh_r, top_r], outline=WHITE, width=edge_w)
+    for i in range(n):
+        a, b = outline[i], outline[(i + 1) % n]
+        mx, my = (a[0] + b[0]) / 2 - cx, (a[1] + b[1]) / 2 - cy
+        ang = math.atan2(my, mx)
+        t = (math.cos(ang - light_angle) + 1) / 2  # 0 (соя) .. 1 (рӯшноӣ)
+        col = tuple(int(ACCENT_DARK[k] + (ACCENT_LIGHT[k] - ACCENT_DARK[k]) * t) for k in range(3))
+        draw.polygon([center, a, b], fill=col)
 
-    # Милтии рӯшноӣ (sparkle) — гӯшаи болоичап
-    _sparkle(img, cx - 0.55 * s, cy - 0.75 * s, s * 0.22, WHITE)
-    _sparkle(img, cx + 0.62 * s, cy - 0.05 * s, s * 0.12, WHITE)
+    # Хатҳои факет (буришҳои борик)
+    edge_w = max(1, int(s * 0.028))
+    for i in range(n):
+        draw.line([outline[i], outline[(i + 1) % n]], fill=(255, 255, 255, 110), width=edge_w)
+        draw.line([center, outline[i]], fill=(255, 255, 255, 70), width=max(1, edge_w // 2))
+    draw.polygon(outline, outline=WHITE, width=edge_w)
+
+    # Милтии рӯшноӣ (sparkle)
+    _sparkle(img, cx - 0.42 * s, cy - 0.68 * s, s * 0.18, WHITE)
+    _sparkle(img, cx + 0.50 * s, cy - 0.08 * s, s * 0.10, WHITE)
 
 
 def _sparkle(img, cx, cy, r, color):
@@ -182,9 +189,9 @@ def _icon_bolt(draw, cx, cy, s, color):
 
 
 def generate_welcome_banner(
-    title: str = "Dilovar FF bot",
+    title: str = "DILOVAR FF BOT",
     subtitle: str = "Донати худкор дар якчанд дақиқа",
-    trust_line: str = "900+ фармоиши муваффақ ҳар рӯз",
+    trust_line: str = "Зиёда аз 10,000 муштарӣ",
     badge_text: str = "24/7 АВТОМАТӢ",
 ) -> BytesIO:
     S = 2
