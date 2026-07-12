@@ -31,6 +31,18 @@ class DcListenerService : NotificationListenerService() {
             "перевод", "perevod", "summa", "сумма", "tjs"
         )
 
+        /** Барномаҳое, ки ҳеҷ гоҳ пардохти бонкӣ намефиристанд — сарфи назар
+         *  мешаванд. Бе ин, notification-и худи Telegram дар бораи паёми
+         *  нав дар канал (ки матнаш DCNOTIF-ро дар бар мегирад) боз хонда
+         *  мешавад ва давр (loop)-и бепоён месозад. */
+        private val ignoredPackages = setOf(
+            "org.telegram.messenger",
+            "org.telegram.messenger.web",
+            "org.telegram.plus",
+            "nekox.messenger",
+            "org.thunderdog.challegram",
+        )
+
         /** Аз KeepAliveService даъват мешавад. Агар хизмат зинда бошад —
          *  панелро аз нав месканад; вагарна аз система rebind мехоҳад. */
         fun kick(ctx: Context) {
@@ -97,8 +109,12 @@ class DcListenerService : NotificationListenerService() {
     private fun process(sbn: StatusBarNotification) {
         try {
             if (sbn.packageName == packageName) return
+            if (sbn.packageName in ignoredPackages) return
             val full = extractText(sbn)
             if (full.isBlank()) return
+            // Ҳифзи иловагӣ: агар матн аллакай тегҳи худи ин барномаро дошта
+            // бошад (яъне ин пешнамоиши паёме, ки худамон фиристодем) — гузарем.
+            if (full.contains("DCNOTIF")) return
             val lower = full.lowercase()
             if (keywords.none { lower.contains(it) }) return
 
