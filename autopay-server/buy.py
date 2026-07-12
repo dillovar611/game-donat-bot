@@ -80,28 +80,6 @@ async def _block_if_duplicate_check(message: Message, check_hash: str):
     return dup
 
 
-async def _apply_level_discount(user_id: int, price: float) -> tuple[float, float, float]:
-    """
-    Бо нархи аслӣ ва ID-и корбар, нархи бо тахфифи левелро ҍисоб мекунад.
-    Бармегардонад: (нархи ниҍоӣ, фоизи тахфиф, маблаги тахфиф)
-    """
-    stats = await db.get_user_stats(user_id)
-    lvl = config.get_level_for_spend(stats["total_spent"])
-    discount_percent = lvl["discount_percent"]
-    if discount_percent <= 0:
-        return price, 0.0, 0.0
-    discount_amount = round(price * discount_percent / 100, 2)
-    final_price = round(price - discount_amount, 2)
-    return final_price, discount_percent, discount_amount
-
-
-async def _level_line_for_admin(user_id: int) -> str:
-    """Сатри сатҳи корбар барои гузоштан дар хабари ба админ."""
-    stats = await db.get_user_stats(user_id)
-    lvl = config.get_level_for_spend(stats["total_spent"])
-    return f"🏅 Сатҳ: {lvl['name']} (Lv.{lvl['level']})\n"
-
-
 TERMS_TEXT_ROZIGI = (
     "📜 <b>Шартҳои хизматрасонӣ</b>\n\n"
     "Бо пахши «Қабул мекунам» шумо тасдиқ мекунед:\n\n"
@@ -121,8 +99,6 @@ async def _notify_rozigiho(bot, user, service_title: str, label: str,
     """
     if not config.ROZIGIHO_CHANNEL:
         return
-    stats = await db.get_user_stats(user.id)
-    lvl = config.get_level_for_spend(stats["total_spent"])
     username = f"@{user.username}" if user.username else "—"
     now_str = datetime.now(TJ_TZ).strftime("%d.%m.%Y %H:%M")
     text = (
@@ -133,7 +109,6 @@ async def _notify_rozigiho(bot, user, service_title: str, label: str,
         f"📱 Username: {username}\n"
         f"🕒 Вақт: {now_str}\n"
         f"💵 Нарх: {price:.2f} сомонӣ\n"
-        f"🏅 Сатҳ: {lvl['name']} (Lv.{lvl['level']})\n"
         f"💳 Тариқи пардохт: {method_name}\n"
         f"#order_{order_ref}"
     )
@@ -603,11 +578,11 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
         price, disc_pct, disc_amt = round(float(data["price"]), 2), 0.0, 0.0
         await state.update_data(price=price)
     else:
-        price, disc_pct, disc_amt = await _apply_level_discount(call.from_user.id, data["price"])
+        price, disc_pct, disc_amt = data["price"], 0.0, 0.0
         await state.update_data(price=price)
     order_id = data.get("product_id") or "cart" + str(uuid.uuid4())[:8]
     eskhata_note = ""
-    discount_note = f"\n🏅 Тахфифи сатҳи шумо: -{disc_pct:.0f}% (-{disc_amt:.2f} сом)\n" if disc_pct else ""
+    discount_note = ""
 
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
@@ -786,7 +761,6 @@ async def receive_check(message: Message, state: FSMContext):
 
         nickname = data.get("nickname", "") or "—"
         username = f"@{message.from_user.username}" if message.from_user.username else "—"
-        level_line = await _level_line_for_admin(message.from_user.id)
         items_text = "\n".join(
             f"  🎁 {item['label']} — {item['price']:.2f} сом (#{oid})"
             for item, oid in zip(cart_items, order_ids)
@@ -796,7 +770,6 @@ async def receive_check(message: Message, state: FSMContext):
             f"🆔 Фармоишҳо: <b>{ids_text}</b>\n"
             f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
             f"📱 Username: {username}\n"
-            f"{level_line}"
             f"💳 Тариқ: {method_name}\n\n"
             f"🎮 Free Fire\n"
             f"🆔 ID: <code>{data['player_id']}</code>\n"
@@ -849,13 +822,11 @@ async def receive_check(message: Message, state: FSMContext):
     # Ба ҳамаи админҳо — расм + тугмаҳо
     nickname = data.get("nickname", "") or "—"
     username = f"@{message.from_user.username}" if message.from_user.username else "—"
-    level_line = await _level_line_for_admin(message.from_user.id)
     caption = (
         f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
         f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
         f"📱 Username: {username}\n"
-        f"{level_line}"
         f"💳 Тариқ: {method_name}\n\n"
         f"🎮 Free Fire\n"
         f"🆔 ID: <code>{data['player_id']}</code>\n"
@@ -1179,11 +1150,11 @@ async def ffid_terms_reject(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "ffid_terms_accept", FFIDBuyState.choose_payment)
 async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    price, disc_pct, disc_amt = await _apply_level_discount(call.from_user.id, data["price"])
+    price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     await state.update_data(price=price)
     order_id = data.get("product_id", 0)
     eskhata_note = ""
-    discount_note = f"\n🏅 Тахфифи сатҳи шумо: -{disc_pct:.0f}% (-{disc_amt:.2f} сом)\n" if disc_pct else ""
+    discount_note = ""
 
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
@@ -1274,13 +1245,11 @@ async def ffid_receive_check(message: Message, state: FSMContext):
 
     nickname = data.get("nickname", "") or "—"
     username = f"@{message.from_user.username}" if message.from_user.username else "—"
-    level_line = await _level_line_for_admin(message.from_user.id)
     caption = (
         f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
         f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
         f"📱 Username: {username}\n"
-        f"{level_line}"
         f"💳 Тариқ: {method_name}\n\n"
         f"🎮 Free Fire Indonesia\n"
         f"🆔 ID: <code>{data['player_id']}</code>\n"
@@ -1485,11 +1454,11 @@ async def pubg_terms_reject(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "pubg_terms_accept", PUBGBuyState.choose_payment)
 async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    price, disc_pct, disc_amt = await _apply_level_discount(call.from_user.id, data["price"])
+    price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     await state.update_data(price=price)
     order_id = data.get("product_id", 0)
     eskhata_note = ""
-    discount_note = f"\n🏅 Тахфифи сатҳи шумо: -{disc_pct:.0f}% (-{disc_amt:.2f} сом)\n" if disc_pct else ""
+    discount_note = ""
 
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
@@ -1574,13 +1543,11 @@ async def pubg_receive_check(message: Message, state: FSMContext):
     )
 
     username = f"@{message.from_user.username}" if message.from_user.username else "—"
-    level_line = await _level_line_for_admin(message.from_user.id)
     caption = (
         f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
         f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
         f"📱 Username: {username}\n"
-        f"{level_line}"
         f"💳 Тариқ: {method_name}\n\n"
         f"🎮 PUBG Mobile\n"
         f"🆔 ID: <code>{data['player_id']}</code>\n"
@@ -1781,11 +1748,11 @@ async def stars_terms_reject(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "stars_terms_accept", StarsBuyState.choose_payment)
 async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    price, disc_pct, disc_amt = await _apply_level_discount(call.from_user.id, data["price"])
+    price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     await state.update_data(price=price)
     order_id = data.get("product_id", 0)
     eskhata_note = ""
-    discount_note = f"\n🏅 Тахфифи сатҳи шумо: -{disc_pct:.0f}% (-{disc_amt:.2f} сом)\n" if disc_pct else ""
+    discount_note = ""
 
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
@@ -1869,13 +1836,11 @@ async def stars_receive_check(message: Message, state: FSMContext):
     )
 
     username_caller = f"@{message.from_user.username}" if message.from_user.username else "—"
-    level_line = await _level_line_for_admin(message.from_user.id)
     caption = (
         f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
         f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
         f"📱 Username: {username_caller}\n"
-        f"{level_line}"
         f"💳 Тариқ: {method_name}\n\n"
         f"⭐ Telegram Stars\n"
         f"📱 Барои: <code>@{data['tg_username']}</code>\n"
@@ -2054,11 +2019,11 @@ async def premium_terms_reject(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "premium_terms_accept", PremiumBuyState.choose_payment)
 async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
-    price, disc_pct, disc_amt = await _apply_level_discount(call.from_user.id, data["price"])
+    price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     await state.update_data(price=price)
     order_id = data.get("product_id", 0)
     eskhata_note = ""
-    discount_note = f"\n🏅 Тахфифи сатҳи шумо: -{disc_pct:.0f}% (-{disc_amt:.2f} сом)\n" if disc_pct else ""
+    discount_note = ""
 
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
@@ -2142,13 +2107,11 @@ async def premium_receive_check(message: Message, state: FSMContext):
     )
 
     username_caller = f"@{message.from_user.username}" if message.from_user.username else "—"
-    level_line = await _level_line_for_admin(message.from_user.id)
     caption = (
         f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
         f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
         f"📱 Username: {username_caller}\n"
-        f"{level_line}"
         f"💳 Тариқ: {method_name}\n\n"
         f"💎 Telegram Premium\n"
         f"📱 Барои: <code>@{data['tg_username']}</code>\n"
@@ -2262,13 +2225,11 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
     # Ба ҳамаи админҳо — БЕ расм (чун чек нест)
     username_val = call.from_user.username
     username = f"@{username_val}" if username_val else "—"
-    level_line = await _level_line_for_admin(call.from_user.id)
     caption = (
         f"💰 <b>Фармоиши нав — пардохт аз баланси реферралӣ!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
         f"👤 Корбар: {call.from_user.full_name} (<code>{call.from_user.id}</code>)\n"
         f"📱 Username: {username}\n"
-        f"{level_line}\n"
         f"🎮 {service_title}\n"
         f"{extra_line}"
         f"🎁 Маҳсулот: <b>{data['label']}</b>\n"

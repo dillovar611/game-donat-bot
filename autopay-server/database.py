@@ -957,20 +957,6 @@ async def get_daily_report() -> dict:
             total_buyers_spent = spent_1 + spent_2_5 + spent_5plus
             avg_spent_per_buyer = (total_buyers_spent / total_buyers) if total_buyers else 0.0
 
-            # ---- ГурӴҳбандии сатҳ (Левел) — бар асоси ҳаҷми умумии ҳар корбар ----
-            await cur.execute("""
-                SELECT user_id, SUM(price) AS total_spent
-                FROM orders
-                WHERE status='confirmed'
-                GROUP BY user_id
-            """)
-            spend_rows = await cur.fetchall()
-            level_counts = {lvl[0]: 0 for lvl in config.LEVELS}
-            level_counts[0] = 0  # "Бе сатҳ"
-            for row in spend_rows:
-                lvl_info = config.get_level_for_spend(float(row["total_spent"]))
-                level_counts[lvl_info["level"]] = level_counts.get(lvl_info["level"], 0) + 1
-
             # ---- Соати "пик" (бар асоси 30 рӯзи охир) ----
             await cur.execute(
                 "SELECT HOUR(created_at) AS hr, COUNT(*) AS c FROM orders "
@@ -1025,7 +1011,6 @@ async def get_daily_report() -> dict:
                 "buyers_2_5": buyers_2_5,
                 "buyers_5plus": buyers_5plus,
                 "avg_spent_per_buyer": avg_spent_per_buyer,
-                "level_counts": level_counts,
                 "peak_hour": peak_hour,
                 "peak_hour_count": peak_hour_count,
                 "best_weekday": best_weekday,

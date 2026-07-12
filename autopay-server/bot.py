@@ -137,7 +137,6 @@ def main_menu() -> InlineKeyboardMarkup:
 
 def profile_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📖 Дар бораи сатҳҳо", callback_data="levels_info")],
         [InlineKeyboardButton(text="📋 Фармоишҳоям",  callback_data="my_orders")],
         [InlineKeyboardButton(text="🏆 Топ харидорон", callback_data="top_buyers")],
         [InlineKeyboardButton(text="🏅 Топ рефералдорон", callback_data="top_referrers")],
@@ -202,7 +201,6 @@ def _progress_bar(current: float, threshold: float, length: int = 10) -> str:
 async def show_profile_menu(call: CallbackQuery):
     stats = await db.get_user_stats(call.from_user.id)
     total_spent = stats["total_spent"]
-    lvl = config.get_level_for_spend(total_spent)
 
     text = (
         f"👤 <b>Профили шумо</b>\n\n"
@@ -212,48 +210,10 @@ async def show_profile_menu(call: CallbackQuery):
         f"📊 <b>Омори харид:</b>\n"
         f"✅ Харидҳои муваффақ: <b>{stats['total_orders']}</b>\n"
         f"💰 Маблағи умумии харид: <b>{total_spent:.2f} сомонӣ</b>\n\n"
-        f"🏅 Сатҳ: <b>{lvl['name']}</b>\n"
+        f"Аз меню интихоб кунед:"
     )
-    if lvl["level"] > 0:
-        text += f"💎 Дар ҳар харид <b>{lvl['discount_percent']:.0f}%</b> тахфиф мегиред.\n"
-    if lvl["next_level"]:
-        next_threshold = lvl["next_threshold"]
-        text += (
-            f"\n💰 Ҳаҷми умумии харид: {total_spent:.0f} / {next_threshold:.0f} сом\n"
-            f"📈 Пешрафт: {_progress_bar(total_spent, next_threshold)}\n\n"
-            f"🚀 Барои расидан ба {lvl['next_name']}:\n"
-            f"{lvl['remaining']:.0f} сом хариди дигар лозим аст.\n"
-        )
-    else:
-        text += "\n🎉 Шумо ба баландтарин сатҳ расидед!\n"
-    text += "\nАз меню интихоб кунед:"
 
     await _safe_edit(call, text, profile_menu())
-
-
-@dp.callback_query(F.data == "levels_info")
-async def show_levels_info(call: CallbackQuery):
-    lines = [
-        "📖 <b>Сатҳҳои харидор</b>\n",
-        "Ҳар чанд харид кунед, сатҳи шумо баланд мешавад ва ҳаҷми тахфиф "
-        "дар ҳар харид зиёд мегардад. Сатҳ ҳеч гоҳ паст намеравад.\n",
-    ]
-    levels = config.LEVELS
-    for i, (level, name, threshold, discount) in enumerate(levels):
-        if i + 1 < len(levels):
-            upper = levels[i + 1][2] - 1
-            range_text = f"{threshold} – {upper} сом"
-        else:
-            range_text = f"{threshold} сом ва зиёдтар"
-        lines.append(f"{name}\n   {range_text} → {discount:.0f}% тахфиф\n")
-    lines.append(
-        "ℹ️ Тахфиф танҳо ҳангоми пардохт бо корт (Душанбе Сити, "
-        "Алиф, Эсхата) амал мекунад."
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="profile_menu")],
-    ])
-    await _safe_edit(call, "\n".join(lines), kb)
 
 
 # ==================== РЕФЕРАЛ ====================
@@ -355,29 +315,41 @@ async def cmd_start(message: Message, command: CommandObject):
 
 
 def _welcome_text(user, greeted: bool = True) -> str:
-    """Матни хушомадгуи муфассал бо рӣйхати хизматҳо."""
+    """Матни хушомадгуи кӯтоҳ — тафсилоти пурра дар тугмаи «ℹ️ Маълумот»."""
     hello = f"👋 Хуш омадед, <b>{user.full_name}</b>!\n\n" if greeted else f"👋 <b>{user.full_name}</b>\n\n"
     return (
         f"{hello}"
         f"🆔 ID-и шумо: <code>{user.id}</code>\n\n"
-        f"🔥 <b>Боти расмии фурӯши хизматҳои рақамӣ</b>\n"
-        f"⚡ Донати худкор дар якчанд дақиқа!\n\n"
-        f"🎮 <b>Хизматҳои мо:</b>\n"
-        f"  💎 Free Fire СНГ — алмазҳои аслӣ\n"
-        f"  💎 Free Fire Indonesia\n"
-        f"  🔫 PUBG Mobile — UC\n"
-        f"  ⭐ Telegram Stars / Premium\n"
-        f"  🎯 Настройка сенсетивии Free Fire\n\n"
-        f"✅ <b>Чаро мо:</b>\n"
-        f"  🚀 Суръати баланд — то 1 дақиқа\n"
-        f"  🔒 Бехатар 100% ва пардохти осон\n"
-        f"  💳 Тариқҳои гуногуни пардохт: Душанбе Сити, Алиф, Эсхата\n"
-        f"  🏆 Бонус ва тахфиф барои харидорони фаъол\n\n"
+        f"⚡ Донати худкор — то 1 дақиқа!\n"
+        f"🔒 Бехатар 100% · 💳 Пардохти осон\n\n"
         f"👇 Аз меню интихоб кунед:"
     )
 
 
+_banner_cache = {"file_id": None, "bytes": None}
+
+
+async def _send_welcome_banner(message: Message):
+    """Банери хушомадгӯиро мефиристад (як бор месозад, баъд file_id-ро
+    такроран истифода мебарад — фавран, бе аз нав сохтан/боркунӣ)."""
+    try:
+        from aiogram.types import BufferedInputFile
+        if _banner_cache["file_id"]:
+            await message.answer_photo(_banner_cache["file_id"])
+            return
+        if _banner_cache["bytes"] is None:
+            import banner as _banner_mod
+            _banner_cache["bytes"] = _banner_mod.generate_welcome_banner().read()
+        photo = BufferedInputFile(_banner_cache["bytes"], filename="welcome.png")
+        sent = await message.answer_photo(photo)
+        if sent.photo:
+            _banner_cache["file_id"] = sent.photo[-1].file_id
+    except Exception as e:
+        logger.error(f"Банер нафиристод: {e}")
+
+
 async def _send_main(message: Message):
+    await _send_welcome_banner(message)
     await message.answer(_welcome_text(message.from_user), reply_markup=main_menu(), parse_mode="HTML")
 
 
@@ -641,12 +613,6 @@ def _format_daily_report(stats: dict) -> str:
     change_30d_str = _fmt_change(stats["change_30d"])
     peak_hour_str = f"{stats['peak_hour']:02d}:00" if stats.get("peak_hour") is not None else "—"
 
-    lvl_counts = stats["level_counts"]
-    level_lines = []
-    for lvl, name, _, _ in config.LEVELS:
-        level_lines.append(f"   {name}: <b>{lvl_counts.get(lvl, 0)}</b> нафар")
-    no_level_count = lvl_counts.get(0, 0)
-
     return (
         f"🌙 <b>Гузориши шабона</b>\n\n"
         f"👥 <b>Корбарони нав:</b>\n"
@@ -673,9 +639,6 @@ def _format_daily_report(stats: dict) -> str:
         f"   2–5 харид: <b>{stats['buyers_2_5']}</b> нафар\n"
         f"   5+ харид (VIP): <b>{stats['buyers_5plus']}</b> нафар\n"
         f"   💵 Миёнаи харид ба як корбар: <b>{stats['avg_spent_per_buyer']:.2f} сом</b>\n\n"
-        f"🏅 <b>ГурӴҳбандии сатҳ:</b>\n"
-        f"   Бе сатҳ: <b>{no_level_count}</b> нафар\n"
-        + "\n".join(level_lines) + "\n\n"
         f"⏰ <b>Соати пик (30 рӯзи охир):</b> "
         f"<b>{peak_hour_str}</b> ({stats['peak_hour_count']} фармоиш)\n"
         f"📅 <b>Рӯзи беҳтарин (30 рӯзи охир):</b> "

@@ -44,8 +44,7 @@ async def _credit_referral_and_notify(bot, order_id: int):
     Пас аз ҲАР тасдиқи фармоиш (аз ҳар хидмат: FF, FFID, PUBG, Stars,
     Premium) занг зада мешавад. Агар корбар referrer дошта бошад, 5%
     аз нархи фармоишро ба балансаи referrer илова мекунад ва ба ӣ
-    хабар мефиристад. Инчунин ба худи харидор хабари сатҳи (левел)
-    ва прогрессашро мефиристад.
+    хабар мефиристад.
     """
     try:
         reward, referrer_id = await db.credit_referral_for_order(order_id)
@@ -62,14 +61,6 @@ async def _credit_referral_and_notify(bot, order_id: int):
                 logger.error(f"Хабари мукофоти референдалӣ ба {referrer_id} нарасид: {e}")
     except Exception as e:
         logger.error(f"Хатогӣ дар credit_referral барои фармоиши #{order_id}: {e}")
-
-    # Хабари сатҳ ба худи харидор
-    try:
-        order = await db.get_order(order_id)
-        if order:
-            await _send_level_notification(bot, order["user_id"])
-    except Exception as e:
-        logger.error(f"Хабари сатҳ нафиристод барои фармоиши #{order_id}: {e}")
 
 
 def _progress_bar(current: float, threshold: float, length: int = 10) -> str:
@@ -101,32 +92,6 @@ async def _buyer_info_line(order: dict) -> str:
     )
 
 
-async def _send_level_notification(bot, user_id: int):
-    """Баъд аз ҳар хариди муваффақ, ба корбар сатҳ ва прогрессашро мефиристад."""
-    stats = await db.get_user_stats(user_id)
-    total_spent = stats["total_spent"]
-    lvl = config.get_level_for_spend(total_spent)
-
-    text = f"🏅 <b>Сатҳи шумо: {lvl['name']} (Lv.{lvl['level']})</b>\n\n"
-    if lvl["level"] > 0:
-        text += f"🎁 Шумо ба тахфифи <b>{lvl['discount_percent']:.0f}%</b> дар ҳар харид соҳиб ҳастед!\n\n"
-    text += f"💰 Ҳаҷми умумии харид: <b>{total_spent:.0f} сом</b>\n"
-
-    if lvl["next_level"]:
-        next_threshold = lvl["next_threshold"]
-        next_disc = config.get_level_for_spend(next_threshold)["discount_percent"]
-        text += (
-            f"{_progress_bar(total_spent, next_threshold)}\n\n"
-            f"🚀 Барои сатҳи навбатӣ <b>{lvl['next_name']}</b> "
-            f"(тахфифи {next_disc:.0f}%) боз <b>{lvl['remaining']:.0f} сом</b> харид кунед."
-        )
-    else:
-        text += f"\n👑 Табрик! Шумо ба баландтарин сатҳ расидед ва аз тахфифи максималӣ баҳраманд мешавед!"
-
-    try:
-        await bot.send_message(user_id, text, parse_mode="HTML")
-    except Exception as e:
-        logger.error(f"Хабари сатҳ ба {user_id} нарасид: {e}")
 
 
 # ==================== МЕНЮИ АДМИН ====================
@@ -703,12 +668,6 @@ async def a_daily_report(call: CallbackQuery):
     change_30d_str = _fmt_change(stats["change_30d"])
     peak_hour_str = f"{stats['peak_hour']:02d}:00" if stats.get("peak_hour") is not None else "—"
 
-    lvl_counts = stats["level_counts"]
-    level_lines = []
-    for lvl, name, _, _ in config.LEVELS:
-        level_lines.append(f"   {name}: <b>{lvl_counts.get(lvl, 0)}</b> нафар")
-    no_level_count = lvl_counts.get(0, 0)
-
     text = (
         f"🌙 <b>Гузориши шабона</b>\n\n"
         f"👥 <b>Корбарони нав:</b>\n"
@@ -735,9 +694,6 @@ async def a_daily_report(call: CallbackQuery):
         f"   2–5 харид: <b>{stats['buyers_2_5']}</b> нафар\n"
         f"   5+ харид (VIP): <b>{stats['buyers_5plus']}</b> нафар\n"
         f"   💵 Миёнаи харид ба як корбар: <b>{stats['avg_spent_per_buyer']:.2f} сом</b>\n\n"
-        f"🏅 <b>ГурӴҳбандии сатҳ:</b>\n"
-        f"   Бе сатҳ: <b>{no_level_count}</b> нафар\n"
-        + "\n".join(level_lines) + "\n\n"
         f"⏰ <b>Соати пик (30 рӯзи охир):</b> "
         f"<b>{peak_hour_str}</b> ({stats['peak_hour_count']} фармоиш)\n"
         f"📅 <b>Рӯзи беҳтарин (30 рӯзи охир):</b> "
