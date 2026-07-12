@@ -599,6 +599,32 @@ async def mark_stale_reminder_sent(order_id: int):
             )
 
 
+async def get_pending_orders(limit: int = 20):
+    """Ҳамаи фармоишҳои 'paid' (чек фиристодашуда, ҳанӯз тасдиқ/рад нашуда),
+    кӯҳнатаринашон аввал (аз ҳама бештар интизормонда)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders WHERE status='paid' ORDER BY created_at ASC LIMIT %s",
+                (limit,)
+            )
+            return await cur.fetchall()
+
+
+async def find_orders_by_check_hash(check_hash: str, limit: int = 10):
+    """Ҳамаи фармоишҳо (новобаста аз статус) бо ҳамин hash-и чек — барои
+    ҷустуҷӯи бозгашти (reverse lookup) админ бо фиристодани расм."""
+    if not check_hash:
+        return []
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders WHERE check_hash=%s ORDER BY created_at DESC LIMIT %s",
+                (check_hash, limit)
+            )
+            return await cur.fetchall()
+
+
 async def find_confirmed_duplicate_check(user_id: int, check_hash: str, hours: int = 72):
     """
     Агар ҳамин корбар аллакай як фармоиши ТАСДИҚШУДА дошта бошад бо

@@ -6,8 +6,10 @@
   - Фиристодани хабар ба ҳама
 """
 import asyncio
+import hashlib
 import logging
 import html
+from datetime import datetime
 
 from aiogram import Router, F
 from aiogram.types import (
@@ -133,6 +135,8 @@ def admin_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 Маҷсулотҳо",         callback_data="a_products_menu")],
         [InlineKeyboardButton(text="📊 Омор",               callback_data="a_stats")],
+        [InlineKeyboardButton(text="📋 Фармоишҳои интизорӣ", callback_data="a_pending_orders")],
+        [InlineKeyboardButton(text="🔍 Ҷустуҷӯи чек (расм)", callback_data="a_check_search")],
         [InlineKeyboardButton(text="📢 Фиристодани хабар",  callback_data="a_broadcast")],
         [InlineKeyboardButton(text="🔴 ON/OFF бот",         callback_data="a_toggle_bot")],
         [InlineKeyboardButton(text="🚫 Бан/Анбан корбар",   callback_data="a_ban_unban")],
@@ -173,6 +177,121 @@ async def a_back(call: CallbackQuery):
     await _safe_edit(
         call, "🔐 <b>Панели Админ</b>\n\nАз меню интихоб кунед:", admin_menu()
     )
+
+
+# ==================== ФАРМОИШҲОИ ИНТИЗОРӢ ====================
+@router.callback_query(F.data == "a_pending_orders")
+async def a_pending_orders(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    orders = await db.get_pending_orders(limit=20)
+    kb_rows = [[InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")]]
+    if not orders:
+        await _safe_edit(call, "📋 <b>Фармоишҳои интизорӣ</b>\n\nҲоло чизе нест — ҳама коркард шудааст! ✅", InlineKeyboardMarkup(inline_keyboard=kb_rows))
+        return
+
+    now = datetime.now()
+    lines = [f"📋 <b>Фармоишҳои интизорӣ ({len(orders)})</b>\n"]
+    for o in orders:
+        created_at = o.get("created_at")
+        age_min = int((now - created_at).total_seconds() / 60) if created_at else 0
+        warn = "⚠️ " if age_min >= 20 else ""
+        lines.append(
+            f"{warn}#{o['id']} — {o['label']} — {o['price']:.2f} сом — {age_min} дақ. пеш"
+        )
+    kb_rows = [
+        [InlineKeyboardButton(text=f"#{o['id']} — {o['price']:.2f} сом", callback_data=f"a_order_view_{o['id']}")]
+        for o in orders
+    ] + kb_rows
+    await _safe_edit(call, "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb_rows))
+
+
+@router.callback_query(F.data.startswith("a_order_view_"))
+async def a_order_view(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    order_id = int(call.data.rsplit("_", 1)[1])
+    order = await db.get_order(order_id)
+    if not order:
+        await call.answer("❌ Фармоиш ёфт нашуд!", show_alert=True)
+        return
+    user = await db.get_user(order["user_id"])
+    username = f"@{user['username']}" if user and user.get("username") else "—"
+    text = (
+        f"📦 <b>Фармоиши #{order_id}</b>\n\n"
+        f"👤 {esc(user.get('full_name') if user else '—')} ({username})\n"
+        f"🎁 {order['label']} → <code>{order['game_id']}</code>\n"
+        f"💵 {order['price']:.2f} сомонӣ\n"
+        f"📊 Ҳолат: {order['status']}"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Тасдиқ (донат)", callback_data=f"ok_{order_id}")],
+        [InlineKeyboardButton(text="❌ Рад кардан",     callback_data=f"no_{order_id}")],
+        [InlineKeyboardButton(text="🔙 Бозгашт",         callback_data="a_pending_orders")],
+    ])
+    await call.answer()
+    try:
+        if order.get("check_file_id"):
+            await call.bot.send_photo(
+                call.from_user.id, order["check_file_id"],
+                caption=text, reply_markup=kb, parse_mode="HTML"
+            )
+        else:
+            await call.bot.send_message(call.from_user.id, text, reply_markup=kb, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"a_order_view нашуд барои #{order_id}: {e}")
+
+
+# ==================== ҶУСТУҶӮИ ЧЕК БО РАСМ (REVERSE LOOKUP) ====================
+class CheckSearchState(StatesGroup):
+    wait_photo = State()
+
+
+@router.callback_query(F.data == "a_check_search")
+async def a_check_search_start(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await state.set_state(CheckSearchState.wait_photo)
+    await _safe_edit(
+        call,
+        "🔍 <b>Ҷустуҷӯи чек</b>\n\n"
+        "Расми чекеро, ки мехоҳед донед аллакай истифода шудааст ё не, "
+        "фиристед:",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_back")]
+        ])
+    )
+
+
+@router.message(CheckSearchState.wait_photo, F.photo)
+async def a_check_search_photo(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.clear()
+    try:
+        buf = await message.bot.download(message.photo[-1])
+        check_hash = hashlib.sha256(buf.read()).hexdigest()
+    except Exception as e:
+        logger.error(f"Hash-и чек ҳисоб нашуд: {e}")
+        await message.answer("❌ Хатогӣ рух дод. Дубора кӯшиш кунед.")
+        return
+
+    matches = await db.find_orders_by_check_hash(check_hash)
+    if not matches:
+        await message.answer("✅ Ин чек дар система ЁФТ НАШУД — то ҳол истифода нашудааст.")
+        return
+
+    lines = [f"⚠️ <b>Ин чек {len(matches)} бор дар система ёфт шуд:</b>\n"]
+    for o in matches:
+        user = await db.get_user(o["user_id"])
+        username = f"@{user['username']}" if user and user.get("username") else "—"
+        created_at = o.get("created_at")
+        time_str = created_at.strftime("%d.%m.%Y %H:%M") if created_at else "—"
+        lines.append(
+            f"#{o['id']} — {o['label']} — {o['price']:.2f} сом — {o['status']} "
+            f"— {username} — {time_str}"
+        )
+    await message.answer("\n".join(lines), parse_mode="HTML")
 
 
 # ==================== ТАСДИҚИ ФАРМОИШ → ДОНАТИ ХУДКОР ====================
