@@ -52,6 +52,44 @@ def esc(text) -> str:
     return html.escape(str(text), quote=False)
 
 
+def _progress_bar(pct: int, length: int = 10) -> str:
+    """Прогресс-бар мисли ███████░░░ 72%"""
+    pct = max(0, min(100, pct))
+    filled = round(length * pct / 100)
+    return f"{'█' * filled}{'░' * (length - filled)} {pct}%"
+
+
+async def _run_with_live_progress_text(msg: Message, header: str, coro):
+    """
+    Мисли _run_with_live_progress-и admin.py, вале барои паёми ОДДИИ
+    матнӣ (мизоҷ) — ҳар сония caption/матнро бо progress-bar навсозӣ
+    мекунад, то 95%, то натиҷаи воқеӣ ояд.
+    """
+    stop_event = asyncio.Event()
+
+    async def _updater():
+        start = asyncio.get_event_loop().time()
+        est_total = 25.0
+        while not stop_event.is_set():
+            elapsed = asyncio.get_event_loop().time() - start
+            pct = min(95, int(elapsed / est_total * 100))
+            try:
+                await msg.edit_text(f"{header}\n\n{_progress_bar(pct)}", parse_mode="HTML")
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+
+    updater_task = asyncio.create_task(_updater())
+    try:
+        return await coro
+    finally:
+        stop_event.set()
+        await updater_task
+
+
 def _parse_notification(text: str):
     """Summa, Kod ва рақами фармоиш (аз комент)-ро аз матни хом мебарорад.
     None = ин пардохти воридотӣ нест."""
@@ -257,22 +295,26 @@ async def run_donate(bot: Bot, order: dict, kod: str):
     except Exception as e:
         logger.error(f"Паёми навбат ба {user_id} нарасид: {e}")
 
-    # ---- Марҳилаи 3: донат (паси ҳам, тавассути навбат) ----
+    # ---- Марҳилаи 3: донат (паси ҳам, тавассути навбат) — бо progress bar ----
     try:
         async with _donate_lock:
-            if ahead > 0:
-                try:
-                    await bot.send_message(
-                        user_id,
-                        "🚀 <b>Навбати шумо расид — автодонат сар шуд!</b>\n"
-                        "Одатан 1-3 дақиқа мегирад...",
-                        parse_mode="HTML"
-                    )
-                except Exception:
-                    pass
-            success, api_order_id = await ff_api.auto_donate(
+            header = (
+                "🚀 <b>Автодонати шумо оғоз шуд!</b>\n"
+                "Одатан 1-3 дақиқа мегирад..."
+            )
+            progress_msg = None
+            try:
+                progress_msg = await bot.send_message(user_id, header, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"Паёми оғози донат ба {user_id} нарасид: {e}")
+
+            donate_coro = ff_api.auto_donate(
                 order["game_id"], order["offer_id"], order.get("api_order_id") or ""
             )
+            if progress_msg:
+                success, api_order_id = await _run_with_live_progress_text(progress_msg, header, donate_coro)
+            else:
+                success, api_order_id = await donate_coro
     finally:
         _queue_count -= 1
 
