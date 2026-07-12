@@ -11,6 +11,7 @@
 import logging
 import asyncio
 import hashlib
+import random
 import uuid
 import html
 from datetime import datetime
@@ -575,8 +576,13 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
         # Нархи шахсии мизоҷ — тахфифи сатҳ ба ин намерасад
         price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     elif method == "alif":
-        # Алиф (сабад): бе тахфифи сатҳ
-        price, disc_pct, disc_amt = round(float(data["price"]), 2), 0.0, 0.0
+        # Алиф (сабад): нархи каме нодир — то маблағи дарёфтшуда АЙНАН бо
+        # ин фармоиш мувофиқат кунад (зидди чеки такрорӣ/дуруғин). Ин ба
+        # худи линки пардохт (amount=) низ мегузарад — мизоҷ маҳз ҳамин
+        # маблағро мебинад дар барномаи Алиф.
+        disc_pct, disc_amt = 0.0, 0.0
+        price = round(float(data["price"]), 2) + round(random.randint(1, 99) / 100, 2)
+        price = round(price, 2)
         await state.update_data(price=price)
     else:
         price, disc_pct, disc_amt = data["price"], 0.0, 0.0
@@ -1170,6 +1176,9 @@ async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
             return
     else:
         method_name = "💳 Алиф"
+        # Нархи каме нодир — зидди чеки такрорӣ/дуруғин (ба amount= низ мегузарад)
+        price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
+        await state.update_data(price=price)
         pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
 
     await state.update_data(payment_method=method)
@@ -1474,6 +1483,8 @@ async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
             return
     else:
         method_name = "💳 Алиф"
+        price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
+        await state.update_data(price=price)
         pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
 
     await state.update_data(payment_method=method)
@@ -1768,6 +1779,8 @@ async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
             return
     else:
         method_name = "💳 Алиф"
+        price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
+        await state.update_data(price=price)
         pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
 
     await state.update_data(payment_method=method)
@@ -2039,6 +2052,8 @@ async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
             return
     else:
         method_name = "💳 Алиф"
+        price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
+        await state.update_data(price=price)
         pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
 
     await state.update_data(payment_method=method)
