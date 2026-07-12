@@ -85,56 +85,86 @@ def _flat_diamond(draw, cx, cy, size, fill, outline=None, width=0):
     draw.polygon(pts, fill=fill, outline=outline, width=width)
 
 
+def _gradient_fill_polygon(img, points, color_light, color_dark, angle_deg=48):
+    """Полигонро бо градиенти нарм (диагоналӣ) пур мекунад — сояи табиӣ,
+    бе хатҳои зиёд (тозатар аз факети "фан")."""
+    import math
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    x0, y0 = min(xs), min(ys)
+    x1, y1 = max(xs), max(ys)
+    w, h = max(1, int(x1 - x0) + 2), max(1, int(y1 - y0) + 2)
+
+    mask = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(mask).polygon([(px - x0, py - y0) for px, py in points], fill=255)
+
+    rad = math.radians(angle_deg)
+    dx, dy = math.cos(rad), math.sin(rad)
+    diag = max(1.0, w * abs(dx) + h * abs(dy))
+    grad = Image.new("RGB", (w, h))
+    px_data = grad.load()
+    for yy in range(h):
+        base = yy * dy
+        for xx in range(w):
+            t = (xx * dx + base) / diag
+            t = 0.0 if t < 0 else (1.0 if t > 1 else t)
+            px_data[xx, yy] = (
+                int(color_light[0] + (color_dark[0] - color_light[0]) * t),
+                int(color_light[1] + (color_dark[1] - color_light[1]) * t),
+                int(color_light[2] + (color_dark[2] - color_light[2]) * t),
+            )
+    grad_rgba = grad.convert("RGBA")
+    grad_rgba.putalpha(mask)
+    img.alpha_composite(grad_rgba, (int(x0), int(y0)))
+
+
 def _gem_realistic(img, cx, cy, s):
     """
-    Алмоси "буришхӯрда" (faceted gem) — фан аз якчанд факет (мисли
-    алмоси воқеӣ аз боло дида шуда), ҳар факет аз рӯи самти нурафканӣ
-    (top-left) ранги худро мегирад (аз равшан то торик) — намуди
-    3D-и воқеитар аз 2 факети сода.
+    Гем бо градиенти нарм (на факети "фан"-и серхат) — тозатар ва ба
+    алмоси воқеӣ монандтар: бадани гем бо як гардиши рӯшноӣ→соя,
+    як рахи ялои диагоналӣ (highlight) ва ду милтии хурд.
     """
-    import math
     draw = ImageDraw.Draw(img)
 
-    # Соя дар зери гем (умқ медиҳад)
+    # Соя дар зери гем
     shadow = Image.new("RGBA", img.size, (0, 0, 0, 0))
     sd = ImageDraw.Draw(shadow)
-    sd.ellipse((cx - 0.75 * s, cy + s - 0.15 * s, cx + 0.75 * s, cy + s + 0.4 * s),
-               fill=(0, 0, 0, 100))
+    sd.ellipse((cx - 0.7 * s, cy + s - 0.1 * s, cx + 0.7 * s, cy + s + 0.35 * s),
+               fill=(0, 0, 0, 90))
     shadow = shadow.filter(ImageFilter.GaussianBlur(s * 0.14))
     img.alpha_composite(shadow)
-    draw = ImageDraw.Draw(img)
 
     outline = [
-        (cx - 0.30 * s, cy - s),        # table чап
-        (cx + 0.30 * s, cy - s),        # table рост
-        (cx + 0.68 * s, cy - 0.58 * s), # китфи рост
-        (cx + 0.32 * s, cy + 0.04 * s), # камари рост
+        (cx - 0.32 * s, cy - s),        # table чап
+        (cx + 0.32 * s, cy - s),        # table рост
+        (cx + 0.72 * s, cy - 0.52 * s), # китфи рост
         (cx, cy + s),                   # нӯги поён
-        (cx - 0.32 * s, cy + 0.04 * s), # камари чап
-        (cx - 0.68 * s, cy - 0.58 * s), # китфи чап
+        (cx - 0.72 * s, cy - 0.52 * s), # китфи чап
     ]
-    center = (cx, cy - 0.60 * s)
-    light_angle = math.radians(-130)  # сарчашмаи нур — болоичап
-    n = len(outline)
 
-    for i in range(n):
-        a, b = outline[i], outline[(i + 1) % n]
-        mx, my = (a[0] + b[0]) / 2 - cx, (a[1] + b[1]) / 2 - cy
-        ang = math.atan2(my, mx)
-        t = (math.cos(ang - light_angle) + 1) / 2  # 0 (соя) .. 1 (рӯшноӣ)
-        col = tuple(int(ACCENT_DARK[k] + (ACCENT_LIGHT[k] - ACCENT_DARK[k]) * t) for k in range(3))
-        draw.polygon([center, a, b], fill=col)
+    # Бадани гем — градиенти нарм (болоичап равшан → поёнирост торик)
+    _gradient_fill_polygon(img, outline, ACCENT_LIGHT, ACCENT_DARK, angle_deg=50)
 
-    # Хатҳои факет (буришҳои борик)
-    edge_w = max(1, int(s * 0.028))
-    for i in range(n):
-        draw.line([outline[i], outline[(i + 1) % n]], fill=(255, 255, 255, 110), width=edge_w)
-        draw.line([center, outline[i]], fill=(255, 255, 255, 70), width=max(1, edge_w // 2))
-    draw.polygon(outline, outline=WHITE, width=edge_w)
+    # Канори тоза (як хат, на "тор")
+    draw = ImageDraw.Draw(img)
+    edge_w = max(1, int(s * 0.03))
+    draw.polygon(outline, outline=(255, 255, 255, 160), width=edge_w)
+    # Хатти table (як бурриши ягона, барои эҳсоси "гем", на бисёр)
+    draw.line([outline[0], outline[1]], fill=(255, 255, 255, 130), width=edge_w)
 
-    # Милтии рӯшноӣ (sparkle)
-    _sparkle(img, cx - 0.42 * s, cy - 0.68 * s, s * 0.18, WHITE)
-    _sparkle(img, cx + 0.50 * s, cy - 0.08 * s, s * 0.10, WHITE)
+    # Рахи ялои диагоналӣ (highlight) — мулоим, на хати сахт
+    hl = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    hd = ImageDraw.Draw(hl)
+    hd.line(
+        [(cx - 0.30 * s, cy - 0.78 * s), (cx - 0.05 * s, cy + 0.15 * s)],
+        fill=(255, 255, 255, 130), width=max(2, int(s * 0.10))
+    )
+    hl = hl.filter(ImageFilter.GaussianBlur(s * 0.05))
+    img.alpha_composite(hl)
+
+    # Милтии рӯшноӣ (sparkle) — хурд ва мулоим
+    _sparkle(img, cx - 0.36 * s, cy - 0.72 * s, s * 0.14, WHITE)
+    _sparkle(img, cx + 0.42 * s, cy + 0.02 * s, s * 0.08, WHITE)
 
 
 def _sparkle(img, cx, cy, r, color):
@@ -191,7 +221,7 @@ def _icon_bolt(draw, cx, cy, s, color):
 def generate_welcome_banner(
     title: str = "DILOVAR FF BOT",
     subtitle: str = "Донати худкор дар якчанд дақиқа",
-    trust_line: str = "Зиёда аз 10,000 муштарӣ",
+    trust_line: str = "Зиёда аз 10,000 муштарии рози",
     badge_text: str = "24/7 АВТОМАТӢ",
 ) -> BytesIO:
     S = 2
