@@ -845,6 +845,65 @@ async def _reengagement_loop(bot: Bot):
             logger.error(f"Хатогӣ дар санҷиши гурӯҳи бе-order: {e}")
 
 
+# ==================== ЁДОВАРӢ БАРОИ ФАРМОИШҲОИ ДАСТИИ ДЕРМОНДА ====================
+async def _stale_paid_orders_loop(bot: Bot):
+    """
+    Ҳар 5 дақиқа фармоишҳои дастиро (Алиф/Эсхата) санҷад, ки чек фиристодаанд
+    вале зиёда аз 20 дақиқа админ тасдиқ/рад накардааст. Ба мизоҷ узр
+    мефиристад, ба админ бо тугмаҳои амал ёдоварӣ мекунад. Ҳар фармоиш
+    фақат ЯК бор ёдоварӣ мегирад.
+    """
+    while True:
+        await asyncio.sleep(5 * 60)
+        try:
+            for order in await db.get_stale_paid_orders(minutes=20):
+                order_id = order["id"]
+                try:
+                    await db.mark_stale_reminder_sent(order_id)
+
+                    try:
+                        await bot.send_message(
+                            order["user_id"],
+                            f"⏳ <b>Узр мехоҳем!</b>\n\n"
+                            f"Фармоиши шумо #{order_id} ҳанӯз дар ҷараёни тасдиқ аст — "
+                            f"каме дертар шуд. Мо дар ҳоли ҳали он ҳастем, лутфан сабр кунед.\n\n"
+                            f"Агар савол дошта бошед: {config.SUPPORT_USERNAME}",
+                            parse_mode="HTML"
+                        )
+                    except Exception as e:
+                        logger.error(f"Ёдоварии дермондагӣ ба мизоҷи {order['user_id']} нарасид: {e}")
+
+                    user = await db.get_user(order["user_id"])
+                    username = f"@{user['username']}" if user and user.get("username") else "—"
+                    kb = InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="✅ Тасдиқ (донат)", callback_data=f"ok_{order_id}")],
+                        [InlineKeyboardButton(text="❌ Рад кардан",     callback_data=f"no_{order_id}")],
+                    ])
+                    admin_text = (
+                        f"⚠️ <b>Фармоиши #{order_id} 20+ дақиқа интизор аст!</b>\n\n"
+                        f"👤 {username} (<code>{order['user_id']}</code>)\n"
+                        f"🎁 {order['label']} → <code>{order['game_id']}</code>\n"
+                        f"💵 {order['price']:.2f} сомонӣ"
+                    )
+                    for admin_id in config.ADMIN_IDS:
+                        try:
+                            if order.get("check_file_id"):
+                                await bot.send_photo(
+                                    admin_id, order["check_file_id"],
+                                    caption=admin_text, reply_markup=kb, parse_mode="HTML"
+                                )
+                            else:
+                                await bot.send_message(
+                                    admin_id, admin_text, reply_markup=kb, parse_mode="HTML"
+                                )
+                        except Exception as e:
+                            logger.error(f"Ёдоварии дермондагӣ ба админ {admin_id} нарасид: {e}")
+                except Exception as e:
+                    logger.error(f"Коркарди ёдоварии фармоиши #{order_id} нашуд: {e}")
+        except Exception as e:
+            logger.error(f"Хатогӣ дар давраи ёдоварии фармоишҳои дермонда: {e}")
+
+
 # ==================== ОҒОЗ ====================
 async def main():
     global BOT_USERNAME
@@ -863,6 +922,8 @@ async def main():
     asyncio.create_task(autopay.expiry_loop(bot))
     # Backup-и шабонаи база — соати 00:30
     asyncio.create_task(_backup_loop(bot))
+    # Ёдоварӣ барои фармоишҳои дастии дермонда — ҳар 5 дақиқа
+    asyncio.create_task(_stale_paid_orders_loop(bot))
     await dp.start_polling(bot)
 
 

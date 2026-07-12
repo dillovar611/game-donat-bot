@@ -122,6 +122,7 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN referral_credited TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN order_group_id VARCHAR(64) DEFAULT NULL",
                 "ALTER TABLE orders ADD COLUMN check_hash VARCHAR(64) DEFAULT NULL",
+                "ALTER TABLE orders ADD COLUMN stale_reminder_sent TINYINT DEFAULT 0",
             ):
                 try:
                     await cur.execute(ddl)
@@ -571,6 +572,30 @@ async def set_order_check(order_id: int, file_id: str, check_hash: str = None):
             await cur.execute(
                 "UPDATE orders SET check_file_id=%s, check_hash=%s, status='paid' WHERE id=%s",
                 (file_id, check_hash, order_id)
+            )
+
+
+async def get_stale_paid_orders(minutes: int = 20):
+    """
+    Фармоишҳои дастӣ (Алиф/Эсхата), ки чек фиристодаанд (status='paid')
+    вале зиёда аз `minutes` дақиқа то ҳол тасдиқ/рад нашудаанд ва то ҳол
+    ёдоварӣ нагирифтаанд. Барои ёдоварии админ/мизоҷ истифода мешавад.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders WHERE status='paid' AND stale_reminder_sent=0 "
+                "AND created_at <= NOW() - INTERVAL %s MINUTE",
+                (minutes,)
+            )
+            return await cur.fetchall()
+
+
+async def mark_stale_reminder_sent(order_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET stale_reminder_sent=1 WHERE id=%s", (order_id,)
             )
 
 
