@@ -93,6 +93,10 @@ async def init_db():
                     sort_order INT DEFAULT 0
                 )
             """)
+            try:
+                await cur.execute("ALTER TABLE products ADD COLUMN is_featured TINYINT DEFAULT 0")
+            except Exception:
+                pass
             # ---- Фармоишҳо ----
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS orders (
@@ -167,10 +171,11 @@ async def _seed_default_products():
                 (5600, 450.00, "💎 5600 (+560 bonus)", "6160_diamonds"),
             ]
             for i, (amount, price, label, offer_id) in enumerate(defaults):
+                is_featured = 1 if amount == 520 else 0
                 await cur.execute(
-                    "INSERT INTO products (amount, price, label, offer_id, sort_order) "
-                    "VALUES (%s,%s,%s,%s,%s)",
-                    (amount, price, label, offer_id, i)
+                    "INSERT INTO products (amount, price, label, offer_id, sort_order, is_featured) "
+                    "VALUES (%s,%s,%s,%s,%s,%s)",
+                    (amount, price, label, offer_id, i, is_featured)
                 )
             logger.info("✅ Нархҳои пешфарз илова шуданд")
 
@@ -453,6 +458,21 @@ async def update_product(product_id: int, amount: int, price: float, label: str,
                 "UPDATE products SET amount=%s, price=%s, label=%s, offer_id=%s WHERE id=%s",
                 (amount, price, label, offer_id, product_id)
             )
+
+
+async def toggle_product_featured(product_id: int):
+    """
+    Маҳсулотро ба ҳолати "🔥 Маъмултарин" мегузорад — танҳо ЯК маҳсулот
+    метавонад дар як вақт featured бошад, пас аввал ҳамаро хомӯш мекунад.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT is_featured FROM products WHERE id=%s", (product_id,))
+            row = await cur.fetchone()
+            currently_featured = bool(row and row[0])
+            await cur.execute("UPDATE products SET is_featured=0")
+            if not currently_featured:
+                await cur.execute("UPDATE products SET is_featured=1 WHERE id=%s", (product_id,))
 
 
 async def delete_product(product_id: int):

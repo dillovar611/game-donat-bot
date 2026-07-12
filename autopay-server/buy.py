@@ -224,8 +224,9 @@ async def show_products(call: CallbackQuery, state: FSMContext):
     buttons = []
     for p in products:
         label = p.get("label") or f"💎 {p['amount']}"
+        tag = "🔥 Маъмултарин — " if p.get("is_featured") else ""
         buttons.append([InlineKeyboardButton(
-            text=f"{label} — {p['price']:.2f} сом",
+            text=f"{tag}{label} — {p['price']:.2f} сом",
             callback_data=f"prod_{p['id']}"
         )])
     buttons.append([InlineKeyboardButton(text="🛒 Якчанд маҳсулот интихоб кардан", callback_data="cart_start")])

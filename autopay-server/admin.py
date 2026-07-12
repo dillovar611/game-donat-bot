@@ -714,9 +714,10 @@ async def a_products(call: CallbackQuery):
     buttons = []
     for p in products:
         active = "🟢" if p["is_active"] else "🔴"
+        featured = "🔥" if p.get("is_featured") else ""
         label = p.get("label") or f"💎 {p['amount']}"
         buttons.append([InlineKeyboardButton(
-            text=f"{active} {label} — {p['price']:.2f} сом",
+            text=f"{active}{featured} {label} — {p['price']:.2f} сом",
             callback_data=f"pedit_{p['id']}"
         )])
     buttons.append([InlineKeyboardButton(text="➕ Маҳсулоти нав", callback_data="padd")])
@@ -737,20 +738,34 @@ async def a_product_edit(call: CallbackQuery):
     if not p:
         await call.answer("❌ Ёфт нашуд!", show_alert=True)
         return
+    featured_btn = "⚪ Бекор кардани 🔥 Маъмултарин" if p.get("is_featured") else "🔥 Гузоштан ҳамчун Маъмултарин"
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✏️ Тағйир додан", callback_data=f"pchange_{product_id}")],
+        [InlineKeyboardButton(text=featured_btn,      callback_data=f"pfeat_{product_id}")],
         [InlineKeyboardButton(text="🗑 Нест кардан",   callback_data=f"pdel_{product_id}")],
         [InlineKeyboardButton(text="🔙 Бозгашт",       callback_data="a_products")],
     ])
+    featured_line = "\n🔥 <b>Ҳозир Маъмултарин аст</b>" if p.get("is_featured") else ""
     await _safe_edit(
         call,
         f"💎 <b>Маҳсулот #{product_id}</b>\n\n"
         f"🔢 Миқдор: <b>{p['amount']}</b>\n"
         f"💵 Нарх: <b>{p['price']:.2f} сом</b>\n"
         f"🏷 Ном: <b>{p.get('label') or '—'}</b>\n"
-        f"🔑 Offer ID: <code>{p.get('offer_id') or '—'}</code>",
+        f"🔑 Offer ID: <code>{p.get('offer_id') or '—'}</code>"
+        f"{featured_line}",
         kb
     )
+
+
+@router.callback_query(F.data.startswith("pfeat_"))
+async def a_product_toggle_featured(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    product_id = int(call.data.split("_")[1])
+    await db.toggle_product_featured(product_id)
+    await call.answer("✅ Навсозӣ шуд!")
+    await a_product_edit(call)
 
 
 @router.callback_query(F.data.startswith("pdel_"))
