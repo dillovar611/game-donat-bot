@@ -132,8 +132,49 @@ def main_menu() -> InlineKeyboardMarkup:
          InlineKeyboardButton(text="🤝 Реферал",     callback_data="referral_menu")],
         [InlineKeyboardButton(text="⭐ Отзив",       url=config.REVIEW_CHANNEL_URL),
          InlineKeyboardButton(text="🆘 Поддержка",   url=config.SUPPORT_URL)],
-        [InlineKeyboardButton(text="ℹ️ Маълумот",    callback_data="about")],
+        [InlineKeyboardButton(text="❓ Саволҳои маъмул", callback_data="faq"),
+         InlineKeyboardButton(text="ℹ️ Маълумот",    callback_data="about")],
     ])
+
+
+# ==================== FAQ ====================
+_FAQ_ITEMS = [
+    ("⏱ Чанд вақт мегирад?",
+     "Одатан алмоз/маҳсулот дар <b>1-5 дақиқа</b> баъд аз тасдиқи пардохт "
+     "фиристода мешавад. Агар автопардохт (Душанбе Сити) бошад — то 30 сония."),
+    ("✏️ Агар ID-и хато навишта бошам чӣ?",
+     "Пеш аз тасдиқ бо админ тамос гиред. Баъд аз донат, маблағ бозгардонида "
+     "намешавад — барои ҳамин ID-ро бодиққат санҷед."),
+    ("💰 Пул баргардонида мешавад?",
+     "Не, баъд аз донати муваффақ пул бозгардонида намешавад (ба ғайр аз "
+     "хатои техникии мо). Агар пардохт кардед вале маҳсулот нарасид, ба "
+     "дастгирӣ муроҷиат кунед."),
+    ("💳 Кадом усулҳои пардохт ҳастанд?",
+     "Душанбе Сити (автоматӣ), Алиф ва Эсхата. Ҳамаро дар вақти харид "
+     "интихоб карда метавонед."),
+    ("📸 Чек чӣ гуна фиристам?",
+     "Баъд аз пардохт, скриншоти чекро (аз барномаи бонк) ба ҳамин чат "
+     "фиристед. Бот худкор ба админ мефиристад."),
+    ("⚠️ Пардохт кардам, вале бот тасдиқ накард — чӣ кунам?",
+     "Каме сабр кунед (то 15-30 дақиқа барои фармоишҳои дастӣ). Агар боз ҳам "
+     "тасдиқ нашуд, бо дастгирӣ тамос гиред ва скриншоти пардохтро нишон диҳед."),
+]
+
+
+def faq_text() -> str:
+    lines = ["❓ <b>Саволҳои маъмул</b>\n"]
+    for q, a in _FAQ_ITEMS:
+        lines.append(f"<b>{q}</b>\n{a}\n")
+    return "\n".join(lines)
+
+
+@dp.callback_query(F.data == "faq")
+async def show_faq(call: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🆘 Ба дастгирӣ нависед", url=config.SUPPORT_URL)],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="back_main")],
+    ])
+    await _safe_edit(call, faq_text(), kb)
 
 
 def profile_menu() -> InlineKeyboardMarkup:
