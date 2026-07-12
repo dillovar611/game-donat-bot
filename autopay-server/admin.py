@@ -73,6 +73,40 @@ def _progress_bar(current: float, threshold: float, length: int = 10) -> str:
     return f"{'█' * filled}{'░' * (length - filled)} {pct}%"
 
 
+async def _run_with_live_progress(wait_msg: Message, header: str, coro):
+    """
+    Дар вакти интизории coro (масалан ff_api.auto_donate), caption-и
+    wait_msg-ро ҲАР СОНИЯ бо як progress-bar навсозӣ мекунад (то 95%,
+    то 100%-ро дурӯғ нагӯяд пеш аз натиҷаи воқеӣ). Вақте coro анҷом
+    ёфт, навсозӣ қатъ мешавад ва natiҷаи воқеӣ дар ҷои дигар нишон
+    дода мешавад.
+    """
+    stop_event = asyncio.Event()
+
+    async def _updater():
+        start = asyncio.get_event_loop().time()
+        est_total = 25.0  # сония — вакти тахминии як донати муваффақ
+        while not stop_event.is_set():
+            elapsed = asyncio.get_event_loop().time() - start
+            pct = min(95, int(elapsed / est_total * 100))
+            bar = _progress_bar(pct, 100)
+            try:
+                await _safe_edit_caption(wait_msg, f"{header}\n\n{bar}", None)
+            except Exception:
+                pass
+            try:
+                await asyncio.wait_for(stop_event.wait(), timeout=1.0)
+            except asyncio.TimeoutError:
+                pass
+
+    updater_task = asyncio.create_task(_updater())
+    try:
+        return await coro
+    finally:
+        stop_event.set()
+        await updater_task
+
+
 async def _buyer_info_line(order: dict) -> str:
     """
     Барои паёми «Донат муваффақ шуд!»-и ба админ — ном, юзер, ID-и
@@ -307,7 +341,15 @@ async def order_group_reject(call: CallbackQuery):
 async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
     """Донати худкорро иҷро мекунад ва натиҷаро хабар медиҳад."""
     order_id = order["id"]
-    success, api_order_id = await ff_api.auto_donate(order["game_id"], order["offer_id"], order.get("api_order_id") or "")
+    header = (
+        f"⏳ <b>Автодонати шумо оғоз шуд...</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n"
+        f"🎁 {order['label']} → <code>{order['game_id']}</code>"
+    )
+    success, api_order_id = await _run_with_live_progress(
+        wait_msg, header,
+        ff_api.auto_donate(order["game_id"], order["offer_id"], order.get("api_order_id") or "")
+    )
 
     if api_order_id:
         await db.set_order_api_id(order_id, api_order_id)
@@ -1461,7 +1503,15 @@ async def order_confirm_ffid(call: CallbackQuery):
 
 async def _do_donate_ffid(call: CallbackQuery, order: dict, player_id: str, wait_msg: Message):
     order_id = order["id"]
-    success, api_order_id = await ff_api.auto_donate_ffid(player_id, order["offer_id"], order.get("api_order_id") or "")
+    header = (
+        f"⏳ <b>Автодонати шумо оғоз шуд (FF Indonesia)...</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n"
+        f"🎁 {order['label']} → <code>{player_id}</code>"
+    )
+    success, api_order_id = await _run_with_live_progress(
+        wait_msg, header,
+        ff_api.auto_donate_ffid(player_id, order["offer_id"], order.get("api_order_id") or "")
+    )
 
     if api_order_id:
         await db.set_order_api_id(order_id, api_order_id)
@@ -1696,7 +1746,15 @@ async def order_confirm_pubg(call: CallbackQuery):
 
 async def _do_donate_pubg(call: CallbackQuery, order: dict, player_id: str, wait_msg: Message):
     order_id = order["id"]
-    success, api_order_id = await ff_api.auto_donate_pubg(player_id, order["offer_id"], order.get("api_order_id") or "")
+    header = (
+        f"⏳ <b>Автодонати шумо оғоз шуд (PUBG Mobile)...</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n"
+        f"🎁 {order['label']} → <code>{player_id}</code>"
+    )
+    success, api_order_id = await _run_with_live_progress(
+        wait_msg, header,
+        ff_api.auto_donate_pubg(player_id, order["offer_id"], order.get("api_order_id") or "")
+    )
 
     if api_order_id:
         await db.set_order_api_id(order_id, api_order_id)
@@ -1916,15 +1974,17 @@ async def order_confirm_stars(call: CallbackQuery):
 
     tg_username = order["game_id"].replace("STARS:", "")
 
-    await _safe_edit_caption(
-        call.message,
-        f"⏳ <b>Харидани Telegram Stars оғоз шуд...</b>\n\n"
+    header = (
+        f"⏳ <b>Автодонати шумо оғоз шуд (Telegram Stars)...</b>\n\n"
         f"🆔 Фармоиш: #{order_id}\n"
-        f"📱 @{tg_username} — {order['label']}",
-        None
+        f"📱 @{tg_username} — {order['label']}"
     )
+    await _safe_edit_caption(call.message, header, None)
 
-    success, api_order_id = await ff_api.buy_telegram_stars(tg_username, order["amount"])
+    success, api_order_id = await _run_with_live_progress(
+        call.message, header,
+        ff_api.buy_telegram_stars(tg_username, order["amount"])
+    )
 
     if api_order_id:
         await db.set_order_api_id(order_id, api_order_id)
@@ -1998,15 +2058,17 @@ async def order_confirm_premium(call: CallbackQuery):
 
     tg_username = order["game_id"].replace("PREMIUM:", "")
 
-    await _safe_edit_caption(
-        call.message,
-        f"⏳ <b>Харидани Telegram Premium оғоз шуд...</b>\n\n"
+    header = (
+        f"⏳ <b>Автодонати шумо оғоз шуд (Telegram Premium)...</b>\n\n"
         f"🆔 Фармоиш: #{order_id}\n"
-        f"📱 @{tg_username} — {order['label']}",
-        None
+        f"📱 @{tg_username} — {order['label']}"
     )
+    await _safe_edit_caption(call.message, header, None)
 
-    success, api_order_id = await ff_api.buy_telegram_premium(tg_username, order["amount"])
+    success, api_order_id = await _run_with_live_progress(
+        call.message, header,
+        ff_api.buy_telegram_premium(tg_username, order["amount"])
+    )
 
     if api_order_id:
         await db.set_order_api_id(order_id, api_order_id)
