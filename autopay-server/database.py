@@ -117,6 +117,7 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN paid_with_referral_balance TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN referral_credited TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN order_group_id VARCHAR(64) DEFAULT NULL",
+                "ALTER TABLE orders ADD COLUMN check_hash VARCHAR(64) DEFAULT NULL",
             ):
                 try:
                     await cur.execute(ddl)
@@ -543,14 +544,34 @@ async def update_order_status(order_id: int, status: str):
             await cur.execute("UPDATE orders SET status=%s WHERE id=%s", (status, order_id))
 
 
-async def set_order_check(order_id: int, file_id: str):
+async def set_order_check(order_id: int, file_id: str, check_hash: str = None):
     """ID-и расми чекро сабт мекунад ва статусро 'paid' мегузорад."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE orders SET check_file_id=%s, status='paid' WHERE id=%s",
-                (file_id, order_id)
+                "UPDATE orders SET check_file_id=%s, check_hash=%s, status='paid' WHERE id=%s",
+                (file_id, check_hash, order_id)
             )
+
+
+async def find_confirmed_duplicate_check(user_id: int, check_hash: str, hours: int = 72):
+    """
+    Агар ҳамин корбар аллакай як фармоиши ТАСДИҚШУДА дошта бошад бо
+    маҳз ҳамин расми чек (check_hash баробар), онро бармегардонад — то
+    пешгирии донати такрории ҳамон пардохт (мизоҷ/админ иштибоҳан
+    ҳамон чекро дубора мефиристад/тасдиқ мекунад).
+    """
+    if not check_hash:
+        return None
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders WHERE user_id=%s AND check_hash=%s "
+                "AND status='confirmed' AND created_at >= NOW() - INTERVAL %s HOUR "
+                "ORDER BY created_at DESC LIMIT 1",
+                (user_id, check_hash, hours)
+            )
+            return await cur.fetchone()
 
 
 async def set_order_api_id(order_id: int, api_id: str):

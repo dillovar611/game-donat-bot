@@ -10,6 +10,7 @@
 """
 import logging
 import asyncio
+import hashlib
 import uuid
 import html
 from datetime import datetime
@@ -42,6 +43,41 @@ def esc(text) -> str:
 
 logger = logging.getLogger(__name__)
 router = Router()
+
+
+async def _hash_photo(message: Message) -> str:
+    """Sha256-и байтҳои расми чекро мебарорад — барои муайян кардани
+    он ки ҳамин чек пештар истифода шудааст ё не (новобаста аз file_id,
+    ки ҳар бор метавонад фарқ кунад)."""
+    try:
+        buf = await message.bot.download(message.photo[-1])
+        return hashlib.sha256(buf.read()).hexdigest()
+    except Exception as e:
+        logger.warning(f"Hash-и чек ҳисоб нашуд: {e}")
+        return ""
+
+
+async def _block_if_duplicate_check(message: Message, check_hash: str):
+    """
+    Агар ҳамин чек пештар барои фармоиши ТАСДИҚШУДАИ ҳамин корбар
+    истифода шуда бошад — ба корбар хабар медиҳад ва order-и кӯҳнаро
+    бармегардонад (даъваткунанда бояд дар ин ҳолат return кунад, то
+    фармоиши нав/донати такрорӣ сохта нашавад).
+    """
+    if not check_hash:
+        return None
+    dup = await db.find_confirmed_duplicate_check(message.from_user.id, check_hash)
+    if not dup:
+        return None
+    await message.answer(
+        f"⚠️ <b>Ин чек аллакай истифода шудааст!</b>\n\n"
+        f"Ҳамин расм барои фармоиши #{dup['id']} (тасдиқшуда, "
+        f"{dup['label']}) аллакай қабул шуда буд.\n\n"
+        f"Агар ин фармоиши НАВ ва пардохти ДИГАР бошад, лутфан скриншоти "
+        f"НАВ (тоза) фиристед. Агар савол дошта бошед: {config.SUPPORT_USERNAME}",
+        parse_mode="HTML"
+    )
+    return dup
 
 
 async def _apply_level_discount(user_id: int, price: float) -> tuple[float, float, float]:
@@ -705,6 +741,11 @@ async def receive_check(message: Message, state: FSMContext):
             asyncio.create_task(autopay.run_donate(message.bot, order, kod))
         return
 
+    # ==== Пешгирии донати такрорӣ: агар ҳамин чек пештар тасдиқ шуда буд ====
+    check_hash = await _hash_photo(message)
+    if await _block_if_duplicate_check(message, check_hash):
+        return
+
     _pm = data.get("payment_method")
     if _pm == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
@@ -731,7 +772,7 @@ async def receive_check(message: Message, state: FSMContext):
                 payment_method=data.get("payment_method", ""),
                 order_group_id=group_id,
             )
-            await db.set_order_check(oid, file_id)
+            await db.set_order_check(oid, file_id, check_hash)
             order_ids.append(oid)
 
         ids_text = ", ".join(f"#{i}" for i in order_ids)
@@ -794,7 +835,7 @@ async def receive_check(message: Message, state: FSMContext):
         offer_id=data.get("offer_id", ""),
         payment_method=data.get("payment_method", ""),
     )
-    await db.set_order_check(order_id, file_id)
+    await db.set_order_check(order_id, file_id, check_hash)
 
     # Ба корбар
     await message.answer(
@@ -1195,6 +1236,9 @@ async def ffid_receive_check(message: Message, state: FSMContext):
     await state.clear()
 
     file_id = message.photo[-1].file_id
+    check_hash = await _hash_photo(message)
+    if await _block_if_duplicate_check(message, check_hash):
+        return
     _pm = data.get("payment_method")
     if _pm == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
@@ -1213,7 +1257,7 @@ async def ffid_receive_check(message: Message, state: FSMContext):
         offer_id=data.get("offer_id", ""),
         payment_method=data.get("payment_method", ""),
     )
-    await db.set_order_check(order_id, file_id)
+    await db.set_order_check(order_id, file_id, check_hash)
     # Маркер барои FF Indonesia
     async with db.pool.acquire() as conn:
         async with conn.cursor() as cur:
@@ -1498,6 +1542,9 @@ async def pubg_receive_check(message: Message, state: FSMContext):
     await state.clear()
 
     file_id = message.photo[-1].file_id
+    check_hash = await _hash_photo(message)
+    if await _block_if_duplicate_check(message, check_hash):
+        return
     _pm = data.get("payment_method")
     if _pm == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
@@ -1516,7 +1563,7 @@ async def pubg_receive_check(message: Message, state: FSMContext):
         offer_id=data.get("offer_id", ""),
         payment_method=data.get("payment_method", ""),
     )
-    await db.set_order_check(order_id, file_id)
+    await db.set_order_check(order_id, file_id, check_hash)
 
     await message.answer(
         "✅ <b>Чек қабул шуд!</b>\n\n"
@@ -1790,6 +1837,9 @@ async def stars_receive_check(message: Message, state: FSMContext):
     await state.clear()
 
     file_id = message.photo[-1].file_id
+    check_hash = await _hash_photo(message)
+    if await _block_if_duplicate_check(message, check_hash):
+        return
     _pm = data.get("payment_method")
     if _pm == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
@@ -1808,7 +1858,7 @@ async def stars_receive_check(message: Message, state: FSMContext):
         offer_id="",
         payment_method=data.get("payment_method", ""),
     )
-    await db.set_order_check(order_id, file_id)
+    await db.set_order_check(order_id, file_id, check_hash)
 
     await message.answer(
         "✅ <b>Чек қабул шуд!</b>\n\n"
@@ -2060,6 +2110,9 @@ async def premium_receive_check(message: Message, state: FSMContext):
     await state.clear()
 
     file_id = message.photo[-1].file_id
+    check_hash = await _hash_photo(message)
+    if await _block_if_duplicate_check(message, check_hash):
+        return
     _pm = data.get("payment_method")
     if _pm == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
@@ -2078,7 +2131,7 @@ async def premium_receive_check(message: Message, state: FSMContext):
         offer_id="",
         payment_method=data.get("payment_method", ""),
     )
-    await db.set_order_check(order_id, file_id)
+    await db.set_order_check(order_id, file_id, check_hash)
 
     await message.answer(
         "✅ <b>Чек қабул шуд!</b>\n\n"
