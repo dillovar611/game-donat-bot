@@ -534,8 +534,12 @@ async def order_manual(call: CallbackQuery):
 
 
 # ==================== РАД КАРДАН ====================
+class RejectState(StatesGroup):
+    enter_reason = State()
+
+
 @router.callback_query(F.data.startswith("no_"))
-async def order_reject(call: CallbackQuery):
+async def order_reject(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
         return
     order_id = int(call.data.split("_")[1])
@@ -543,6 +547,44 @@ async def order_reject(call: CallbackQuery):
     if not order:
         await call.answer("❌ Фармоиш ёфт нашуд!", show_alert=True)
         return
+    if order["status"] in ("confirmed", "rejected"):
+        await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+        return
+
+    await state.update_data(
+        reject_order_id=order_id,
+        reject_chat_id=call.message.chat.id,
+        reject_msg_id=call.message.message_id,
+    )
+    await state.set_state(RejectState.enter_reason)
+    await call.answer()
+    await call.bot.send_message(
+        call.from_user.id,
+        f"📝 <b>Сабаби радди фармоиши #{order_id}-ро нависед:</b>\n\n"
+        f"(Ё нависед «—» агар сабаб ба мизоҷ гуфтан нахоҳед)",
+        parse_mode="HTML"
+    )
+
+
+@router.message(RejectState.enter_reason)
+async def order_reject_reason(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    await state.clear()
+    order_id = data.get("reject_order_id")
+    if not order_id:
+        return
+    order = await db.get_order(order_id)
+    if not order:
+        await message.answer("❌ Фармоиш ёфт нашуд!")
+        return
+    if order["status"] in ("confirmed", "rejected"):
+        await message.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}")
+        return
+
+    reason = (message.text or "").strip()
+    reason_clean = "" if reason in ("—", "-", "") else reason
 
     await db.update_order_status(order_id, "rejected")
     # Агар бо баланси реферралӣ пардохт шуда буд — баргардонидан
@@ -555,10 +597,12 @@ async def order_reject(call: CallbackQuery):
             "\n💰 Маблаг ба балансаи реферралии шумо баргардонида шуд."
             if order.get("payment_method") == "referral_balance" else ""
         )
-        await call.bot.send_message(
+        reason_line = f"\n📝 Сабаб: {esc(reason_clean)}\n" if reason_clean else ""
+        await message.bot.send_message(
             order["user_id"],
             f"❌ <b>Пардохти шумо рад карда шуд.</b>\n\n"
             f"🆔 Фармоиш: #{order_id}\n"
+            f"{reason_line}"
             f"{refund_note}\n\n"
             f"Агар хато бошад, бо дастгирӣ тамос гиред: {config.SUPPORT_USERNAME}",
             parse_mode="HTML"
@@ -566,11 +610,24 @@ async def order_reject(call: CallbackQuery):
     except Exception as e:
         logger.error(f"Хабар ба корбар нашуд: {e}")
 
-    await _safe_edit_caption(
-        call.message,
-        f"❌ <b>Фармоиши #{order_id} рад карда шуд.</b>",
-        None
-    )
+    caption = f"❌ <b>Фармоиши #{order_id} рад карда шуд.</b>"
+    if reason_clean:
+        caption += f"\n📝 Сабаб: {esc(reason_clean)}"
+    try:
+        await message.bot.edit_message_caption(
+            chat_id=data["reject_chat_id"], message_id=data["reject_msg_id"],
+            caption=caption, parse_mode="HTML"
+        )
+    except Exception:
+        try:
+            await message.bot.edit_message_text(
+                chat_id=data["reject_chat_id"], message_id=data["reject_msg_id"],
+                text=caption, parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Навсозии паёми фармоиши #{order_id} нашуд: {e}")
+
+    await message.answer(f"✅ Фармоиши #{order_id} рад карда шуд.")
 
 
 # ==================== ОМОР ====================
@@ -670,15 +727,7 @@ async def a_reengagement_stats(call: CallbackQuery):
         f"👋 <b>Ёдоварии бе-фармоиш:</b>\n"
         f"   Фиристода шуд: <b>{s['noorder_sent']}</b>\n"
         f"   Баъд харид кард: <b>{s['noorder_converted']}</b> "
-        f"({_rate(s['noorder_sent'], s['noorder_converted'])})\n\n"
-        f"🎁 <b>Тахфифи 3%:</b>\n"
-        f"   Фиристода шуд: <b>{s['discount3_sent']}</b>\n"
-        f"   Истифода шуд: <b>{s['discount3_converted']}</b> "
-        f"({_rate(s['discount3_sent'], s['discount3_converted'])})\n\n"
-        f"🎁 <b>Тахфифи 5%:</b>\n"
-        f"   Фиристода шуд: <b>{s['discount5_sent']}</b>\n"
-        f"   Истифода шуд: <b>{s['discount5_converted']}</b> "
-        f"({_rate(s['discount5_sent'], s['discount5_converted'])})"
+        f"({_rate(s['noorder_sent'], s['noorder_converted'])})"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_stats")]

@@ -736,13 +736,12 @@ async def clear_discount(user_id: int):
 
 async def get_reengagement_stats() -> dict:
     """
-    Омори функсияи баргардонидани мизоҷ:
-    - шумораи корбароне, ки ҲАР як аз 3 ёдоварӣ гирифтаанд
+    Омори функсияи баргардонидани мизоҷ (ёдоварии бе-фармоиш):
+    - шумораи корбароне, ки ёдоварӣ гирифтаанд
     - аз онҳо, чанд нафар БАЪД АЗ он воқеан харид кардаанд (муваффақият)
     """
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
-            # ---- Гурӯҳи 1: бе-фармоиш ----
             await cur.execute(
                 "SELECT COUNT(*) FROM users WHERE reminder_noorder_sent=1"
             )
@@ -753,33 +752,9 @@ async def get_reengagement_stats() -> dict:
             )
             noorder_converted = (await cur.fetchone())[0]
 
-            # ---- Гурӯҳи 2: тахфифи 3% ----
-            await cur.execute(
-                "SELECT COUNT(*) FROM users WHERE reminder_discount3_sent=1"
-            )
-            discount3_sent = (await cur.fetchone())[0]
-            await cur.execute(
-                "SELECT COUNT(*) FROM users WHERE discount3_used=1"
-            )
-            discount3_converted = (await cur.fetchone())[0]
-
-            # ---- Гурӯҳи 3: тахфифи 5% ----
-            await cur.execute(
-                "SELECT COUNT(*) FROM users WHERE reminder_discount5_sent=1"
-            )
-            discount5_sent = (await cur.fetchone())[0]
-            await cur.execute(
-                "SELECT COUNT(*) FROM users WHERE discount5_used=1"
-            )
-            discount5_converted = (await cur.fetchone())[0]
-
             return {
                 "noorder_sent": noorder_sent,
                 "noorder_converted": noorder_converted,
-                "discount3_sent": discount3_sent,
-                "discount3_converted": discount3_converted,
-                "discount5_sent": discount5_sent,
-                "discount5_converted": discount5_converted,
             }
 
 
