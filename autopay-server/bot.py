@@ -13,6 +13,7 @@ from aiogram import Bot, Dispatcher, BaseMiddleware, F
 from aiogram.types import (
     Message, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
+    FSInputFile,
 )
 from aiogram.filters import CommandStart, CommandObject
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -671,6 +672,88 @@ async def _daily_report_loop(bot: Bot):
             logger.error(f"Хатогӣ дар сохтани гузориши шабона: {e}")
 
 
+# ==================== BACKUP-И ШАБОНАИ БАЗА ====================
+async def _run_backup_and_send(bot: Bot):
+    """mysqldump мегирад, фишурда (gzip) мекунад ва ба ҳамаи админҳо
+    ҳамчун файл мефиристад. Файлҳои муваққатӣ дар охир нест мешаванд."""
+    import subprocess
+    import gzip
+    import tempfile
+    import os
+
+    date_str = datetime.now(TJ_TZ).strftime("%Y-%m-%d")
+    fd, sql_path = tempfile.mkstemp(suffix=".sql")
+    os.close(fd)
+    gz_path = sql_path + ".gz"
+    try:
+        env = os.environ.copy()
+        env["MYSQL_PWD"] = config.DB_PASSWORD  # то parolь дар "ps aux" намоён нашавад
+        cmd = [
+            "mysqldump",
+            f"-h{config.DB_HOST}",
+            f"-P{config.DB_PORT}",
+            f"-u{config.DB_USER}",
+            "--single-transaction",
+            config.DB_NAME,
+        ]
+        with open(sql_path, "wb") as out:
+            proc = subprocess.run(cmd, stdout=out, stderr=subprocess.PIPE, timeout=180, env=env)
+        if proc.returncode != 0:
+            raise RuntimeError(proc.stderr.decode(errors="ignore")[:500])
+
+        with open(sql_path, "rb") as f_in, gzip.open(gz_path, "wb") as f_out:
+            f_out.writelines(f_in)
+
+        size_mb = os.path.getsize(gz_path) / (1024 * 1024)
+        if size_mb > 45:
+            raise RuntimeError(f"Файли backup хеле калон аст: {size_mb:.1f}MB (лимити Telegram 50MB)")
+
+        doc = FSInputFile(gz_path, filename=f"backup_{date_str}.sql.gz")
+        for admin_id in config.ADMIN_IDS:
+            try:
+                await bot.send_document(
+                    admin_id, doc,
+                    caption=f"🗄 <b>Backup-и база — {date_str}</b>\n({size_mb:.2f} MB)",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Backup ба админ {admin_id} нарасид: {e}")
+    finally:
+        for p in (sql_path, gz_path):
+            try:
+                os.remove(p)
+            except Exception:
+                pass
+
+
+async def _backup_loop(bot: Bot):
+    """Ҳар шаб дар соати 00:30 (вақти Тоҷикистон, баъд аз гузориши
+    шабона) backup-и пурраи базаро ба ҳамаи админҳо мефиристад."""
+    while True:
+        now = datetime.now(TJ_TZ)
+        next_time = (now + timedelta(days=1)).replace(hour=0, minute=30, second=0, microsecond=0)
+        wait_seconds = (next_time - now).total_seconds()
+        await asyncio.sleep(wait_seconds)
+        try:
+            await _run_backup_and_send(bot)
+        except Exception as e:
+            logger.error(f"Backup-и шабонаи база нашуд: {e}")
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await bot.send_message(
+                        admin_id,
+                        f"⚠️ <b>Backup-и шабонаи база НАШУД!</b>\n\nХато: {esc_err(e)}",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+
+
+def esc_err(e) -> str:
+    import html
+    return html.escape(str(e)[:300])
+
+
 async def _notify_admins_reengagement(bot: Bot, action: str, user: dict):
     """Ба ADMIN_IDS хабар медиҳад, ки кадом амали баргардонидани мизоҷ иҷро шуд."""
     display = f"@{user['username']}" if user.get("username") else (user.get("full_name") or f"ID {user['id']}")
@@ -737,6 +820,8 @@ async def main():
     asyncio.create_task(_reengagement_loop(bot))
     # Автопардохт — бастани фармоишҳои мӯҳлаташон гузашта
     asyncio.create_task(autopay.expiry_loop(bot))
+    # Backup-и шабонаи база — соати 00:30
+    asyncio.create_task(_backup_loop(bot))
     await dp.start_polling(bot)
 
 
