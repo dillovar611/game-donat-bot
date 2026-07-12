@@ -200,7 +200,7 @@ async def order_confirm(call: CallbackQuery):
         call.message,
         f"⏳ <b>Донати худкор оғоз шуд...</b>\n\n"
         f"🆔 Фармоиш: #{order_id}\n"
-        f"🎁 {order['label']} → <code>{order['game_id']}</code>",
+        f"{order['label']} → <code>{order['game_id']}</code>",
         None
     )
 
@@ -255,7 +255,7 @@ async def _do_donate_group(call: CallbackQuery, orders: list):
 
     # Хабар ба харидор — як паём барои ҳама
     if ok_items:
-        lines = "\n".join(f"  🎁 {o['label']} → <code>{o['game_id']}</code>" for o, _, _ in ok_items)
+        lines = "\n".join(f"  {o['label']} → <code>{o['game_id']}</code>" for o, _, _ in ok_items)
         # Тугмаҳо: чеки муваффақ барои ҳар маҳсулоти FF СНГ + отзив
         _kb_rows = []
         for o, _, _ in ok_items:
@@ -344,7 +344,7 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
     header = (
         f"⏳ <b>Автодонати шумо оғоз шуд...</b>\n\n"
         f"🆔 Фармоиш: #{order_id}\n"
-        f"🎁 {order['label']} → <code>{order['game_id']}</code>"
+        f"{order['label']} → <code>{order['game_id']}</code>"
     )
     success, api_order_id = await _run_with_live_progress(
         wait_msg, header,
@@ -366,7 +366,7 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
                 order["user_id"],
                 f"✅ <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n"
-                f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
+                f"{order['label']} → <code>{order['game_id']}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
                 f"⭐ Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -385,7 +385,7 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
             f"{buyer_line}\n"
             f"🆔 Фармоиш: #{order_id}\n"
             f"{api_id_line}"
-            f"🎁 {order['label']} → <code>{order['game_id']}</code>",
+            f"{order['label']} → <code>{order['game_id']}</code>",
             None
         )
     else:
@@ -410,7 +410,7 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
             f"🆔 Фармоиш: #{order_id}\n"
             f"{api_id_line}"
             f"🆔 ID: <code>{order['game_id']}</code>\n"
-            f"🎁 {order['label']}\n\n"
+            f"{order['label']}\n\n"
             f"Метавонед дубора кӯшиш кунед ё дастӣ донат карда тасдиқ кунед.",
             retry_kb
         )
@@ -514,7 +514,7 @@ async def order_manual(call: CallbackQuery):
             order["user_id"],
             f"✅ <b>Алмазҳо фиристода шуданд!</b>\n\n"
             f"🆔 Фармоиш: #{order_id}\n"
-            f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
+            f"{order['label']} → <code>{order['game_id']}</code>\n\n"
             f"🙏 Ташаккур барои харид!\n\n"
             f"⭐ Лутфан отзив гузоред:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=_kb_rows),
@@ -528,7 +528,7 @@ async def order_manual(call: CallbackQuery):
         call.message,
         f"✅ <b>Фармоиши #{order_id} дастӣ тасдиқ шуд.</b>\n\n"
         f"{api_id_line}"
-        f"🎁 {order['label']} → <code>{order['game_id']}</code>",
+        f"{order['label']} → <code>{order['game_id']}</code>",
         None
     )
 
@@ -1493,7 +1493,7 @@ async def order_confirm_ffid(call: CallbackQuery):
         call.message,
         f"⏳ <b>Донати худкор оғоз шуд (FF Indonesia)...</b>\n\n"
         f"🆔 Фармоиш: #{order_id}\n"
-        f"🎁 {order['label']} → <code>{player_id}</code>",
+        f"{order['label']} → <code>{player_id}</code>",
         None
     )
 
@@ -1506,7 +1506,7 @@ async def _do_donate_ffid(call: CallbackQuery, order: dict, player_id: str, wait
     header = (
         f"⏳ <b>Автодонати шумо оғоз шуд (FF Indonesia)...</b>\n\n"
         f"🆔 Фармоиш: #{order_id}\n"
-        f"🎁 {order['label']} → <code>{player_id}</code>"
+        f"{order['label']} → <code>{player_id}</code>"
     )
     success, api_order_id = await _run_with_live_progress(
         wait_msg, header,
@@ -1527,7 +1527,7 @@ async def _do_donate_ffid(call: CallbackQuery, order: dict, player_id: str, wait
                 order["user_id"],
                 f"✅ <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n"
-                f"🎁 {order['label']} → <code>{player_id}</code>\n\n"
+                f"{order['label']} → <code>{player_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
                 f"⭐ Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
@@ -1544,7 +1544,7 @@ async def _do_donate_ffid(call: CallbackQuery, order: dict, player_id: str, wait
             f"{buyer_line}\n"
             f"🆔 Фармоиш: #{order_id}\n"
             f"{api_id_line}"
-            f"🎁 {order['label']} → <code>{player_id}</code>",
+            f"{order['label']} → <code>{player_id}</code>",
             None
         )
     else:
@@ -1566,7 +1566,7 @@ async def _do_donate_ffid(call: CallbackQuery, order: dict, player_id: str, wait
             f"🆔 Фармоиш: #{order_id}\n"
             f"{api_id_line}"
             f"🆔 ID: <code>{player_id}</code>\n"
-            f"🎁 {order['label']}\n\n"
+            f"{order['label']}\n\n"
             f"Метавонед дубора кӯшиш кунед ё дастӣ донат карда тасдиқ кунед.",
             retry_kb
         )
