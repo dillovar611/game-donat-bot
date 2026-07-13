@@ -323,6 +323,20 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
     # ---- Марҳилаи 3: донат (паси ҳам, тавассути навбат) — бо progress bar ----
     try:
         async with _donate_lock:
+            # Бехатарии иловагӣ: пеш аз фиристодан ба API, аз база маълумоти
+            # ТОЗАРО мехонем (на он чи дар аввали функсия дошта будем) — то
+            # агар ин фармоиш аллакай ба FazerCards/MooGold фиристода шуда
+            # бошад (масалан бо даъвати параллели дигар), ID-и мавҷударо
+            # истифода барем, на фармоиши комилан НАВ созем (зидди донати
+            # дукарата — зарари молиявӣ).
+            fresh_order = await db.get_order(order_id) or order
+            if fresh_order.get("status") not in ("paid",):
+                logger.warning(
+                    f"Autopay: фармоиши #{order_id} дигар 'paid' нест "
+                    f"(ҳозир: {fresh_order.get('status')}) — Марҳилаи 3 гузаронида шуд"
+                )
+                return
+
             header = (
                 "🚀 <b>Автодонати шумо оғоз шуд!</b>\n"
                 "Одатан 1-3 дақиқа мегирад..."
@@ -334,17 +348,19 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
                 logger.error(f"Паёми оғози донат ба {user_id} нарасид: {e}")
 
             donate_coro = ff_api.auto_donate(
-                order["game_id"], order["offer_id"], order.get("api_order_id") or ""
+                fresh_order["game_id"], fresh_order["offer_id"], fresh_order.get("api_order_id") or ""
             )
             if progress_msg:
                 success, api_order_id = await _run_with_live_progress_text(progress_msg, header, donate_coro)
             else:
                 success, api_order_id = await donate_coro
+
+            # Сабти ID ҳанӯз ДАР ДОХИЛИ қулф — то даъвати навбатӣ (агар
+            # бошад) ҳатман ин ID-ро тоза бинад, на холӣ (равзанаи race)
+            if api_order_id:
+                await db.set_order_api_id(order_id, api_order_id)
     finally:
         _queue_count -= 1
-
-    if api_order_id:
-        await db.set_order_api_id(order_id, api_order_id)
 
     # ---- Марҳилаи 4: натиҷа ----
     if success:
