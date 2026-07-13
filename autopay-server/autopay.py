@@ -45,6 +45,12 @@ SEARCH_TIMEOUT_MIN = 10   # чек омад, вале пардохт то ин �
 _donate_lock = asyncio.Lock()
 _queue_count = 0  # чанд фармоиш ҳоло дар навбат/кор аст
 
+# Монеаи иловагӣ (дар хотираи барнома, на база) — зидди он ки run_donate
+# ду бор ҳамзамон барои ҲАМОН фармоиш сар шавад (пеш аз он ки дархости
+# claim_order_for_donate ба база расад). Хеле тезтар аз DB-claim, пас
+# race-ро дар ҳамон лаҳза мебандад.
+_in_flight_orders: set[int] = set()
+
 
 def esc(text) -> str:
     if text is None:
@@ -256,11 +262,30 @@ async def run_donate(bot: Bot, order: dict, kod: str):
     user_id = order["user_id"]
     price = float(order["price"])
 
-    # Ҳимояи атомикӣ аз ду бор донат шудан (race): танҳо ЯК даъват
-    # метавонад фармоишро аз autopay_search/awaiting ба 'paid' гузаронад
-    if not await db.claim_order_for_donate(order_id):
-        logger.info(f"Autopay: фармоиши #{order_id} аллакай дар кор аст — такрор нашуд")
+    # Монеаи фаврӣ (хотира) — агар ҳамин лаҳза дигар даъвате барои ин
+    # фармоиш дар кор бошад, фавран баромадан (пеш аз расидан ба база)
+    if order_id in _in_flight_orders:
+        logger.info(f"Autopay: фармоиши #{order_id} аллакай дар хотира дар кор аст — такрор нашуд")
         return
+    _in_flight_orders.add(order_id)
+    try:
+        # Ҳимояи атомикӣ аз ду бор донат шудан (race): танҳо ЯК даъват
+        # метавонад фармоишро аз autopay_search/awaiting ба 'paid' гузаронад
+        if not await db.claim_order_for_donate(order_id):
+            logger.info(f"Autopay: фармоиши #{order_id} аллакай дар кор аст — такрор нашуд")
+            return
+        await run_donate_inner(bot, order, kod)
+    finally:
+        _in_flight_orders.discard(order_id)
+
+
+async def run_donate_inner(bot: Bot, order: dict, kod: str):
+    """Қисми асосии run_donate (баъд аз claim_order_for_donate)."""
+    global _queue_count
+    order_id = order["id"]
+    user_id = order["user_id"]
+    price = float(order["price"])
+
     await db.mark_kod_matched(kod, order_id)
 
     # ---- Марҳилаи 1: пардохт ёфта шуд ----
