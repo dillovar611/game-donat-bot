@@ -896,8 +896,10 @@ async def review_save(message: Message, state: FSMContext):
     order_id = data.get("review_order_id", "")
     await state.clear()
 
-    # Маълумоти фармоишро аз база мегирем (агар order_id дода шуда бошад)
+    # Маълумоти фармоишро аз база мегирем (агар order_id дода шуда бошад ва аз они ҳамин корбар бошад)
     order = await db.get_order(int(order_id)) if order_id and order_id.isdigit() else None
+    if order and order.get("user_id") != message.from_user.id:
+        order = None
     label = order.get("label", "—") if order else "—"
 
     stats = await db.get_user_stats(message.from_user.id)

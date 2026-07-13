@@ -566,6 +566,10 @@ async def send_success_receipt(call: CallbackQuery):
         await call.answer("❌ Фармоиш ёфт нашуд!", show_alert=True)
         return
 
+    if order.get("user_id") != call.from_user.id and not is_admin(call.from_user.id):
+        await call.answer("❌ Ин фармоиши шумо нест!", show_alert=True)
+        return
+
     if order.get("status") != "confirmed":
         await call.answer("ℹ️ Ин фармоиш ҳанӯз тасдиқ нашудааст.", show_alert=True)
         return
