@@ -76,13 +76,20 @@ async def _run_with_live_progress_text(msg: Message, header: str, coro):
     async def _updater():
         start = asyncio.get_event_loop().time()
         est_total = 25.0
+        last_pct = -1
         while not stop_event.is_set():
             elapsed = asyncio.get_event_loop().time() - start
             pct = min(95, int(elapsed / est_total * 100))
-            try:
-                await msg.edit_text(f"{header}\n\n{_progress_bar(pct)}", parse_mode="HTML")
-            except Exception:
-                pass
+            if pct != last_pct:
+                try:
+                    await msg.edit_text(f"{header}\n\n{_progress_bar(pct)}", parse_mode="HTML")
+                except Exception:
+                    pass
+                last_pct = pct
+            if pct >= 95:
+                # Ба 95% расид — то натиҷаи воқеӣ дигар навсозӣ лозим нест,
+                # навсозии бефоида (ҳар сония)-ро қатъ мекунем
+                return
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=1.0)
             except asyncio.TimeoutError:

@@ -88,14 +88,19 @@ async def _run_with_live_progress(wait_msg: Message, header: str, coro):
     async def _updater():
         start = asyncio.get_event_loop().time()
         est_total = 25.0  # сония — вакти тахминии як донати муваффақ
+        last_pct = -1
         while not stop_event.is_set():
             elapsed = asyncio.get_event_loop().time() - start
             pct = min(95, int(elapsed / est_total * 100))
-            bar = _progress_bar(pct, 100)
-            try:
-                await _safe_edit_caption(wait_msg, f"{header}\n\n{bar}", None)
-            except Exception:
-                pass
+            if pct != last_pct:
+                bar = _progress_bar(pct, 100)
+                try:
+                    await _safe_edit_caption(wait_msg, f"{header}\n\n{bar}", None)
+                except Exception:
+                    pass
+                last_pct = pct
+            if pct >= 95:
+                return
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=1.0)
             except asyncio.TimeoutError:
