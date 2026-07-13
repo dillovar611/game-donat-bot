@@ -850,8 +850,10 @@ async def _stale_paid_orders_loop(bot: Bot):
     """
     Ҳар 5 дақиқа фармоишҳои дастиро (Алиф/Эсхата) санҷад, ки чек фиристодаанд
     вале зиёда аз 20 дақиқа админ тасдиқ/рад накардааст. Ба мизоҷ узр
-    мефиристад, ба админ бо тугмаҳои амал ёдоварӣ мекунад. Ҳар фармоиш
-    фақат ЯК бор ёдоварӣ мегирад.
+    мефиристад. Ба админ ЧИЗЕ ФИРИСТОДА НАМЕШАВАД — фармоиш танҳо дар
+    "📋 Фармоишҳои интизорӣ" (a_pending_orders) намоён аст, то худи
+    админ тугмаро пахш кунад (бе спам дар чат). Ҳар фармоиш фақат ЯК
+    бор ёдоварӣ ба мизоҷ мегирад.
     """
     while True:
         await asyncio.sleep(5 * 60)
@@ -860,7 +862,6 @@ async def _stale_paid_orders_loop(bot: Bot):
                 order_id = order["id"]
                 try:
                     await db.mark_stale_reminder_sent(order_id)
-
                     try:
                         await bot.send_message(
                             order["user_id"],
@@ -872,32 +873,6 @@ async def _stale_paid_orders_loop(bot: Bot):
                         )
                     except Exception as e:
                         logger.error(f"Ёдоварии дермондагӣ ба мизоҷи {order['user_id']} нарасид: {e}")
-
-                    user = await db.get_user(order["user_id"])
-                    username = f"@{user['username']}" if user and user.get("username") else "—"
-                    kb = InlineKeyboardMarkup(inline_keyboard=[
-                        [InlineKeyboardButton(text="✅ Тасдиқ (донат)", callback_data=f"ok_{order_id}")],
-                        [InlineKeyboardButton(text="❌ Рад кардан",     callback_data=f"no_{order_id}")],
-                    ])
-                    admin_text = (
-                        f"⚠️ <b>Фармоиши #{order_id} 20+ дақиқа интизор аст!</b>\n\n"
-                        f"👤 {username} (<code>{order['user_id']}</code>)\n"
-                        f"🎁 {order['label']} → <code>{order['game_id']}</code>\n"
-                        f"💵 {order['price']:.2f} сомонӣ"
-                    )
-                    for admin_id in config.ADMIN_IDS:
-                        try:
-                            if order.get("check_file_id"):
-                                await bot.send_photo(
-                                    admin_id, order["check_file_id"],
-                                    caption=admin_text, reply_markup=kb, parse_mode="HTML"
-                                )
-                            else:
-                                await bot.send_message(
-                                    admin_id, admin_text, reply_markup=kb, parse_mode="HTML"
-                                )
-                        except Exception as e:
-                            logger.error(f"Ёдоварии дермондагӣ ба админ {admin_id} нарасид: {e}")
                 except Exception as e:
                     logger.error(f"Коркарди ёдоварии фармоиши #{order_id} нашуд: {e}")
         except Exception as e:
