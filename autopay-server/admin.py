@@ -1317,7 +1317,7 @@ async def a_user_info_show(message: Message, state: FSMContext):
         f"👤 <b>Маълумоти корбар</b>\n\n"
         f"🆔 ID: <code>{user_id}</code>\n"
         f"📱 Username: {esc(username)}\n"
-        f"👤 Ном: {user.get('full_name', '—')}\n"
+        f"👤 Ном: {esc(user.get('full_name', '—'))}\n"
         f"🔒 Статус: {ban_status}\n"
         f"{referrer_line}\n"
         f"📊 <b>Омор:</b>\n"

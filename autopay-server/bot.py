@@ -20,7 +20,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 import config
 import database as db
-from buy import router as buy_router
+from buy import router as buy_router, esc
 from admin import router as admin_router
 from autopay import router as autopay_router
 import autopay
@@ -246,7 +246,7 @@ async def show_profile_menu(call: CallbackQuery):
 
     text = (
         f"👤 <b>Профили шумо</b>\n\n"
-        f"👋 Ном: <b>{call.from_user.full_name}</b>\n"
+        f"👋 Ном: <b>{esc(call.from_user.full_name)}</b>\n"
         f"🆔 ID: <code>{call.from_user.id}</code>\n"
         f"📱 Username: {f'@{call.from_user.username}' if call.from_user.username else '—'}\n\n"
         f"📊 <b>Омори харид:</b>\n"
@@ -309,7 +309,7 @@ async def show_referral_subusers(call: CallbackQuery):
     lines = ["👥 <b>Рефералхои шумо</b>\n"]
     total = 0.0
     for i, u in enumerate(subusers, 1):
-        name = u.get("full_name") or "—"
+        name = esc(u.get("full_name") or "—")
         username = f"@{u['username']}" if u.get("username") else f"ID {u['id']}"
         earned = u["earned"]
         total += earned
@@ -358,7 +358,7 @@ async def cmd_start(message: Message, command: CommandObject):
 
 def _welcome_text(user, greeted: bool = True) -> str:
     """Матни хушомадгуи кӯтоҳ — тафсилоти пурра дар тугмаи «ℹ️ Маълумот»."""
-    hello = f"👋 Хуш омадед, <b>{user.full_name}</b>!\n\n" if greeted else f"👋 <b>{user.full_name}</b>\n\n"
+    hello = f"👋 Хуш омадед, <b>{esc(user.full_name)}</b>!\n\n" if greeted else f"👋 <b>{esc(user.full_name)}</b>\n\n"
     return (
         f"{hello}"
         f"🆔 ID-и шумо: <code>{user.id}</code>\n\n"
@@ -412,7 +412,7 @@ async def accept_terms(call: CallbackQuery):
             await call.bot.send_message(
                 config.LOG_CHANNEL_ID,
                 f"✅ <b>Корбари нав</b>\n\n"
-                f"👤 {call.from_user.full_name}\n"
+                f"👤 {esc(call.from_user.full_name)}\n"
                 f"🆔 <code>{call.from_user.id}</code>\n"
                 f"📱 {username}\n"
                 f"📜 Розигӣ: дод ✅",
@@ -547,7 +547,7 @@ async def top_buyers(call: CallbackQuery):
 
     user_place = None
     for i, row in enumerate(rows):
-        username = f"@{row['username']}" if row.get('username') else row.get('full_name', '—')
+        username = f"@{row['username']}" if row.get('username') else esc(row.get('full_name', '—'))
         spent = float(row['total_spent'] or 0)
         orders = row['total_orders']
         text += f"{medals[i]} {username} — {orders} харид · {spent:.0f} сом\n"
@@ -626,7 +626,7 @@ async def top_referrers(call: CallbackQuery):
 
     user_place = None
     for i, row in enumerate(rows):
-        username = f"@{row['username']}" if row.get('username') else row.get('full_name', '—')
+        username = f"@{row['username']}" if row.get('username') else esc(row.get('full_name', '—'))
         ref_count = row['ref_count']
         text += f"{medals[i]} {username} — {ref_count} дӯст даъват кардааст\n"
         if row['user_id'] == call.from_user.id:
@@ -797,7 +797,7 @@ def esc_err(e) -> str:
 
 async def _notify_admins_reengagement(bot: Bot, action: str, user: dict):
     """Ба ADMIN_IDS хабар медиҳад, ки кадом амали баргардонидани мизоҷ иҷро шуд."""
-    display = f"@{user['username']}" if user.get("username") else (user.get("full_name") or f"ID {user['id']}")
+    display = f"@{user['username']}" if user.get("username") else esc(user.get("full_name") or f"ID {user['id']}")
     text = (
         f"🔔 <b>Баргардонидани мизоҷ</b>\n\n"
         f"👤 {display}\n"

@@ -106,7 +106,7 @@ async def _notify_rozigiho(bot, user, service_title: str, label: str,
         f"✅ <b>Розигии нав!</b>\n\n"
         f"🎮 {service_title}\n"
         f"🎁 Маҳсулот: {label}\n"
-        f"👤 Ном: {user.full_name}\n"
+        f"👤 Ном: {esc(user.full_name)}\n"
         f"📱 Username: {username}\n"
         f"🕒 Вақт: {now_str}\n"
         f"💵 Нарх: {price:.2f} сомонӣ\n"
@@ -775,7 +775,7 @@ async def receive_check(message: Message, state: FSMContext):
         caption = (
             f"📸 <b>Фармоиши нав (сабад) — чек омад!</b>\n\n"
             f"🆔 Фармоишҳо: <b>{ids_text}</b>\n"
-            f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
+            f"👤 Корбар: {esc(message.from_user.full_name)} (<code>{message.from_user.id}</code>)\n"
             f"📱 Username: {username}\n"
             f"💳 Тариқ: {method_name}\n\n"
             f"🎮 Free Fire\n"
@@ -832,7 +832,7 @@ async def receive_check(message: Message, state: FSMContext):
     caption = (
         f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
-        f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
+        f"👤 Корбар: {esc(message.from_user.full_name)} (<code>{message.from_user.id}</code>)\n"
         f"📱 Username: {username}\n"
         f"💳 Тариқ: {method_name}\n\n"
         f"🎮 Free Fire\n"
@@ -916,8 +916,8 @@ async def review_save(message: Message, state: FSMContext):
             await message.bot.send_message(
                 config.REVIEW_CHANNEL_ID,
                 f"🏅 <b>ОТЗИВИ МУШТАРӢ #{review_number}</b>\n\n"
-                f"👤 Муштарӣ: {message.from_user.full_name}\n\n"
-                f"💬 <b>Назари муштарӣ:</b>\n«{message.text}»\n\n"
+                f"👤 Муштарӣ: {esc(message.from_user.full_name)}\n\n"
+                f"💬 <b>Назари муштарӣ:</b>\n«{esc(message.text)}»\n\n"
                 f"🎁 Маҳсулот: {label}\n"
                 f"🆔 ID фармоиш: #{order_id if order_id else '—'}\n"
                 f"{loyalty_line}\n"
@@ -1258,7 +1258,7 @@ async def ffid_receive_check(message: Message, state: FSMContext):
     caption = (
         f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
-        f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
+        f"👤 Корбар: {esc(message.from_user.full_name)} (<code>{message.from_user.id}</code>)\n"
         f"📱 Username: {username}\n"
         f"💳 Тариқ: {method_name}\n\n"
         f"🎮 Free Fire Indonesia\n"
@@ -1558,7 +1558,7 @@ async def pubg_receive_check(message: Message, state: FSMContext):
     caption = (
         f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
-        f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
+        f"👤 Корбар: {esc(message.from_user.full_name)} (<code>{message.from_user.id}</code>)\n"
         f"📱 Username: {username}\n"
         f"💳 Тариқ: {method_name}\n\n"
         f"🎮 PUBG Mobile\n"
@@ -1853,7 +1853,7 @@ async def stars_receive_check(message: Message, state: FSMContext):
     caption = (
         f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
-        f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
+        f"👤 Корбар: {esc(message.from_user.full_name)} (<code>{message.from_user.id}</code>)\n"
         f"📱 Username: {username_caller}\n"
         f"💳 Тариқ: {method_name}\n\n"
         f"⭐ Telegram Stars\n"
@@ -2126,7 +2126,7 @@ async def premium_receive_check(message: Message, state: FSMContext):
     caption = (
         f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
-        f"👤 Корбар: {message.from_user.full_name} (<code>{message.from_user.id}</code>)\n"
+        f"👤 Корбар: {esc(message.from_user.full_name)} (<code>{message.from_user.id}</code>)\n"
         f"📱 Username: {username_caller}\n"
         f"💳 Тариқ: {method_name}\n\n"
         f"💎 Telegram Premium\n"
@@ -2244,7 +2244,7 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
     caption = (
         f"💰 <b>Фармоиши нав — пардохт аз баланси реферралӣ!</b>\n\n"
         f"🆔 Фармоиш: <b>#{order_id}</b>\n"
-        f"👤 Корбар: {call.from_user.full_name} (<code>{call.from_user.id}</code>)\n"
+        f"👤 Корбар: {esc(call.from_user.full_name)} (<code>{call.from_user.id}</code>)\n"
         f"📱 Username: {username}\n"
         f"🎮 {service_title}\n"
         f"{extra_line}"
