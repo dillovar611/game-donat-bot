@@ -25,6 +25,7 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var etToken: EditText
     private lateinit var etChatId: EditText
+    private lateinit var etPin: EditText
     private lateinit var tvStatus: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -33,11 +34,13 @@ class MainActivity : AppCompatActivity() {
 
         etToken = findViewById(R.id.etToken)
         etChatId = findViewById(R.id.etChatId)
+        etPin = findViewById(R.id.etPin)
         tvStatus = findViewById(R.id.tvStatus)
 
         val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
         etToken.setText(prefs.getString("token", ""))
         etChatId.setText(prefs.getString("chat_id", ""))
+        etPin.setText(SecurePrefs.getPin(this))
 
         // Иҷозати нишон додани notification (Android 13+, барои хизмати доимӣ)
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -84,6 +87,20 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
 
+        findViewById<Button>(R.id.btnSavePin).setOnClickListener {
+            val pin = etPin.text.toString().trim()
+            if (pin.length !in 4..6 || !pin.all { it.isDigit() }) {
+                Toast.makeText(this, "PIN бояд 4-6 рақам бошад!", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            SecurePrefs.setPin(this, pin)
+            Toast.makeText(this, "PIN бо рамзгузорӣ сабт шуд ✅", Toast.LENGTH_SHORT).show()
+        }
+
+        findViewById<Button>(R.id.btnAccessibility).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        }
+
         findViewById<Button>(R.id.btnBattery).setOnClickListener {
             val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                 data = Uri.parse("package:$packageName")
@@ -120,6 +137,12 @@ class MainActivity : AppCompatActivity() {
         val listeners = Settings.Secure.getString(contentResolver, "enabled_notification_listeners") ?: ""
         val hasAccess = listeners.contains(packageName)
 
+        val accessibilityEnabled = Settings.Secure.getString(
+            contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+        ) ?: ""
+        val hasAccessibility = accessibilityEnabled.contains(packageName)
+        val hasPin = SecurePrefs.getPin(this).isNotBlank()
+
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val batteryOk = pm.isIgnoringBatteryOptimizations(packageName)
 
@@ -137,6 +160,8 @@ class MainActivity : AppCompatActivity() {
             append(if (hasCfg) "✅ Токен/chat_id сабт шудааст\n" else "❌ Токен/chat_id холӣ\n")
             append(if (hasAccess) "✅ Иҷозати notification дода шудааст\n" else "❌ Иҷозати notification ЛОЗИМ аст!\n")
             append(if (batteryOk) "✅ Сарфаи батарея хомӯш аст\n" else "⚠️ Сарфаи батарея фаъол (тавсия: хомӯш кунед)\n")
+            append(if (hasAccessibility) "✅ Иҷозати Accessibility дода шудааст\n" else "❌ Иҷозати Accessibility (барои санҷиши даврӣ) ЛОЗИМ аст!\n")
+            append(if (hasPin) "✅ PIN сабт шудааст\n" else "⚠️ PIN сабт нашудааст (санҷиши даврӣ бе PIN кор намекунад, агар сессия хомӯш шавад)\n")
             append("\n📤 Фиристода шуд: ${prefs.getInt("sent_count", 0)}\n")
             append("🕒 Охирин: $lastStr\n")
             append("📦 Дар навбат: $queueLen")

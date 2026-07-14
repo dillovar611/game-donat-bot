@@ -26,6 +26,10 @@ class KeepAliveService : Service() {
             try {
                 Sender.flushAsync(applicationContext)
                 DcListenerService.kick(applicationContext)
+                if (ScanScheduler.isDue(applicationContext)) {
+                    DcAccessibilityService.triggerOpenApp(applicationContext)
+                    ScanScheduler.scheduleNext(applicationContext)
+                }
             } catch (e: Exception) {}
             handler.postDelayed(this, 40_000)
         }

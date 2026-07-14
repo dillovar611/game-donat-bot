@@ -72,6 +72,41 @@
             android:layout_marginBottom="16dp" />
 
         <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Санҷиши даврии DC City (ихтиёрӣ):"
+            android:textStyle="bold"
+            android:layout_marginBottom="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="PIN-и 4-рақамаи ҳисоби DC (дар ҳамин телефон бо рамзгузорӣ нигоҳ дошта мешавад):"
+            android:layout_marginTop="8dp" />
+
+        <EditText
+            android:id="@+id/etPin"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="1234"
+            android:inputType="numberPassword"
+            android:layout_marginBottom="12dp" />
+
+        <Button
+            android:id="@+id/btnSavePin"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🔐 PIN-ро сабт кардан"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btnAccessibility"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="♿ Иҷозати Accessibility (барои хондани экран)"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
             android:id="@+id/tvStatus"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
