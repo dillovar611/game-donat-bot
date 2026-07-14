@@ -371,28 +371,27 @@ def _welcome_text(user, greeted: bool = True) -> str:
 _banner_cache = {"file_id": None, "bytes": None}
 
 
-async def _send_welcome_banner(message: Message):
-    """Банери хушомадгӯиро мефиристад (як бор месозад, баъд file_id-ро
-    такроран истифода мебарад — фавран, бе аз нав сохтан/боркунӣ)."""
+async def _send_main(message: Message):
+    """Банер + матни хушомадгӯӣ + менюро дар ЯК паём мефиристад
+    (банер як бор месозад, баъд file_id-ро такроран истифода мебарад —
+    фавран, бе аз нав сохтан/боркунӣ)."""
+    text = _welcome_text(message.from_user)
+    kb = main_menu()
     try:
         from aiogram.types import BufferedInputFile
         if _banner_cache["file_id"]:
-            await message.answer_photo(_banner_cache["file_id"])
+            await message.answer_photo(_banner_cache["file_id"], caption=text, reply_markup=kb, parse_mode="HTML")
             return
         if _banner_cache["bytes"] is None:
             import banner as _banner_mod
             _banner_cache["bytes"] = _banner_mod.generate_welcome_banner().read()
         photo = BufferedInputFile(_banner_cache["bytes"], filename="welcome.png")
-        sent = await message.answer_photo(photo)
+        sent = await message.answer_photo(photo, caption=text, reply_markup=kb, parse_mode="HTML")
         if sent.photo:
             _banner_cache["file_id"] = sent.photo[-1].file_id
     except Exception as e:
         logger.error(f"Банер нафиристод: {e}")
-
-
-async def _send_main(message: Message):
-    await _send_welcome_banner(message)
-    await message.answer(_welcome_text(message.from_user), reply_markup=main_menu(), parse_mode="HTML")
+        await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
 
 @dp.callback_query(F.data == "accept_terms")
