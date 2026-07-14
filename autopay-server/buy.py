@@ -593,7 +593,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
 
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
-        pay_url = f"http://pay.expresspay.tj/?A=9762000236840137&s={price:g}&c=card_{order_id}&f1=133"
+        pay_url = f"http://pay.expresspay.tj/?A=9762000226598802&s={price:g}&c=card_{order_id}&f1=133"
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
         pay_url = data.get("eskhata_link") or ""
@@ -631,7 +631,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
             # дар notification бармегардонад (card§8848) ва бот фармоишро
             # мустақим аз рӯи он меёбад
             pay_url = (
-                f"http://pay.expresspay.tj/?A=9762000236840137&s={price:g}"
+                f"http://pay.expresspay.tj/?A=9762000226598802&s={price:g}"
                 f"&c=card_{awaiting_order_id}&f1=133"
             )
         else:
@@ -1175,7 +1175,7 @@ async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
-        pay_url = f"http://pay.expresspay.tj/?A=9762000236840137&s={price:g}&c=card_ffid{order_id}&f1=133"
+        pay_url = f"http://pay.expresspay.tj/?A=9762000226598802&s={price:g}&c=card_ffid{order_id}&f1=133"
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
         pay_url = data.get("eskhata_link") or ""
@@ -1482,7 +1482,7 @@ async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
-        pay_url = f"http://pay.expresspay.tj/?A=9762000236840137&s={price:g}&c=card_pubg{order_id}&f1=133"
+        pay_url = f"http://pay.expresspay.tj/?A=9762000226598802&s={price:g}&c=card_pubg{order_id}&f1=133"
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
         pay_url = data.get("eskhata_link") or ""
@@ -1778,7 +1778,7 @@ async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
-        pay_url = f"http://pay.expresspay.tj/?A=9762000236840137&s={price:g}&c=card_stars{order_id}&f1=133"
+        pay_url = f"http://pay.expresspay.tj/?A=9762000226598802&s={price:g}&c=card_stars{order_id}&f1=133"
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
         pay_url = data.get("eskhata_link") or ""
@@ -2051,7 +2051,7 @@ async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
-        pay_url = f"http://pay.expresspay.tj/?A=9762000236840137&s={price:g}&c=card_premium{order_id}&f1=133"
+        pay_url = f"http://pay.expresspay.tj/?A=9762000226598802&s={price:g}&c=card_premium{order_id}&f1=133"
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
         pay_url = data.get("eskhata_link") or ""
