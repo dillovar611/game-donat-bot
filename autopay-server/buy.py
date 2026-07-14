@@ -696,15 +696,22 @@ async def receive_check(message: Message, state: FSMContext):
     if autopay_order_id:
         import autopay
         order = await db.get_order(autopay_order_id)
-        if not order or order["status"] not in ("awaiting_autopay",):
+        # 'expired' низ иҷозат дода мешавад — агар мизоҷ дер карда чек фиристад ҳам,
+        # донати худкор кӯшиш карда мешавад, на радди фаврӣ
+        if not order or order["status"] not in ("awaiting_autopay", "expired"):
             await message.answer(
-                "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол мӯҳлаташ гузашт "
-                "ё аллакай коркард шудааст).\n"
+                "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол аллакай коркард шудааст).\n"
                 f"Агар пардохт карда бошед: {config.SUPPORT_USERNAME}",
                 parse_mode="HTML"
             )
             return
-        await db.set_autopay_check(autopay_order_id, file_id)
+        if not await db.set_autopay_check(autopay_order_id, file_id):
+            await message.answer(
+                "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол аллакай коркард шудааст).\n"
+                f"Агар пардохт карда бошед: {config.SUPPORT_USERNAME}",
+                parse_mode="HTML"
+            )
+            return
         await message.answer(
             f"✅ <b>Чек қабул шуд!</b>\n\n"
             f"🆔 Фармоиш: #{autopay_order_id}\n\n"

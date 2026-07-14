@@ -1434,12 +1434,14 @@ async def has_awaiting_order_by_price(price: float, payment_method: str,
 
 async def set_autopay_check(order_id: int, file_id: str):
     """Чеки фармоиши автопардохтро сабт карда, статусро 'autopay_search'
-    мегузорад — аз ҳамин лаҳза ҷустуҷӯи пардохт фаъол мешавад."""
+    мегузорад — аз ҳамин лаҳза ҷустуҷӯи пардохт фаъол мешавад.
+    Фармоиши 'expired' (чек дер расида) низ бармегардад, то мизоҷони
+    дер расонида низ донати худкор гиранд."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
                 "UPDATE orders SET check_file_id=%s, status='autopay_search' "
-                "WHERE id=%s AND status='awaiting_autopay'",
+                "WHERE id=%s AND status IN ('awaiting_autopay','expired')",
                 (file_id, order_id)
             )
             return cur.rowcount > 0
