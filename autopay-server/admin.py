@@ -666,6 +666,15 @@ class RejectState(StatesGroup):
     enter_reason = State()
 
 
+_REJECT_REASONS = {
+    "amt": "💵 Маблағ нодуруст",
+    "chk": "🖼 Чек норавшан/қалбакӣ",
+    "gid": "🆔 ID-и бозӣ нодуруст",
+    "dup": "🔁 Чек такрорӣ (истифодашуда)",
+    "img": "🚫 Расми номуносиб фиристода шуд",
+}
+
+
 @router.callback_query(F.data.startswith("no_"))
 async def order_reject(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
@@ -683,50 +692,49 @@ async def order_reject(call: CallbackQuery, state: FSMContext):
         reject_order_id=order_id,
         reject_chat_id=call.message.chat.id,
         reject_msg_id=call.message.message_id,
+        reject_kb=call.message.reply_markup,
     )
-    await state.set_state(RejectState.enter_reason)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [
+            InlineKeyboardButton(text=_REJECT_REASONS["amt"], callback_data=f"rjr_{order_id}_amt"),
+            InlineKeyboardButton(text=_REJECT_REASONS["chk"], callback_data=f"rjr_{order_id}_chk"),
+        ],
+        [
+            InlineKeyboardButton(text=_REJECT_REASONS["gid"], callback_data=f"rjr_{order_id}_gid"),
+            InlineKeyboardButton(text=_REJECT_REASONS["dup"], callback_data=f"rjr_{order_id}_dup"),
+        ],
+        [
+            InlineKeyboardButton(text=_REJECT_REASONS["img"], callback_data=f"rjr_{order_id}_img"),
+            InlineKeyboardButton(text="⛔ Рад + Бан кардан", callback_data=f"rjr_{order_id}_ban"),
+        ],
+        [InlineKeyboardButton(text="✏️ Сабаби дигар (навиштан)", callback_data=f"rjr_{order_id}_custom")],
+        [InlineKeyboardButton(text="🔙 Бекор кардан", callback_data=f"rjr_{order_id}_cancel")],
+    ])
+    try:
+        await call.message.edit_reply_markup(reply_markup=kb)
+    except Exception as e:
+        logger.error(f"Навсозии тугмаҳои рад кардани #{order_id} нашуд: {e}")
     await call.answer()
-    await call.bot.send_message(
-        call.from_user.id,
-        f"📝 <b>Сабаби радди фармоиши #{order_id}-ро нависед:</b>\n\n"
-        f"(Ё нависед «—» агар сабаб ба мизоҷ гуфтан нахоҳед)",
-        parse_mode="HTML"
-    )
 
 
-@router.message(RejectState.enter_reason)
-async def order_reject_reason(message: Message, state: FSMContext):
-    if not is_admin(message.from_user.id):
-        return
-    data = await state.get_data()
-    await state.clear()
-    order_id = data.get("reject_order_id")
-    if not order_id:
-        return
+async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, msg_id: int) -> bool:
+    """Фармоишро рад мекунад: статус, баргардониди балансаи реферралӣ (агар лозим),
+    хабар ба мизоҷ ва навсозии паёми фармоиш дар панели админ."""
     order = await db.get_order(order_id)
-    if not order:
-        await message.answer("❌ Фармоиш ёфт нашуд!")
-        return
-    if order["status"] in ("confirmed", "rejected"):
-        await message.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}")
-        return
-
-    reason = (message.text or "").strip()
-    reason_clean = "" if reason in ("—", "-", "") else reason
+    if not order or order["status"] in ("confirmed", "rejected"):
+        return False
 
     await db.update_order_status(order_id, "rejected")
-    # Агар бо баланси реферралӣ пардохт шуда буд — баргардонидан
     if order.get("payment_method") == "referral_balance":
         await db.add_referral_earning(order["user_id"], float(order["price"]))
 
-    # Ба корбар
     try:
         refund_note = (
             "\n💰 Маблаг ба балансаи реферралии шумо баргардонида шуд."
             if order.get("payment_method") == "referral_balance" else ""
         )
         reason_line = f"\n📝 Сабаб: {esc(reason_clean)}\n" if reason_clean else ""
-        await message.bot.send_message(
+        await bot.send_message(
             order["user_id"],
             f"❌ <b>Пардохти шумо рад карда шуд.</b>\n\n"
             f"🆔 Фармоиш: #{order_id}\n"
@@ -742,19 +750,94 @@ async def order_reject_reason(message: Message, state: FSMContext):
     if reason_clean:
         caption += f"\n📝 Сабаб: {esc(reason_clean)}"
     try:
-        await message.bot.edit_message_caption(
-            chat_id=data["reject_chat_id"], message_id=data["reject_msg_id"],
-            caption=caption, parse_mode="HTML"
-        )
+        await bot.edit_message_caption(chat_id=chat_id, message_id=msg_id, caption=caption, parse_mode="HTML")
     except Exception:
         try:
-            await message.bot.edit_message_text(
-                chat_id=data["reject_chat_id"], message_id=data["reject_msg_id"],
-                text=caption, parse_mode="HTML"
-            )
+            await bot.edit_message_text(chat_id=chat_id, message_id=msg_id, text=caption, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Навсозии паёми фармоиши #{order_id} нашуд: {e}")
+    return True
 
+
+@router.callback_query(F.data.startswith("rjr_"))
+async def order_reject_reason_button(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    parts = call.data.split("_")
+    order_id, code = int(parts[1]), parts[2]
+    data = await state.get_data()
+
+    if code == "cancel":
+        original_kb = data.get("reject_kb")
+        try:
+            await call.message.edit_reply_markup(reply_markup=original_kb)
+        except Exception as e:
+            logger.error(f"Барқарорсозии тугмаҳои фармоиши #{order_id} нашуд: {e}")
+        await call.answer("Бекор карда шуд.")
+        return
+
+    if code == "custom":
+        await state.set_state(RejectState.enter_reason)
+        await call.answer()
+        await call.bot.send_message(
+            call.from_user.id,
+            f"📝 <b>Сабаби радди фармоиши #{order_id}-ро нависед:</b>\n\n"
+            f"(Ё нависед «—» агар сабаб ба мизоҷ гуфтан нахоҳед)",
+            parse_mode="HTML"
+        )
+        return
+
+    order = await db.get_order(order_id)
+    if not order:
+        await call.answer("❌ Фармоиш ёфт нашуд!", show_alert=True)
+        return
+    if order["status"] in ("confirmed", "rejected"):
+        await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+        return
+
+    if code == "ban":
+        reason_clean = "Сӯиистифода / вайрон кардани қоидаҳо"
+        ok = await _finalize_reject(call.bot, order_id, reason_clean, call.message.chat.id, call.message.message_id)
+        if not ok:
+            await call.answer("❌ Фармоиш ёфт нашуд ё аллакай коркард шудааст!", show_alert=True)
+            return
+        await db.ban_user(order["user_id"], reason_clean)
+        try:
+            await call.bot.send_message(
+                order["user_id"],
+                f"🚫 <b>Шумо банӣ шудаед!</b>\n\n📝 Сабаб: {esc(reason_clean)}",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Хабари бан ба {order['user_id']} нарасид: {e}")
+        await call.answer(f"✅ Фармоиши #{order_id} рад шуд, корбар бан шуд.", show_alert=True)
+        return
+
+    reason_clean = _REJECT_REASONS.get(code, "")
+    ok = await _finalize_reject(call.bot, order_id, reason_clean, call.message.chat.id, call.message.message_id)
+    if not ok:
+        await call.answer("❌ Фармоиш ёфт нашуд ё аллакай коркард шудааст!", show_alert=True)
+        return
+    await call.answer(f"✅ Фармоиши #{order_id} рад карда шуд.")
+
+
+@router.message(RejectState.enter_reason)
+async def order_reject_reason(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    await state.clear()
+    order_id = data.get("reject_order_id")
+    if not order_id:
+        return
+
+    reason = (message.text or "").strip()
+    reason_clean = "" if reason in ("—", "-", "") else reason
+
+    ok = await _finalize_reject(message.bot, order_id, reason_clean, data["reject_chat_id"], data["reject_msg_id"])
+    if not ok:
+        await message.answer("❌ Фармоиш ёфт нашуд ё аллакай коркард шудааст!")
+        return
     await message.answer(f"✅ Фармоиши #{order_id} рад карда шуд.")
 
 
