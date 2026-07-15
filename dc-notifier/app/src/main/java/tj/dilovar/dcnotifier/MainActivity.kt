@@ -1,6 +1,7 @@
 package tj.dilovar.dcnotifier
 
 import android.Manifest
+import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -118,6 +119,20 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        findViewById<Button>(R.id.btnFullScreen).setOnClickListener {
+            if (Build.VERSION.SDK_INT >= 34) {
+                try {
+                    startActivity(Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply {
+                        data = Uri.parse("package:$packageName")
+                    })
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Ин версияи Android чунин танзимот надорад", Toast.LENGTH_LONG).show()
+                }
+            } else {
+                Toast.makeText(this, "Дар ин версияи Android худкор иҷозат дода шудааст", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         findViewById<Button>(R.id.btnBattery).setOnClickListener {
             val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                 data = Uri.parse("package:$packageName")
@@ -169,6 +184,9 @@ class MainActivity : AppCompatActivity() {
         val am = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
         val canExactAlarm = if (Build.VERSION.SDK_INT >= 31) am.canScheduleExactAlarms() else true
 
+        val nm = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val canFullScreen = if (Build.VERSION.SDK_INT >= 34) nm.canUseFullScreenIntent() else true
+
         val lastSent = prefs.getLong("last_sent_at", 0)
         val lastStr = if (lastSent > 0)
             SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault()).format(Date(lastSent))
@@ -186,6 +204,7 @@ class MainActivity : AppCompatActivity() {
             append(if (hasAccessibility) "✅ Иҷозати Accessibility дода шудааст\n" else "❌ Иҷозати Accessibility (барои санҷиши даврӣ) ЛОЗИМ аст!\n")
             append(if (hasPin) "✅ PIN сабт шудааст\n" else "⚠️ PIN сабт нашудааст (санҷиши даврӣ бе PIN кор намекунад, агар сессия хомӯш шавад)\n")
             append(if (canExactAlarm) "✅ Иҷозати Alarm дақиқ дода шудааст\n" else "❌ Иҷозати Alarm дақиқ ЛОЗИМ аст (бе ин санҷиши даврӣ кор намекунад)!\n")
+            append(if (canFullScreen) "✅ Иҷозати Full-screen intent дода шудааст\n" else "❌ Иҷозати Full-screen intent ЛОЗИМ аст (бе ин DC накушояд)!\n")
             append("\n📤 Фиристода шуд: ${prefs.getInt("sent_count", 0)}\n")
             append("🕒 Охирин: $lastStr\n")
             append("📦 Дар навбат: $queueLen")

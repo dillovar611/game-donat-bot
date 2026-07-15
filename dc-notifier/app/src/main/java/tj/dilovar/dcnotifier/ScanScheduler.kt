@@ -51,19 +51,21 @@ object ScanScheduler {
         }
         val triggerAt = System.currentTimeMillis() + delayMs
 
-        val intent = Intent(ctx, ScanTrampolineActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-        }
+        // Ба BroadcastReceiver (на мустақим Activity) — фиристодани broadcast
+        // ҳељ гоҳ аз маҳдудияти кушодани барнома аз паси замина манъ намешавад;
+        // худи receiver full-screen-intent notification месозад, ки боэътимодтарин
+        // роҳи кушодани Activity аз паси замина аст
+        val intent = Intent(ctx, ScanAlarmReceiver::class.java)
         val flags = if (Build.VERSION.SDK_INT >= 23) {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         } else {
             PendingIntent.FLAG_UPDATE_CURRENT
         }
-        val pi = PendingIntent.getActivity(ctx, 1001, intent, flags)
+        val pi = PendingIntent.getBroadcast(ctx, 1001, intent, flags)
 
         val am = ctx.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         try {
-            am.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, pi), pi)
+            am.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, null), pi)
         } catch (e: Exception) {
             // баъзе OEM-ҳо маҳдудият доранд — ҳамчун эҳтиёт setAndAllowWhileIdle,
             // вале ин хабар медиҳем, чунки ин намуди alarm аз маҳдудияти
