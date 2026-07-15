@@ -209,12 +209,13 @@ class DcAccessibilityService : AccessibilityService() {
             val line = rawLines[i]
             if (AMOUNT_RE.containsMatchIn(line) && (TIME_RE.containsMatchIn(line) ||
                         (i + 2 < rawLines.size && TIME_RE.containsMatchIn(rawLines[i + 2])))) {
-                val context5 = rawLines.subList(i, minOf(i + 5, rawLines.size)).joinToString(" | ")
-                val hash = context5.hashCode().toString()
+                val contextLines = rawLines.subList(i, minOf(i + 5, rawLines.size))
+                val hash = contextLines.joinToString("|").hashCode().toString()
                 if (!seen.has(hash)) {
                     seen.put(hash, System.currentTimeMillis())
-                    val tag = classify(context5)
-                    foundArr.put("$tag :: $context5")
+                    val tag = classify(contextLines.joinToString(" "))
+                    val body = contextLines.joinToString("\n") { "   $it" }
+                    foundArr.put("$tag\n$body")
                 }
             }
             i++
@@ -264,7 +265,7 @@ class DcAccessibilityService : AccessibilityService() {
         } else {
             sb.append("DCSCAN [$time] — ${arr.length()} амалиёти нав ёфт шуд:\n\n")
             for (i in 0 until arr.length()) {
-                sb.append("${i + 1}. ${arr.getString(i)}\n")
+                sb.append("${i + 1}. ${arr.getString(i)}\n\n")
             }
         }
         Sender.enqueue(applicationContext, sb.toString())
