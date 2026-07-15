@@ -203,19 +203,42 @@ class DcAccessibilityService : AccessibilityService() {
         }
         val foundArr = org.json.JSONArray()
 
-        // Хатҳоеро, ки ба амалиёт монанданд (маблағ ва вақт доранд) ҷудо мекунем
+        // Пешакӣ ҳамаи мавқеъҳои card_XXX-ро мешуморем, то барои ҳар амалиёт
+        // рамзи ФАРМОИШИ НАЗДИКТАРИН (на танҳо ба пеш) пайдо шавад — вагарна
+        // рамзи амалиёти ҚАБЛӢ/БАЪДӢ бардурӯғ ба амалиёти ҳозира васл мешавад
+        val cardPositions = mutableListOf<Pair<Int, String>>()
+        for ((idx, l) in rawLines.withIndex()) {
+            val m = CARD_REF_RE.find(l)
+            if (m != null) cardPositions.add(idx to m.groupValues[1])
+        }
+
         var i = 0
         while (i < rawLines.size) {
             val line = rawLines[i]
             if (AMOUNT_RE.containsMatchIn(line) && (TIME_RE.containsMatchIn(line) ||
                         (i + 2 < rawLines.size && TIME_RE.containsMatchIn(rawLines[i + 2])))) {
-                val contextLines = rawLines.subList(i, minOf(i + 5, rawLines.size))
-                val hash = contextLines.joinToString("|").hashCode().toString()
+                val amount = AMOUNT_RE.find(line)?.value ?: line
+                val time = TIME_RE.find(line)?.value
+                    ?: (if (i + 2 < rawLines.size) TIME_RE.find(rawLines[i + 2])?.value else null)
+                    ?: "?"
+
+                // Наздиктарин card_XXX (то 8 сатр дур, ба ҳарду тараф)
+                val nearest = cardPositions.minByOrNull { kotlin.math.abs(it.first - i) }
+                val orderId = if (nearest != null && kotlin.math.abs(nearest.first - i) <= 8) nearest.second else null
+
+                val nearbyLines = rawLines.subList(maxOf(0, i - 3), minOf(i + 4, rawLines.size))
+                val hasAlifRef = nearbyLines.any { it.contains("DC WALLET", ignoreCase = true) }
+
+                val hash = "$orderId|$amount|$time".hashCode().toString()
                 if (!seen.has(hash)) {
                     seen.put(hash, System.currentTimeMillis())
-                    val joined = contextLines.joinToString(" ")
-                    val tag = classify(joined)
-                    foundArr.put("$tag\n${formatEntry(contextLines)}")
+                    val tag = classify(orderId, hasAlifRef)
+                    val body = buildString {
+                        if (orderId != null) append("Фармоиши #$orderId\n")
+                        append("Маблағ: $amount TJS\n")
+                        append("Вақт: $time")
+                    }
+                    foundArr.put("$tag\n$body")
                 }
             }
             i++
@@ -248,29 +271,10 @@ class DcAccessibilityService : AccessibilityService() {
         }, 800)
     }
 
-    /** Аз хатҳои хом танҳо майдонҳои возеҳро (маблағ, вақт, рақами фармоиш)
-     * бароварда, ба монанди формати DCNOTIF кӯтоҳ месозад — на матни хоми
-     * чаппаву роста. */
-    private fun formatEntry(contextLines: List<String>): String {
-        val joined = contextLines.joinToString(" ")
-        val amount = contextLines.firstOrNull { AMOUNT_RE.containsMatchIn(it) && !it.contains(":") }
-            ?: AMOUNT_RE.find(joined)?.value ?: "?"
-        val time = contextLines.firstOrNull { TIME_RE.containsMatchIn(it) }
-            ?.let { TIME_RE.find(it)?.value } ?: "?"
-        val orderMatch = CARD_REF_RE.find(joined)
-
-        val sb = StringBuilder()
-        if (orderMatch != null) sb.append("Фармоиши #${orderMatch.groupValues[1]}\n")
-        sb.append("Маблағ: $amount TJS\n")
-        sb.append("Вақт: $time")
-        return sb.toString()
-    }
-
-    private fun classify(line: String): String {
-        val cardMatch = CARD_REF_RE.find(line)
+    private fun classify(orderId: String?, hasAlifRef: Boolean): String {
         return when {
-            cardMatch != null -> "✅ Вобаста ба фармоиш #${cardMatch.groupValues[1]}"
-            line.contains("DC WALLET", ignoreCase = true) -> "❓ Аз Алиф (бе рамз — санҷиши маблағ лозим)"
+            orderId != null -> "✅ Вобаста ба фармоиш #$orderId"
+            hasAlifRef -> "❓ Аз Алиф (бе рамз — санҷиши маблағ лозим)"
             else -> "⚠️ Вобастагӣ ба бот надорад"
         }
     }
