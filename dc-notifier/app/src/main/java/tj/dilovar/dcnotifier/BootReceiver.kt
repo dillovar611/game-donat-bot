@@ -20,6 +20,9 @@ class BootReceiver : BroadcastReceiver() {
                 // баъзе версияҳои Android аз boot иҷозат намедиҳанд —
                 // дар ин ҳолат хизмат ҳангоми кушодани барнома сар мешавад
             }
+            try {
+                ScanScheduler.scheduleNextAlarm(context)
+            } catch (e: Exception) {}
         }
     }
 }

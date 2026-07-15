@@ -27,6 +27,14 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".ScanTrampolineActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:launchMode="singleInstance"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar" />
+
         <service
             android:name=".DcListenerService"
             android:exported="true"

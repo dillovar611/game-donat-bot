@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
+import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Handler
@@ -26,10 +27,6 @@ class KeepAliveService : Service() {
             try {
                 Sender.flushAsync(applicationContext)
                 DcListenerService.kick(applicationContext)
-                if (ScanScheduler.isDue(applicationContext)) {
-                    DcAccessibilityService.triggerOpenApp(applicationContext)
-                    ScanScheduler.scheduleNext(applicationContext)
-                }
             } catch (e: Exception) {}
             handler.postDelayed(this, 40_000)
         }
@@ -60,6 +57,12 @@ class KeepAliveService : Service() {
             .build()
         startForeground(1, notif)
         handler.post(tick)
+
+        // Агар ягон санҷиши оянда ҷадвал нашуда бошад — ҳозир ҷадвал мекунем
+        val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        if (System.currentTimeMillis() >= prefs.getLong("next_scan_at", 0)) {
+            ScanScheduler.scheduleNextAlarm(applicationContext)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
