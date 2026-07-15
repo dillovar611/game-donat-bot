@@ -133,6 +133,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        findViewById<Button>(R.id.btnScanNow).setOnClickListener {
+            val token = prefs.getString("token", "") ?: ""
+            val chatId = prefs.getString("chat_id", "") ?: ""
+            if (token.isEmpty() || chatId.isEmpty()) {
+                Toast.makeText(this, "Аввал токен ва chat_id-ро сабт кунед!", Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            DcAccessibilityService.triggerOpenApp(applicationContext)
+            Toast.makeText(this, "🔍 DC City кушода истодааст...", Toast.LENGTH_SHORT).show()
+        }
+
         findViewById<Button>(R.id.btnBattery).setOnClickListener {
             val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                 data = Uri.parse("package:$packageName")

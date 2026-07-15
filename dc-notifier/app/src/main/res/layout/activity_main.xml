@@ -118,6 +118,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="🖥 Иҷозати Full-screen intent (ҳатмист!)"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btnScanNow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="🔍 Санҷиш кун ҳозир"
             android:layout_marginBottom="16dp" />
 
         <TextView
