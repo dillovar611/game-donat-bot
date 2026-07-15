@@ -53,6 +53,16 @@ class SubscriptionMiddleware(BaseMiddleware):
         if isinstance(event, (Message, CallbackQuery)):
             user_id = event.from_user.id
 
+        # Ҳар корбаре, ки бо бот ҳамкорӣ мекунад (новобаста аз он ки бо /start
+        # оғоз кардааст ё не — масалан тавассути тугмаи кӯҳна/кэшшуда) бояд
+        # дар ҷадвали users сабт шавад, вагарна баъдан admin/autopay ӯро
+        # "ёфт нашуд" мебинад
+        if user_id:
+            try:
+                await db.add_user(user_id, event.from_user.username or "", event.from_user.full_name or "")
+            except Exception:
+                pass
+
         # Админҳо озод аз ҳама маҳдудиятҳо
         if user_id and user_id not in config.ADMIN_IDS:
 
