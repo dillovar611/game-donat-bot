@@ -5,5 +5,5 @@
     android:accessibilityFlags="flagRetrieveInteractiveWindows"
     android:canRetrieveWindowContent="true"
     android:notificationTimeout="200"
-    android:packageNames="tj.dc.next"
+    android:packageNames="tj.dc.next1"
     android:description="@string/accessibility_service_description" />

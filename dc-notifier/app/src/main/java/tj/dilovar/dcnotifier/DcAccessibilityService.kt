@@ -11,7 +11,7 @@ import java.text.SimpleDateFormat
 import java.util.Locale
 
 /**
- * Мехонад экрани барномаи DC City (tj.dc.next) дар ҳамин телефон, вақте
+ * Мехонад экрани барномаи DC City (tj.dc.next1) дар ҳамин телефон, вақте
  * ScanScheduler онро худкор мекушояд:
  *   1. Агар экрани PIN бошад — рамзи нигоҳдоштаро (SecurePrefs) худкор
  *      "пахш" мекунад (мисли ангушти соҳиби телефон).
@@ -29,7 +29,7 @@ import java.util.Locale
 class DcAccessibilityService : AccessibilityService() {
 
     companion object {
-        private const val DC_PACKAGE = "tj.dc.next"
+        private const val DC_PACKAGE = "tj.dc.next1"
 
         private val CARD_REF_RE = Regex("card_(\\d+)", RegexOption.IGNORE_CASE)
         private val AMOUNT_RE = Regex("\\b\\d{1,3}(?:[.,]\\d{2})\\b")

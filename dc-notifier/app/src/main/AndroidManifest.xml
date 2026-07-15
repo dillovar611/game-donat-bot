@@ -12,7 +12,7 @@
 
     <!-- Барои кушодани барномаи DC City дар ҳамин телефон (Android 11+) -->
     <queries>
-        <package android:name="tj.dc.next" />
+        <package android:name="tj.dc.next1" />
     </queries>
 
     <application
