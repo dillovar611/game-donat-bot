@@ -30,6 +30,11 @@ class DcAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val DC_PACKAGE = "tj.dc.next1"
+        // Танҳо дар давоми ин муддат баъд аз он ки МО худамон DC-ро кушодем,
+        // ба экран дахолат мекунем (PIN, гузариш ба таб, бастан). Агар
+        // корбар худаш DC-ро дастӣ кушояд (берун аз ин пенҷара), барнома
+        // ҳељ дахолат намекунад — танҳо тамошо мекунад, бе халал
+        private const val OWN_SCAN_WINDOW_MS = 90_000L
 
         private val CARD_REF_RE = Regex("card_(\\d+)", RegexOption.IGNORE_CASE)
         private val AMOUNT_RE = Regex("\\b\\d{1,3}(?:[.,]\\d{2})\\b")
@@ -41,6 +46,8 @@ class DcAccessibilityService : AccessibilityService() {
         /** Аз ScanScheduler даъват мешавад, вақте вақти сканкунӣ расид. */
         fun triggerOpenApp(ctx: Context) {
             try {
+                ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
+                    .edit().putLong("own_scan_triggered_at", System.currentTimeMillis()).apply()
                 val launch = ctx.packageManager.getLaunchIntentForPackage(DC_PACKAGE) ?: return
                 launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
                         android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
@@ -67,6 +74,13 @@ class DcAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString() ?: return
         if (pkg != DC_PACKAGE) return
+
+        // Агар ин DC-ро МО худамон накушода бошем (яъне корбар худаш кушодааст),
+        // ҳељ дахолат намекунем — на PIN, на гузариш, на бастан
+        val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        val triggeredAt = prefs.getLong("own_scan_triggered_at", 0)
+        if (System.currentTimeMillis() - triggeredAt > OWN_SCAN_WINDOW_MS) return
+
         // на бештар аз як маротиба дар 1.5 сония коркард кунем (event-ҳо зуд-зуд меоянд)
         val now = System.currentTimeMillis()
         if (now - lastActionAt < 1500) return
@@ -226,6 +240,10 @@ class DcAccessibilityService : AccessibilityService() {
                 performGlobalAction(GLOBAL_ACTION_HOME)
             } catch (e: Exception) {}
             wentToHistoryTab = false
+            // Санҷиш тамом шуд — агар корбар ҳозир DC-ро дастӣ кушояд,
+            // дигар ин "санҷиши худӣ" ҳисоб намешавад
+            getSharedPreferences("cfg", Context.MODE_PRIVATE)
+                .edit().putLong("own_scan_triggered_at", 0).apply()
         }, 800)
     }
 
