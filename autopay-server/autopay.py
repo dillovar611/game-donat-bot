@@ -172,6 +172,59 @@ async def handle_dc_notification(message: Message):
     await _notify_admins_unmatched(message.bot, summa, kod)
 
 
+_SCAN_ENTRY_RE = re.compile(
+    r"(✅|❓|⚠️)[^\n]*\n(?:Фармоиши #(\d+)\n)?Маблағ:\s*([\d.]+)\s*TJS\nВақт:\s*(\d{2}:\d{2}:\d{2})"
+)
+
+
+@router.channel_post(F.chat.id == config.NOTIFIER_CHAT_ID)
+@router.message(F.chat.id == config.NOTIFIER_CHAT_ID)
+async def handle_dc_scan_message(message: Message):
+    """
+    Паёмҳои DCSCAN (аз санҷиши даврии барномаи телефон, на аз notification-и
+    оддӣ)-ро мехонад — барои пардохтҳое, ки notification гум карда буд
+    (масалан вақте телефон/интернет муддате қатъ буд), вале санҷиши даврӣ
+    онҳоро дертар дар экрани DC пайдо кард.
+    """
+    text = message.text or message.caption or ""
+    if not text.startswith("DCSCAN"):
+        return
+
+    for m in _SCAN_ENTRY_RE.finditer(text):
+        emoji, order_ref, amount_s, time_s = m.groups()
+        try:
+            summa = round(float(amount_s), 2)
+        except ValueError:
+            continue
+
+        synth_kod = f"DCSCAN{order_ref or '0'}-{time_s.replace(':', '')}-{int(summa * 100)}"
+        if await db.is_kod_seen(synth_kod):
+            continue
+        await db.record_kod(synth_kod, summa)
+
+        if emoji == "✅" and order_ref:
+            order = await db.get_order(int(order_ref))
+            if not order or order.get("payment_method") not in ("dushanbe_city", "alif"):
+                continue
+            if order.get("status") not in ("autopay_search", "awaiting_autopay"):
+                continue
+            if abs(float(order["price"]) - summa) > 0.011:
+                await _notify_admins_wrong_amount(message.bot, order, summa, synth_kod)
+                continue
+            await db.mark_kod_matched(synth_kod, int(order_ref))
+            if order["status"] == "autopay_search":
+                # Чек аллакай омадааст → фавран донат
+                asyncio.create_task(run_donate(message.bot, order, synth_kod))
+            else:
+                # Чек ҳанӯз наомадааст → интизор (мисли DCNOTIF-и оддӣ)
+                logger.info(f"Autopay(DCSCAN): пардохти #{order_ref} ёфт шуд, чек интизор")
+
+        elif emoji == "❓":
+            order = await db.find_awaiting_order_by_price(summa, "alif", MAX_AGE_MINUTES)
+            if order:
+                asyncio.create_task(run_donate(message.bot, order, synth_kod))
+
+
 async def _notify_admins_wrong_amount(bot: Bot, order: dict, summa: float, kod: str):
     """Фармоиш ёфт шуд, вале маблағ мувофиқ нест — донати худкор НАМЕШАВАД."""
     text = (
