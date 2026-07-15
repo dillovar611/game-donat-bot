@@ -51,6 +51,7 @@ class DcAccessibilityService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastActionAt = 0L
+    private var lastUnmatchedDiagAt = 0L
     private var wentToHistoryTab = false
 
     override fun onServiceConnected() {
@@ -97,6 +98,17 @@ class DcAccessibilityService : AccessibilityService() {
             }
             joined.contains("Амалиётҳо") || joined.contains("Выписка") -> {
                 processTransactions(allText)
+            }
+            else -> {
+                // Экрани ношинос — то 60 сония як бор хабар медиҳем (на ҳар event),
+                // то бидонем дар кадом саҳифа монда истодаем, бе спам
+                val now = System.currentTimeMillis()
+                if (now - lastUnmatchedDiagAt > 60_000) {
+                    lastUnmatchedDiagAt = now
+                    val preview = joined.take(300)
+                    Sender.enqueue(applicationContext, "❔ Экрани ношинос дар DC:\n$preview")
+                    Sender.flushAsync(applicationContext)
+                }
             }
         }
     }

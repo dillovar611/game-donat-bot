@@ -45,7 +45,13 @@ object ScanScheduler {
         try {
             am.setAlarmClock(AlarmManager.AlarmClockInfo(triggerAt, pi), pi)
         } catch (e: Exception) {
-            // баъзе OEM-ҳо маҳдудият доранд — ҳамчун эҳтиёт setAndAllowWhileIdle
+            // баъзе OEM-ҳо маҳдудият доранд — ҳамчун эҳтиёт setAndAllowWhileIdle,
+            // вале ин хабар медиҳем, чунки ин намуди alarm аз маҳдудияти
+            // кушодани барнома аз паси замина истисно НАДОРАД
+            try {
+                Sender.enqueue(ctx, "⚠️ setAlarmClock хато дод (${e.message}), setAndAllowWhileIdle истифода шуд — эҳтимол DC накушояд")
+                Sender.flushAsync(ctx)
+            } catch (e2: Exception) {}
             try {
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
             } catch (e2: Exception) {}
