@@ -104,6 +104,13 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="♿ Иҷозати Accessibility (барои хондани экран)"
+            android:layout_marginBottom="8dp" />
+
+        <Button
+            android:id="@+id/btnExactAlarm"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="⏰ Иҷозати Alarm дақиқ (ҳатмист!)"
             android:layout_marginBottom="16dp" />
 
         <TextView

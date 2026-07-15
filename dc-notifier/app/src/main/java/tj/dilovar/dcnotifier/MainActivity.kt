@@ -101,6 +101,20 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
         }
 
+        findViewById<Button>(R.id.btnExactAlarm).setOnClickListener {
+            if (Build.VERSION.SDK_INT >= 31) {
+                try {
+                    startActivity(Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM).apply {
+                        data = Uri.parse("package:$packageName")
+                    })
+                } catch (e: Exception) {
+                    Toast.makeText(this, "Ин версияи Android чунин танзимот надорад", Toast.LENGTH_LONG).show()
+                }
+            } else {
+                Toast.makeText(this, "Дар ин версияи Android лозим нест", Toast.LENGTH_SHORT).show()
+            }
+        }
+
         findViewById<Button>(R.id.btnBattery).setOnClickListener {
             val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
                 data = Uri.parse("package:$packageName")
@@ -146,6 +160,9 @@ class MainActivity : AppCompatActivity() {
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val batteryOk = pm.isIgnoringBatteryOptimizations(packageName)
 
+        val am = getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
+        val canExactAlarm = if (Build.VERSION.SDK_INT >= 31) am.canScheduleExactAlarms() else true
+
         val lastSent = prefs.getLong("last_sent_at", 0)
         val lastStr = if (lastSent > 0)
             SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault()).format(Date(lastSent))
@@ -162,6 +179,7 @@ class MainActivity : AppCompatActivity() {
             append(if (batteryOk) "✅ Сарфаи батарея хомӯш аст\n" else "⚠️ Сарфаи батарея фаъол (тавсия: хомӯш кунед)\n")
             append(if (hasAccessibility) "✅ Иҷозати Accessibility дода шудааст\n" else "❌ Иҷозати Accessibility (барои санҷиши даврӣ) ЛОЗИМ аст!\n")
             append(if (hasPin) "✅ PIN сабт шудааст\n" else "⚠️ PIN сабт нашудааст (санҷиши даврӣ бе PIN кор намекунад, агар сессия хомӯш шавад)\n")
+            append(if (canExactAlarm) "✅ Иҷозати Alarm дақиқ дода шудааст\n" else "❌ Иҷозати Alarm дақиқ ЛОЗИМ аст (бе ин санҷиши даврӣ кор намекунад)!\n")
             append("\n📤 Фиристода шуд: ${prefs.getInt("sent_count", 0)}\n")
             append("🕒 Охирин: $lastStr\n")
             append("📦 Дар навбат: $queueLen")
