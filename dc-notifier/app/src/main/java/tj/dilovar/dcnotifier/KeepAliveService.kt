@@ -27,6 +27,13 @@ class KeepAliveService : Service() {
             try {
                 Sender.flushAsync(applicationContext)
                 DcListenerService.kick(applicationContext)
+                // Тӯри бехатарӣ: агар вақти alarm аллакай гузашта бошад
+                // (масалан агар система alarm-ро гум карда бошад), бе садо
+                // аз нав ҷадвал мекунем — бе паёми иловагӣ, то спам нашавад
+                val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+                if (System.currentTimeMillis() >= prefs.getLong("next_scan_at", 0)) {
+                    ScanScheduler.scheduleNextAlarm(applicationContext)
+                }
             } catch (e: Exception) {}
             handler.postDelayed(this, 40_000)
         }
@@ -65,18 +72,8 @@ class KeepAliveService : Service() {
             Sender.flushAsync(applicationContext)
         } catch (e: Exception) {}
 
-        // Агар ягон санҷиши оянда ҷадвал нашуда бошад — ҳозир ҷадвал мекунем
-        val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
-        val nextAt = prefs.getLong("next_scan_at", 0)
-        if (System.currentTimeMillis() >= nextAt) {
-            ScanScheduler.scheduleNextAlarm(applicationContext)
-        }
-        val scheduledAt = prefs.getLong("next_scan_at", 0)
         try {
-            val timeStr = java.text.SimpleDateFormat("dd.MM HH:mm:ss", java.util.Locale.getDefault())
-                .format(java.util.Date(scheduledAt))
-            Sender.enqueue(applicationContext, "📅 Санҷиши навбатӣ ҷадвал шуд: $timeStr")
-            Sender.flushAsync(applicationContext)
+            ScanScheduler.ensureScheduled(applicationContext)
         } catch (e: Exception) {}
     }
 

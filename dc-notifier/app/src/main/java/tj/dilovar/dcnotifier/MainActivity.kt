@@ -53,6 +53,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         startKeepAlive()
+        try {
+            ScanScheduler.ensureScheduled(applicationContext)
+        } catch (e: Exception) {}
 
         findViewById<Button>(R.id.btnSave).setOnClickListener {
             prefs.edit()
@@ -140,6 +143,9 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        try {
+            ScanScheduler.ensureScheduled(applicationContext)
+        } catch (e: Exception) {}
         updateStatus()
     }
 

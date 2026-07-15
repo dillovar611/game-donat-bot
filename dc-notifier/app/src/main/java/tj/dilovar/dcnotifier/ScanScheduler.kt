@@ -5,7 +5,9 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import java.text.SimpleDateFormat
 import java.util.Calendar
+import java.util.Locale
 import kotlin.random.Random
 
 /**
@@ -19,6 +21,24 @@ import kotlin.random.Random
  *   - шабона (23:00-08:00): ҳар 2-3 соат, то сония тасодуфӣ
  */
 object ScanScheduler {
+
+    /** Ҳар боре ки барнома кушода мешавад даъват мешавад (аз MainActivity),
+     * новобаста аз он ки KeepAliveService аллакай зинда аст ё не —
+     * чунки onCreate()-и Service танҳо як бор дар тӯли ҳаёти он иҷро
+     * мешавад, на ҳар боре ки барнома кушода мешавад. */
+    fun ensureScheduled(ctx: Context) {
+        val prefs = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        if (System.currentTimeMillis() >= prefs.getLong("next_scan_at", 0)) {
+            scheduleNextAlarm(ctx)
+        }
+        val scheduledAt = prefs.getLong("next_scan_at", 0)
+        try {
+            val timeStr = SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault())
+                .format(java.util.Date(scheduledAt))
+            Sender.enqueue(ctx, "📅 Санҷиши навбатӣ: $timeStr")
+            Sender.flushAsync(ctx)
+        } catch (e: Exception) {}
+    }
 
     fun scheduleNextAlarm(ctx: Context) {
         val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
