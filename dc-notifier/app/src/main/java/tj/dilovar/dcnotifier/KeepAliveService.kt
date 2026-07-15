@@ -58,11 +58,26 @@ class KeepAliveService : Service() {
         startForeground(1, notif)
         handler.post(tick)
 
+        try {
+            Sender.enqueue(applicationContext, "🟢 KeepAliveService оғоз шуд (${
+                java.text.SimpleDateFormat("dd.MM HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())
+            })")
+            Sender.flushAsync(applicationContext)
+        } catch (e: Exception) {}
+
         // Агар ягон санҷиши оянда ҷадвал нашуда бошад — ҳозир ҷадвал мекунем
         val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
-        if (System.currentTimeMillis() >= prefs.getLong("next_scan_at", 0)) {
+        val nextAt = prefs.getLong("next_scan_at", 0)
+        if (System.currentTimeMillis() >= nextAt) {
             ScanScheduler.scheduleNextAlarm(applicationContext)
         }
+        val scheduledAt = prefs.getLong("next_scan_at", 0)
+        try {
+            val timeStr = java.text.SimpleDateFormat("dd.MM HH:mm:ss", java.util.Locale.getDefault())
+                .format(java.util.Date(scheduledAt))
+            Sender.enqueue(applicationContext, "📅 Санҷиши навбатӣ ҷадвал шуд: $timeStr")
+            Sender.flushAsync(applicationContext)
+        } catch (e: Exception) {}
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
