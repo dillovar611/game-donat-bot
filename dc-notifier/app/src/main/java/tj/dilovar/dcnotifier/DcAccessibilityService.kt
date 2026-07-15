@@ -111,7 +111,9 @@ class DcAccessibilityService : AccessibilityService() {
                 }
             }
             joined.contains("Амалиётҳо") || joined.contains("Выписка") -> {
-                processTransactions(allText)
+                val groups = mutableListOf<List<String>>()
+                collectTransactionGroups(root, groups)
+                processTransactions(groups)
             }
             else -> {
                 // Экрани ношинос — то 60 сония як бор хабар медиҳем (на ҳар event),
@@ -140,6 +142,33 @@ class DcAccessibilityService : AccessibilityService() {
             } finally {
                 child.recycle()
             }
+        }
+    }
+
+    /** Гурӯҳи хурдтарини зершохаеро меёбад, ки дар дохилаш ҳам маблағ ҳам
+     * вақт дорад — ин ба таври дуруст ба ҳар "қуттии" алоҳидаи амалиёт
+     * дар рӯйхати UI мувофиқат мекунад (аз рӯи сохтори ДАРАХТ, на тахмини
+     * масофаи сатр — бинобар ин амалиёти ҳамсоя дигар омехта намешавад). */
+    private fun collectTransactionGroups(node: AccessibilityNodeInfo?, groups: MutableList<List<String>>) {
+        if (node == null) return
+        val childGroups = mutableListOf<List<String>>()
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            try {
+                collectTransactionGroups(child, childGroups)
+            } finally {
+                child.recycle()
+            }
+        }
+        if (childGroups.isNotEmpty()) {
+            groups.addAll(childGroups)
+            return
+        }
+        val myText = mutableListOf<String>()
+        collectText(node, myText)
+        val joined = myText.joinToString(" ")
+        if (myText.size >= 2 && AMOUNT_RE.containsMatchIn(joined) && TIME_RE.containsMatchIn(joined)) {
+            groups.add(myText)
         }
     }
 
@@ -193,8 +222,10 @@ class DcAccessibilityService : AccessibilityService() {
         }
     }
 
-    /** Хатҳои амалиётро ҷудо мекунад, наваҳояшро мешуморад ва ҲАР САНҶИШ як хабар мефиристад. */
-    private fun processTransactions(rawLines: List<String>) {
+    /** Ҳар гурӯҳ (қуттии як амалиёт, аз рӯи сохтори дарахти UI) коркард
+     * мешавад — дар дохили ҳамон гурӯҳ маблағ, вақт ва card_XXX ҷустуҷӯ
+     * мешаванд, бе омехта шудан бо амалиётҳои ҳамсоя. */
+    private fun processTransactions(groups: List<List<String>>) {
         val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
         val seen = try {
             JSONObject(prefs.getString("scan_seen", "{}") ?: "{}")
@@ -203,45 +234,26 @@ class DcAccessibilityService : AccessibilityService() {
         }
         val foundArr = org.json.JSONArray()
 
-        // Пешакӣ ҳамаи мавқеъҳои card_XXX-ро мешуморем, то барои ҳар амалиёт
-        // рамзи ФАРМОИШИ НАЗДИКТАРИН (на танҳо ба пеш) пайдо шавад — вагарна
-        // рамзи амалиёти ҚАБЛӢ/БАЪДӢ бардурӯғ ба амалиёти ҳозира васл мешавад
-        val cardPositions = mutableListOf<Pair<Int, String>>()
-        for ((idx, l) in rawLines.withIndex()) {
-            val m = CARD_REF_RE.find(l)
-            if (m != null) cardPositions.add(idx to m.groupValues[1])
-        }
+        for (group in groups) {
+            val joined = group.joinToString(" ")
+            val amount = group.firstOrNull { AMOUNT_RE.containsMatchIn(it) }
+                ?.let { AMOUNT_RE.find(it)?.value } ?: continue
+            val time = group.firstOrNull { TIME_RE.containsMatchIn(it) }
+                ?.let { TIME_RE.find(it)?.value } ?: continue
+            val orderId = CARD_REF_RE.find(joined)?.groupValues?.get(1)
+            val hasAlifRef = joined.contains("DC WALLET", ignoreCase = true)
 
-        var i = 0
-        while (i < rawLines.size) {
-            val line = rawLines[i]
-            if (AMOUNT_RE.containsMatchIn(line) && (TIME_RE.containsMatchIn(line) ||
-                        (i + 2 < rawLines.size && TIME_RE.containsMatchIn(rawLines[i + 2])))) {
-                val amount = AMOUNT_RE.find(line)?.value ?: line
-                val time = TIME_RE.find(line)?.value
-                    ?: (if (i + 2 < rawLines.size) TIME_RE.find(rawLines[i + 2])?.value else null)
-                    ?: "?"
-
-                // Наздиктарин card_XXX (то 8 сатр дур, ба ҳарду тараф)
-                val nearest = cardPositions.minByOrNull { kotlin.math.abs(it.first - i) }
-                val orderId = if (nearest != null && kotlin.math.abs(nearest.first - i) <= 8) nearest.second else null
-
-                val nearbyLines = rawLines.subList(maxOf(0, i - 3), minOf(i + 4, rawLines.size))
-                val hasAlifRef = nearbyLines.any { it.contains("DC WALLET", ignoreCase = true) }
-
-                val hash = "$orderId|$amount|$time".hashCode().toString()
-                if (!seen.has(hash)) {
-                    seen.put(hash, System.currentTimeMillis())
-                    val tag = classify(orderId, hasAlifRef)
-                    val body = buildString {
-                        if (orderId != null) append("Фармоиши #$orderId\n")
-                        append("Маблағ: $amount TJS\n")
-                        append("Вақт: $time")
-                    }
-                    foundArr.put("$tag\n$body")
+            val hash = "$orderId|$amount|$time".hashCode().toString()
+            if (!seen.has(hash)) {
+                seen.put(hash, System.currentTimeMillis())
+                val tag = classify(orderId, hasAlifRef)
+                val body = buildString {
+                    if (orderId != null) append("Фармоиши #$orderId\n")
+                    append("Маблағ: $amount TJS\n")
+                    append("Вақт: $time")
                 }
+                foundArr.put("$tag\n$body")
             }
-            i++
         }
 
         // тозакунии hash-ҳои кӯҳна (>7 рӯз)
