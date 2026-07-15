@@ -213,9 +213,9 @@ class DcAccessibilityService : AccessibilityService() {
                 val hash = contextLines.joinToString("|").hashCode().toString()
                 if (!seen.has(hash)) {
                     seen.put(hash, System.currentTimeMillis())
-                    val tag = classify(contextLines.joinToString(" "))
-                    val body = contextLines.joinToString("\n") { "   $it" }
-                    foundArr.put("$tag\n$body")
+                    val joined = contextLines.joinToString(" ")
+                    val tag = classify(joined)
+                    foundArr.put("$tag\n${formatEntry(contextLines)}")
                 }
             }
             i++
@@ -246,6 +246,24 @@ class DcAccessibilityService : AccessibilityService() {
             getSharedPreferences("cfg", Context.MODE_PRIVATE)
                 .edit().putLong("own_scan_triggered_at", 0).apply()
         }, 800)
+    }
+
+    /** Аз хатҳои хом танҳо майдонҳои возеҳро (маблағ, вақт, рақами фармоиш)
+     * бароварда, ба монанди формати DCNOTIF кӯтоҳ месозад — на матни хоми
+     * чаппаву роста. */
+    private fun formatEntry(contextLines: List<String>): String {
+        val joined = contextLines.joinToString(" ")
+        val amount = contextLines.firstOrNull { AMOUNT_RE.containsMatchIn(it) && !it.contains(":") }
+            ?: AMOUNT_RE.find(joined)?.value ?: "?"
+        val time = contextLines.firstOrNull { TIME_RE.containsMatchIn(it) }
+            ?.let { TIME_RE.find(it)?.value } ?: "?"
+        val orderMatch = CARD_REF_RE.find(joined)
+
+        val sb = StringBuilder()
+        if (orderMatch != null) sb.append("Фармоиши #${orderMatch.groupValues[1]}\n")
+        sb.append("Маблағ: $amount TJS\n")
+        sb.append("Вақт: $time")
+        return sb.toString()
     }
 
     private fun classify(line: String): String {
