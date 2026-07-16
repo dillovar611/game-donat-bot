@@ -37,7 +37,10 @@ class DcAccessibilityService : AccessibilityService() {
         private const val OWN_SCAN_WINDOW_MS = 90_000L
 
         private val CARD_REF_RE = Regex("card_(\\d+)", RegexOption.IGNORE_CASE)
-        private val AMOUNT_RE = Regex("\\b\\d{1,3}(?:[.,]\\d{2})\\b")
+        // ДИҚҚАТ: бояд ҳатман "TJS" пас аз рақам биёяд — вагарна санаи
+        // амалиёт (масалан "16.07.26") низ ба ин шакл рост меояд (16.07)
+        // ва ҳамчун маблағ хато хонда мешавад
+        private val AMOUNT_RE = Regex("(\\d{1,3}[.,]\\d{2})\\s*TJS", RegexOption.IGNORE_CASE)
         private val TIME_RE = Regex("\\b\\d{2}:\\d{2}:\\d{2}\\b")
 
         @Volatile
@@ -57,9 +60,9 @@ class DcAccessibilityService : AccessibilityService() {
     }
 
     private val handler = Handler(Looper.getMainLooper())
-    private var lastActionAt = 0L
     private var lastUnmatchedDiagAt = 0L
     private var wentToHistoryTab = false
+    private var pendingHandleRunnable: Runnable? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -81,18 +84,26 @@ class DcAccessibilityService : AccessibilityService() {
         val triggeredAt = prefs.getLong("own_scan_triggered_at", 0)
         if (System.currentTimeMillis() - triggeredAt > OWN_SCAN_WINDOW_MS) return
 
-        // на бештар аз як маротиба дар 1.5 сония коркард кунем (event-ҳо зуд-зуд меоянд)
-        val now = System.currentTimeMillis()
-        if (now - lastActionAt < 1500) return
-        lastActionAt = now
-
-        val root = rootInActiveWindow ?: return
-        try {
-            handleScreen(root)
-        } catch (e: Exception) {
-        } finally {
-            root.recycle()
+        // DEBOUNCE: RecyclerView-и рӯйхати амалиётҳо якчанд event пай дар пай
+        // мефиристад, то даме ки пурра "ором" (settle) шавад — агар мо дар
+        // ҳамон лаҳза (event-и АВВАЛИН) дарахтро хонем, феҳристи он ҳанӯз
+        // нимрасида буда метавонад (view-ҳои recycler ҳанӯз бо матни кӯҳна),
+        // ки боиси омехта шудани рамзи фармоиш байни амалиётҳои ҳамсоя
+        // мешавад. Барои ин ҳар event коркардро ба 500мс АҚИБ мепартояд —
+        // коркарди воқеӣ танҳо баъд аз он ки 500мс дигар event наомад,
+        // иҷро мешавад, бо дарахти ТОЗАИ ҳамон лаҳза (на лаҳзаи event).
+        pendingHandleRunnable?.let { handler.removeCallbacks(it) }
+        val runnable = Runnable {
+            val root = rootInActiveWindow ?: return@Runnable
+            try {
+                handleScreen(root)
+            } catch (e: Exception) {
+            } finally {
+                root.recycle()
+            }
         }
+        pendingHandleRunnable = runnable
+        handler.postDelayed(runnable, 500)
     }
 
     override fun onInterrupt() {}
@@ -236,10 +247,11 @@ class DcAccessibilityService : AccessibilityService() {
 
         for (group in groups) {
             val joined = group.joinToString(" ")
-            val amount = group.firstOrNull { AMOUNT_RE.containsMatchIn(it) }
-                ?.let { AMOUNT_RE.find(it)?.value } ?: continue
-            val time = group.firstOrNull { TIME_RE.containsMatchIn(it) }
-                ?.let { TIME_RE.find(it)?.value } ?: continue
+            // Аз рӯи МАТНИ ПУРРАИ гурӯҳ меҷӯем (на ҳар сатр алоҳида), то
+            // агар "TJS" дар нодаи ҳамсоя бошад ҳам ёфта шавад; аввалин
+            // мувофиқат гирифта мешавад (сатри "Захисление", на "Баланс")
+            val amount = AMOUNT_RE.find(joined)?.groupValues?.get(1) ?: continue
+            val time = TIME_RE.find(joined)?.value ?: continue
             val orderId = CARD_REF_RE.find(joined)?.groupValues?.get(1)
             val hasAlifRef = joined.contains("DC WALLET", ignoreCase = true)
 
