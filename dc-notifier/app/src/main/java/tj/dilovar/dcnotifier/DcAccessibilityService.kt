@@ -2,6 +2,7 @@ package tj.dilovar.dcnotifier
 
 import android.accessibilityservice.AccessibilityService
 import android.app.ActivityManager
+import android.app.KeyguardManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -81,6 +82,7 @@ class DcAccessibilityService : AccessibilityService() {
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastUnmatchedDiagAt = 0L
+    private var lastLockedDiagAt = 0L
     private var wentToHistoryTab = false
     private var pendingHandleRunnable: Runnable? = null
 
@@ -114,6 +116,28 @@ class DcAccessibilityService : AccessibilityService() {
         // иҷро мешавад, бо дарахти ТОЗАИ ҳамон лаҳза (на лаҳзаи event).
         pendingHandleRunnable?.let { handler.removeCallbacks(it) }
         val runnable = Runnable {
+            // Агар телефон қулф бошад (масалан alarm экранро бедор кард,
+            // вале корбар PIN/пайпона ворид накардааст), DC ҲАРГИЗ воқеан
+            // намекушояд — Android аз рӯи амният намегузорад ягон барнома
+            // аз пеши lock screen гузарад бе иҷозати дастии соҳиб. Дар ин
+            // ҳолат rootInActiveWindow на DC-ро, балки экрани қулфро
+            // бармегардонад (матни тасодуфӣ — фоизи батарея ва ғайра) — то
+            // ин ҳамчун "Экрани ношинос" гумроҳкунанда фиристода нашавад,
+            // фавран бозмегардем бо як паёми возеҳ (на ҳар бор — то спам
+            // нашавад).
+            val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+            if (km?.isKeyguardLocked == true) {
+                val now = System.currentTimeMillis()
+                if (now - lastLockedDiagAt > 5 * 60_000) {
+                    lastLockedDiagAt = now
+                    Sender.enqueue(
+                        applicationContext,
+                        "🔒 Телефон қулф буд дар вақти санҷиш — DC кушода нашуд (Android инро аз амният манъ мекунад). Санҷиши навбатӣ кӯшиш мекунад."
+                    )
+                    Sender.flushAsync(applicationContext)
+                }
+                return@Runnable
+            }
             val root = rootInActiveWindow ?: return@Runnable
             try {
                 handleScreen(root)
