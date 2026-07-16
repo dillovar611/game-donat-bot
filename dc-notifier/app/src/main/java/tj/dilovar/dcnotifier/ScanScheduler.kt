@@ -28,16 +28,21 @@ object ScanScheduler {
      * мешавад, на ҳар боре ки барнома кушода мешавад. */
     fun ensureScheduled(ctx: Context) {
         val prefs = ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        // Паём ФАҚАТ вақте фиристода мешавад, ки воқеан ҳамин лаҳза вақти
+        // НАВ ҷадвал шуд — вагарна ҳар бор, ки барнома боз кушода мешавад
+        // (масалан баъд аз бармегаштан аз Танзимот), ҳамон паёми кӯҳна бо
+        // ҳамон вақт такрор мешуд ва дар канал спам месохт (бе фоида, зеро
+        // вақт тағйир накардааст)
         if (System.currentTimeMillis() >= prefs.getLong("next_scan_at", 0)) {
             scheduleNextAlarm(ctx)
+            val scheduledAt = prefs.getLong("next_scan_at", 0)
+            try {
+                val timeStr = SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault())
+                    .format(java.util.Date(scheduledAt))
+                Sender.enqueue(ctx, "📅 Санҷиши навбатӣ: $timeStr")
+                Sender.flushAsync(ctx)
+            } catch (e: Exception) {}
         }
-        val scheduledAt = prefs.getLong("next_scan_at", 0)
-        try {
-            val timeStr = SimpleDateFormat("dd.MM HH:mm:ss", Locale.getDefault())
-                .format(java.util.Date(scheduledAt))
-            Sender.enqueue(ctx, "📅 Санҷиши навбатӣ: $timeStr")
-            Sender.flushAsync(ctx)
-        } catch (e: Exception) {}
     }
 
     fun scheduleNextAlarm(ctx: Context) {
