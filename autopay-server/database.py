@@ -123,6 +123,7 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN order_group_id VARCHAR(64) DEFAULT NULL",
                 "ALTER TABLE orders ADD COLUMN check_hash VARCHAR(64) DEFAULT NULL",
                 "ALTER TABLE orders ADD COLUMN stale_reminder_sent TINYINT DEFAULT 0",
+                "ALTER TABLE orders ADD COLUMN donating_at DATETIME DEFAULT NULL",
             ):
                 try:
                     await cur.execute(ddl)
@@ -1555,5 +1556,46 @@ async def claim_order_for_donate(order_id: int) -> bool:
                 (order_id,)
             )
             return cur.rowcount > 0
+
+
+async def claim_paid_order_for_autodonate(order_id: int) -> bool:
+    """Атомикӣ: фармоиши 'paid' (яъне аллакай ба админ фиристодашуда, чи
+    аз тарафи DC-эскалатсия, чи чеки дастии Алиф/Эсхата)-ро ба 'donating'
+    мегузаронад. Ин ягона роҳест барои бо ҳам бор гирифтани ин фармоиш —
+    агар ҳам админ дастӣ "Тасдиқ" пахш кунад, ҳам DCSCAN/DCNOTIF ҳамон
+    лаҳза пардохтро ёбад, танҳо ЯКЕ аз онҳо мувафаққ мешавад (rowcount>0),
+    дигараш False мегирад ва донат такрор намешавад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET status='donating', donating_at=NOW() "
+                "WHERE id=%s AND status='paid'",
+                (order_id,)
+            )
+            return cur.rowcount > 0
+
+
+async def recover_stuck_donating_orders(minutes: int = 3) -> list:
+    """Агар сервер маҳз дар вақти донат (байни 'donating' ва натиҷаи ниҳоӣ)
+    рестарт/қатъ шуда бошад, фармоиш метавонад доимӣ дар 'donating' монад —
+    на автопардохт, на админ дигар ба он даст расонда наметавонанд. Ин
+    функсия чунин фармоишҳоро баъд аз N дақиқа ба 'paid' бармегардонад, то
+    админ/DCSCAN боз кӯшиш карда тавонанд."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders WHERE status='donating' "
+                "AND donating_at < NOW() - INTERVAL %s MINUTE",
+                (minutes,)
+            )
+            stuck = await cur.fetchall()
+            if stuck:
+                ids = [o["id"] for o in stuck]
+                fmt = ",".join(["%s"] * len(ids))
+                await cur.execute(
+                    f"UPDATE orders SET status='paid' WHERE id IN ({fmt})",
+                    tuple(ids)
+                )
+            return stuck
 
 

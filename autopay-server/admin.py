@@ -317,6 +317,14 @@ async def order_confirm(call: CallbackQuery):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
         return
 
+    # Агар статус 'paid' ё 'donating' бошад, атомикӣ банд мекунем — то агар
+    # дар ҳамин лаҳза DCSCAN/DCNOTIF низ ҳамин пардохтро ёфта, худкор
+    # коркард карда истода бошад (ё аллакай оғоз кардааст), ду бор донат
+    # нашавад (яке аз ду тараф claim-ро мебарад)
+    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+        await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст (DCSCAN)!", show_alert=True)
+        return
+
     await call.answer("⏳ Донат оғоз шуд...", show_alert=False)
 
     # Дар ҲАМОН паёми чек/расм — caption тавсия мешавад (на паёми нав)
@@ -1417,7 +1425,7 @@ async def a_user_info_show(message: Message, state: FSMContext):
 
     if stats['orders']:
         text += "📋 <b>Фармоишҳои охир:</b>\n"
-        status_emoji = {"confirmed": "✅", "rejected": "❌", "failed": "⚠️", "paid": "💳", "pending": "⏳"}
+        status_emoji = {"confirmed": "✅", "rejected": "❌", "failed": "⚠️", "paid": "💳", "pending": "⏳", "donating": "🚀"}
         for o in stats['orders'][:10]:
             emoji = status_emoji.get(o['status'], "❓")
             text += f"{emoji} #{o['id']} | {o['label']} | {o['price']:.2f} сом | ID: <code>{o['game_id']}</code>\n"
@@ -1468,6 +1476,7 @@ async def a_ref_subusers(call: CallbackQuery):
 _STATUS_LABELS = {
     "pending": "⏳ Дар интизорӣ (чек нафиристодааст)",
     "paid": "📸 Чек фиристода шуд (интизори тасдиқи админ)",
+    "donating": "🚀 Донат ҳозир иҷро мешавад...",
     "confirmed": "✅ Тасдиқшуда",
     "rejected": "❌ Радшуда",
     "failed": "⚠️ Хато (донати худкор нашуд)",

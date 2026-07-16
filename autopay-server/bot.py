@@ -478,6 +478,7 @@ async def my_orders(call: CallbackQuery):
         "rejected": "❌",
         "failed": "⚠️",
         "paid": "💳",
+        "donating": "🚀",
         "pending": "⏳",
     }
     text = "📋 <b>Фармоишҳои охирини шумо:</b>\n\n"
