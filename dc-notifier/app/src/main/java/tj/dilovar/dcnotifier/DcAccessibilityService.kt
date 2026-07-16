@@ -1,6 +1,7 @@
 package tj.dilovar.dcnotifier
 
 import android.accessibilityservice.AccessibilityService
+import android.app.ActivityManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
@@ -51,10 +52,29 @@ class DcAccessibilityService : AccessibilityService() {
             try {
                 ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
                     .edit().putLong("own_scan_triggered_at", System.currentTimeMillis()).apply()
-                val launch = ctx.packageManager.getLaunchIntentForPackage(DC_PACKAGE) ?: return
-                launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
-                        android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                ctx.startActivity(launch)
+
+                // DC City-ро пеш аз кушодан ПУРРА мекушем — вагарна, агар
+                // он аллакай дар хотира буда бошад, рӯйхати амалиётҳоро аз
+                // ҲОЛАТИ КӮҲНАИ дар хотира мондаро нишон медиҳад (на
+                // маълумоти навтарин аз сервери DC), ва DCSCAN амалиёти
+                // навро намебинад. Кушодани АЗ НАВ (cold start) маҷбур
+                // мекунад, ки барнома маълумотро аз нав гирад — мисли он
+                // ки соҳиби телефон худаш барномаро аз Recent apps пок
+                // карда, аз нав кушода бошад (рафтори комилан оддии одам).
+                try {
+                    val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                    am.killBackgroundProcesses(DC_PACKAGE)
+                } catch (e: Exception) {}
+
+                val handler = Handler(Looper.getMainLooper())
+                handler.postDelayed({
+                    try {
+                        val launch = ctx.packageManager.getLaunchIntentForPackage(DC_PACKAGE) ?: return@postDelayed
+                        launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                                android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        ctx.startActivity(launch)
+                    } catch (e: Exception) {}
+                }, 400)
             } catch (e: Exception) {}
         }
     }
