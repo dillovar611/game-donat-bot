@@ -23,6 +23,9 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 ScanScheduler.scheduleNextAlarm(context)
             } catch (e: Exception) {}
+            try {
+                KeepAliveAlarmReceiver.schedule(context)
+            } catch (e: Exception) {}
         }
     }
 }

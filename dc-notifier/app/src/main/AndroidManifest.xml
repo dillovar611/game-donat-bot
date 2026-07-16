@@ -75,5 +75,9 @@
             android:name=".ScanAlarmReceiver"
             android:exported="false" />
 
+        <receiver
+            android:name=".KeepAliveAlarmReceiver"
+            android:exported="false" />
+
     </application>
 </manifest>

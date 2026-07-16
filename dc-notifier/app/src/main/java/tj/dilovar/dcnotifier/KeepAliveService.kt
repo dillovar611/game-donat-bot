@@ -75,6 +75,9 @@ class KeepAliveService : Service() {
         try {
             ScanScheduler.ensureScheduled(applicationContext)
         } catch (e: Exception) {}
+        try {
+            KeepAliveAlarmReceiver.schedule(applicationContext)
+        } catch (e: Exception) {}
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

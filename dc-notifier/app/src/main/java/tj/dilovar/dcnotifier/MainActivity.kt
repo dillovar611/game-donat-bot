@@ -57,6 +57,9 @@ class MainActivity : AppCompatActivity() {
         try {
             ScanScheduler.ensureScheduled(applicationContext)
         } catch (e: Exception) {}
+        try {
+            KeepAliveAlarmReceiver.schedule(applicationContext)
+        } catch (e: Exception) {}
 
         findViewById<Button>(R.id.btnSave).setOnClickListener {
             prefs.edit()
