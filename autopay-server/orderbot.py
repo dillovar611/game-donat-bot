@@ -12,8 +12,10 @@ orderbot.py — Боти АЛОҲИДА барои "Автоматизация �
 """
 import asyncio
 import logging
+import random
 import re
 import time
+from datetime import datetime, timedelta
 
 import aiomysql
 from aiogram import Bot, Dispatcher
@@ -76,12 +78,53 @@ def _is_last_order_query(text: str) -> bool:
     triggers = ("охирин", "чи шуд", "чӣ шуд", "кай", "куҷо", "куҷост", "ҳолат", "холат", "хабар")
     return any(t in lower for t in triggers)
 
+
+# Агар мизоҷ танҳо ташаккур/офарин гӯяд, бот бо як ҷумлаи кӯтоҳ ҷавоб
+# гардонад, на ин ки хомӯш монад ё дубора GREETING-и пурраро такрор кунад
+ACK_WORDS = (
+    "раҳмат", "рахмат", "рахмататон", "раҳмататон", "ташаккур", "ташакур",
+    "спасибо", "мерси", "мамнун", "миннатдор",
+    "ok", "окей", "оке", "окай",
+    "хуб шуд", "хубай", "хубя", "хуб-хуб",
+    "зур", "олиҷаноб", "офарин", "класс", "супер", "afarin", "rahmat",
+    "tashakur", "thanks", "thank you",
+)
+ACK_REPLIES = (
+    "🙏😊 Хуш омадед!",
+    "❤️🙏 Ҳамеша дар хизмататон!",
+    "😊✅ Хурсандем, ки кӯмак карда тавонистем!",
+)
+
+
+def _is_ack_message(text: str) -> bool:
+    stripped = text.strip().lower()
+    if not stripped or len(stripped) > 40:
+        return False
+    return any(w in stripped for w in ACK_WORDS)
+
+
+# Агар мизоҷ бидуни рақами фармоиш дар бораи нарх/маҳсулот пурсад, ба ҷои
+# GREETING-и умумӣ мустақим ба боти дӯкон равона мекунем
+CATALOG_WORDS = (
+    "нарх", "прайс", "нархнома", "чанд сом", "чанд пул",
+    "маҳсулот", "махсулот", "чи доред", "чӣ доред", "мол доред",
+    "алмос доред", "чи хел харид", "чӣ хел харид",
+)
+
+
+def _is_catalog_query(text: str) -> bool:
+    lower = text.lower()
+    return any(w in lower for w in CATALOG_WORDS)
+
 # Ҳимоя аз "тахминзанӣ" — агар як корбар дар муддати кӯтоҳ бисёр рақами
 # ГУНОГУНИ ношиносро санҷад (эҳтимоли кӯшиши ёфтани фармоиши каси дигар),
 # ба соҳиб огоҳинома иловагӣ мефиристем
 RATE_WINDOW_SEC = 5 * 60
 RATE_THRESHOLD = 4
 _recent_failed_queries: dict[int, list] = {}
+
+# Барои ҳисоботи шабона ба соҳиб — ҳар шаб соати 23:00 бо занг мешавад
+_stats = {"messages": 0, "orders_checked": 0, "alerts": 0}
 
 
 def _flag_failed_query(user_id: int) -> bool:
@@ -129,10 +172,35 @@ async def get_last_order_by_user(user_id: int):
 
 
 async def notify_owner(text: str):
+    _stats["alerts"] += 1
     try:
         await bot.send_message(NOTIFY_CHAT_ID, text)
     except Exception as e:
         logger.error(f"notify_owner хато: {e}")
+
+
+async def nightly_report_loop():
+    """Ҳар шаб соати 23:00 ба соҳиб омори кӯтоҳи имрӯзаро мефиристад."""
+    while True:
+        now = datetime.now()
+        target = now.replace(hour=23, minute=0, second=0, microsecond=0)
+        if now >= target:
+            target += timedelta(days=1)
+        await asyncio.sleep((target - now).total_seconds())
+        stats = dict(_stats)
+        _stats["messages"] = 0
+        _stats["orders_checked"] = 0
+        _stats["alerts"] = 0
+        try:
+            await bot.send_message(
+                NOTIFY_CHAT_ID,
+                f"📊 Ҳисоботи имрӯзаи orderbot:\n"
+                f"💬 Паёмҳои ҷавобдодашуда: {stats['messages']}\n"
+                f"🔍 Фармоишҳои санҷидашуда: {stats['orders_checked']}\n"
+                f"⚠️ Огоҳиномаҳо: {stats['alerts']}",
+            )
+        except Exception as e:
+            logger.error(f"nightly_report хато: {e}")
 
 
 def _find_suspicious_word(text: str) -> str | None:
@@ -217,6 +285,8 @@ async def handle_business_message(message: Message):
         logger.info(f"[SKIP-FORWARD] chat={chat_id} — паёми форвардшуда, четак карда шуд")
         return
 
+    _stats["messages"] += 1
+
     try:
         # Калимаҳои шубҳанок — новобаста аз он ки рақами фармоиш ҳаст ё не,
         # ба соҳиб огоҳинома мефиристем (бо матни пурраи паём)
@@ -249,6 +319,7 @@ async def handle_business_message(message: Message):
             replies = []
             flagged = False
             for order_id in order_ids:
+                _stats["orders_checked"] += 1
                 try:
                     order = await get_order_by_id(order_id)
                 except Exception as e:
@@ -285,6 +356,7 @@ async def handle_business_message(message: Message):
             return
 
         if _is_last_order_query(text):
+            _stats["orders_checked"] += 1
             try:
                 order = await get_last_order_by_user(user_id)
             except Exception as e:
@@ -298,6 +370,17 @@ async def handle_business_message(message: Message):
                     "🤔 Ягон фармоиши қаблии шумо ёфт нашуд. "
                     "Лутфан рақами фармоишро нависед (мисол: #6506) 🔍"
                 )
+            return
+
+        if _is_ack_message(text):
+            await message.answer(random.choice(ACK_REPLIES))
+            return
+
+        if _is_catalog_query(text):
+            await message.answer(
+                f"💎🛍 Барои нарх ва маҳсулот, лутфан ба {SHOP_BOT_USERNAME} равед — "
+                f"ҳамаи маълумот дар он ҷост, фавран мебинед! 😊"
+            )
             return
 
         if message.photo:
@@ -325,6 +408,7 @@ async def main():
     me = await bot.get_me()
     logger.info(f"✅ orderbot омода аст! @{me.username}")
     await bot.delete_webhook(drop_pending_updates=True)
+    asyncio.create_task(nightly_report_loop())
     await dp.start_polling(
         bot,
         allowed_updates=["business_connection", "business_message", "edited_business_message"],

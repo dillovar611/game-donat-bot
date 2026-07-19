@@ -9,6 +9,7 @@ import asyncio
 import hashlib
 import logging
 import html
+import unicodedata
 from datetime import datetime
 
 from aiogram import Router, F
@@ -38,7 +39,11 @@ def esc(text) -> str:
     """Матни бегона (номи корбар, username)-ро барои паёми HTML бехатар мекунад."""
     if text is None:
         return ""
-    return html.escape(str(text), quote=False)
+    s = "".join(
+        ch for ch in str(text)
+        if unicodedata.category(ch) not in ("Cf", "Cc", "Co", "Cs", "Cn")
+    )
+    return html.escape(s, quote=False)
 
 
 async def _credit_referral_and_notify(bot, order_id: int):

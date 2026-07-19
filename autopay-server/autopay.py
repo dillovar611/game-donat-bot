@@ -19,6 +19,7 @@ DC Next, ки барномаи Android ба канали махсуси Telegram
 """
 import asyncio
 import html
+import unicodedata
 import logging
 import re
 
@@ -55,7 +56,11 @@ _in_flight_orders: set[int] = set()
 def esc(text) -> str:
     if text is None:
         return ""
-    return html.escape(str(text), quote=False)
+    s = "".join(
+        ch for ch in str(text)
+        if unicodedata.category(ch) not in ("Cf", "Cc", "Co", "Cs", "Cn")
+    )
+    return html.escape(s, quote=False)
 
 
 def _progress_bar(pct: int, length: int = 10) -> str:
