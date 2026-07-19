@@ -140,12 +140,13 @@ def _status_text(order: dict) -> str:
 
 @dp.business_message()
 async def handle_business_message(message: Message):
-    try:
-        chat_id = message.chat.id
-        user_id = message.from_user.id
-        sender = message.from_user.full_name or str(user_id)
-        text = message.text or message.caption or ""
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    sender = message.from_user.full_name or str(user_id)
+    text = message.text or message.caption or ""
+    logger.info(f"[IN] chat={chat_id} user={user_id} bcid={message.business_connection_id!r} text={text!r}")
 
+    try:
         # Калимаҳои шубҳанок — новобаста аз он ки рақами фармоиш ҳаст ё не,
         # ба соҳиб огоҳинома мефиристем (бо матни пурраи паём)
         sw = _find_suspicious_word(text)
@@ -158,9 +159,16 @@ async def handle_business_message(message: Message):
             )
 
         m = _ORDER_RE.search(text)
+        logger.info(f"[MATCH] text={text!r} -> {m.group(1) if m else None}")
         if m:
             order_id = int(m.group(1))
-            order = await get_order_by_id(order_id)
+            try:
+                order = await get_order_by_id(order_id)
+            except Exception as e:
+                logger.error(f"[DB-ERROR] order_id={order_id}: {e}")
+                await message.answer("😅 Мушкили хурди техникӣ — лутфан якчанд сония баъд боз нависед 🙏")
+                return
+            logger.info(f"[ORDER] id={order_id} found={order is not None}")
             if order and order["user_id"] == user_id:
                 await message.answer(_status_text(order))
             elif order:
@@ -184,11 +192,12 @@ async def handle_business_message(message: Message):
         now = time.time()
         last = _last_prompt_at.get(chat_id, 0)
         if now - last < PROMPT_THROTTLE_SEC:
+            logger.info(f"[THROTTLED] chat={chat_id}")
             return  # хомӯш — ба ин чат наздик буд, ки хоҳиш кардем
         _last_prompt_at[chat_id] = now
         await message.answer(GREETING)
     except Exception as e:
-        logger.error(f"handle_business_message хато: {e}")
+        logger.error(f"[FATAL] handle_business_message хато: {e}", exc_info=True)
 
 
 @dp.business_connection()
