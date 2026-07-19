@@ -65,6 +65,21 @@ _last_prompt_at: dict[int, float] = {}
 
 _ORDER_RE = re.compile(r"#?(\d{2,7})\b")
 
+# Ҳимоя аз "тахминзанӣ" — агар як корбар дар муддати кӯтоҳ бисёр рақами
+# ГУНОГУНИ ношиносро санҷад (эҳтимоли кӯшиши ёфтани фармоиши каси дигар),
+# ба соҳиб огоҳинома иловагӣ мефиристем
+RATE_WINDOW_SEC = 5 * 60
+RATE_THRESHOLD = 4
+_recent_failed_queries: dict[int, list] = {}
+
+
+def _flag_failed_query(user_id: int) -> bool:
+    now = time.time()
+    arr = _recent_failed_queries.setdefault(user_id, [])
+    arr.append(now)
+    arr[:] = [t for t in arr if now - t < RATE_WINDOW_SEC]
+    return len(arr) == RATE_THRESHOLD  # маҳз як бор дар лаҳзаи расидан ба остона
+
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 pool: aiomysql.Pool | None = None
@@ -106,36 +121,54 @@ def _find_suspicious_word(text: str) -> str | None:
     return None
 
 
+def _order_header(order: dict) -> str:
+    label = (order.get("label") or "").strip()
+    price = order.get("price")
+    parts = [f"🆔 #{order['id']}"]
+    if label:
+        parts.append(f"— {label}")
+    if price is not None:
+        try:
+            parts.append(f"({float(price):.2f} сом)")
+        except (TypeError, ValueError):
+            pass
+    return " ".join(parts)
+
+
 def _status_text(order: dict) -> str:
     order_id = order["id"]
     status = order.get("status")
+    header = _order_header(order)
 
     if status in ("pending", "awaiting_autopay"):
-        return (
-            f"⏳😅 Фармоиши #{order_id} ҳанӯз пардохт нашудагӣ менамояд. "
+        body = (
+            f"⏳😅 Ҳанӯз пардохт нашудагӣ менамояд. "
             f"Агар пардохт кардаед — ташвиш накашед, system баъзан каме дер мекунад 🙏💳"
         )
-    if status in ("autopay_search", "paid"):
-        return (
-            f"🔍✅ Фармоиши #{order_id} — пардохти шумо гирифта шуд, ҳозир санҷида истодаем! "
+    elif status in ("autopay_search", "paid"):
+        body = (
+            f"🔍✅ Пардохти шумо гирифта шуд, ҳозир санҷида истодаем! "
             f"Каме сабр — зуд тайёр мешавад ⚡💎"
         )
-    if status == "donating":
-        return f"🚀🔥 Фармоиши #{order_id} ҳозир иҷро шуда истодааст! Як-ду дақиқа сабр — алмазҳо роҳанд 💎✨"
-    if status == "confirmed":
-        return f"🎉🎊 Фармоиши #{order_id} — тасдиқ шуд, алмазҳо фиристода шуданд! ✅💎 Раҳмат барои харид 🙏❤️"
-    if status == "rejected":
+    elif status == "donating":
+        body = "🚀🔥 Ҳозир иҷро шуда истодааст! Як-ду дақиқа сабр — алмазҳо роҳанд 💎✨"
+    elif status == "confirmed":
+        body = "🎉🎊 Тасдиқ шуд, алмазҳо фиристода шуданд! ✅💎 Раҳмат барои харид 🙏❤️"
+    elif status == "rejected":
         reason = (order.get("reject_reason") or "").strip()
         reason_line = f"\n📝 Сабаб: {reason}" if reason else ""
-        return f"😔⚠️ Мутаассифона фармоиши #{order_id} рад шудааст.{reason_line}\nСавол дошта бошед — ҳамин ҷо бинависед 💬👇"
-    if status == "failed":
-        return (
-            f"😅🔧 Фармоиши #{order_id} каме мушкили техникӣ дучор шуд, вале ХАВОТИР НАШАВЕД — "
+        body = f"😔⚠️ Мутаассифона рад шудааст.{reason_line}\nСавол дошта бошед — ҳамин ҷо бинависед 💬👇"
+    elif status == "failed":
+        body = (
+            f"😅🔧 Каме мушкили техникӣ дучор шуд, вале ХАВОТИР НАШАВЕД — "
             f"мо аллакай хабардорем ва зуд ҳал мекунем! ⚡🙏"
         )
-    if status == "expired":
-        return f"⌛ Фармоиши #{order_id} мӯҳлаташ гузаштааст."
-    return f"ℹ️ Фармоиши #{order_id} — ҳолат: {status}"
+    elif status == "expired":
+        body = "⌛ Мӯҳлаташ гузаштааст."
+    else:
+        body = f"ℹ️ Ҳолат: {status}"
+
+    return f"{header}\n{body}"
 
 
 @dp.business_message()
@@ -158,31 +191,52 @@ async def handle_business_message(message: Message):
                 f"💬 Матн: {text[:500]}"
             )
 
-        m = _ORDER_RE.search(text)
-        logger.info(f"[MATCH] text={text!r} -> {m.group(1) if m else None}")
-        if m:
-            order_id = int(m.group(1))
-            try:
-                order = await get_order_by_id(order_id)
-            except Exception as e:
-                logger.error(f"[DB-ERROR] order_id={order_id}: {e}")
-                await message.answer("😅 Мушкили хурди техникӣ — лутфан якчанд сония баъд боз нависед 🙏")
-                return
-            logger.info(f"[ORDER] id={order_id} found={order is not None}")
-            if order and order["user_id"] == user_id:
-                await message.answer(_status_text(order))
-            elif order:
-                # Фармоиш ҳаст, вале ба ИН корбар тааллуқ надорад — мизоҷ
-                # ҳамон "ёфт нашуд"-ро мебинад (то маълумоти каси дигар
-                # ошкор нашавад), вале соҳиб огоҳ мешавад
-                await message.answer(NOT_FOUND)
+        order_ids = []
+        seen_ids = set()
+        for mm in _ORDER_RE.finditer(text):
+            oid = int(mm.group(1))
+            if oid not in seen_ids:
+                seen_ids.add(oid)
+                order_ids.append(oid)
+        logger.info(f"[MATCH] text={text!r} -> {order_ids}")
+
+        if order_ids:
+            replies = []
+            flagged = False
+            for order_id in order_ids:
+                try:
+                    order = await get_order_by_id(order_id)
+                except Exception as e:
+                    logger.error(f"[DB-ERROR] order_id={order_id}: {e}")
+                    replies.append(f"😅 #{order_id} — мушкили хурди техникӣ, баъдтар кӯшиш кунед 🙏")
+                    continue
+                logger.info(f"[ORDER] id={order_id} found={order is not None}")
+                if order and order["user_id"] == user_id:
+                    replies.append(_status_text(order))
+                elif order:
+                    # Фармоиш ҳаст, вале ба ИН корбар тааллуқ надорад — мизоҷ
+                    # ҳамон "ёфт нашуд"-ро мебинад (то маълумоти каси дигар
+                    # ошкор нашавад), вале соҳиб огоҳ мешавад
+                    replies.append(NOT_FOUND)
+                    await notify_owner(
+                        f"⚠️ Касе фармоиши #{order_id}-ро санҷид, ки ба ӯ тааллуқ НАДОРАД!\n\n"
+                        f"👤 Пурсанда: {sender} (ID: {user_id})\n"
+                        f"🆔 Ин фармоиш воқеан ба корбари дигар (ID: {order['user_id']}) тааллуқ дорад."
+                    )
+                    if _flag_failed_query(user_id):
+                        flagged = True
+                else:
+                    replies.append(NOT_FOUND)
+                    if _flag_failed_query(user_id):
+                        flagged = True
+
+            if flagged:
                 await notify_owner(
-                    f"⚠️ Касе фармоиши #{order_id}-ро санҷид, ки ба ӯ тааллуқ НАДОРАД!\n\n"
-                    f"👤 Пурсанда: {sender} (ID: {user_id})\n"
-                    f"🆔 Ин фармоиш воқеан ба корбари дигар (ID: {order['user_id']}) тааллуқ дорад."
+                    f"⚠️ Корбар {sender} (ID: {user_id}) дар 5 дақиқаи охир {RATE_THRESHOLD}+ "
+                    f"рақами ГУНОГУНИ ношиносро санҷид — эҳтимоли кӯшиши тахминзанӣ!"
                 )
-            else:
-                await message.answer(NOT_FOUND)
+
+            await message.answer("\n\n".join(replies))
             return
 
         if message.photo:
