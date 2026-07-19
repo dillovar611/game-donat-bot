@@ -54,19 +54,21 @@ SUSPICIOUS_WORDS = [
 ]
 
 # ==================== МАТНҲО ====================
-GREETING = (
-    "😊👋 САЛОМ АЛЕЙКУМ! Ман ёрдамчии автоматии Диловар ҳастам 🤖💎\n"
+_GREETING_BODY = (
     "Барои санҷидани фармоиш рақамашро нависед (мисол: #6506) 🔍✍️ ман фавран мегӯям! ⚡\n"
     "Агар мехоҳед охирин фармоишатонро фаҳмед, танҳо «фармоиши охиринам» нависед 📦✍️\n\n"
     f"Барои харид ё саволи дигар: {SHOP_BOT_USERNAME} 💎"
 )
+GREETING = "😊👋 САЛОМ АЛЕЙКУМ! Ман ёрдамчии автоматии Диловар ҳастам 🤖💎\n" + _GREETING_BODY
+# Барои мизоҷони доимӣ (3+ фармоиши тасдиқшуда) — саломи гармтар
+GREETING_RETURNING = "😊🎉 Боз хуш омадед, дӯсти азиз! Ман ёрдамчии автоматии Диловар ҳастам 🤖💎\n" + _GREETING_BODY
 NOT_FOUND = "🤔❌ Чунин рақами фармоиш дар ҳисоби шумо ёфт нашуд... Лутфан рақамро дуруст санҷед (мисол: #6506) 🔍"
 GOT_PHOTO_NO_NUMBER = "📸✅ Расмро гирифтам, раҳмат! Лутфан рақами фармоишро ҳам ҳамчун матн нависед (мисол: #6506), то фавран санҷам 🔍"
 
 PROMPT_THROTTLE_SEC = 150  # ~2.5 дақ — то дар ҷавоби "ало","ало","ало" такрор нашавад
 _last_prompt_at: dict[int, float] = {}
 
-_ORDER_RE = re.compile(r"#?(\d{2,7})\b")
+_ORDER_RE = re.compile(r"#(\d{2,7})\b")  # # ҲАТМӢ — то рақами телефон/дигар рақами тасодуфӣ хато нагирад
 
 # Агар мизоҷ рақами фармоиш нанависад, вале хоҳиши донистани "фармоиши
 # охирин"-и худро нишон диҳад (масалан "фармоишам чи шуд", "фармоиш кай
@@ -169,6 +171,17 @@ async def get_last_order_by_user(user_id: int):
                 (user_id,),
             )
             return await cur.fetchone()
+
+
+async def get_confirmed_order_count(user_id: int) -> int:
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT COUNT(*) FROM orders WHERE user_id=%s AND status='confirmed'",
+                (user_id,),
+            )
+            row = await cur.fetchone()
+            return row[0] if row else 0
 
 
 async def notify_owner(text: str):
@@ -393,7 +406,12 @@ async def handle_business_message(message: Message):
             logger.info(f"[THROTTLED] chat={chat_id}")
             return  # хомӯш — ба ин чат наздик буд, ки хоҳиш кардем
         _last_prompt_at[chat_id] = now
-        await message.answer(GREETING)
+        try:
+            confirmed_count = await get_confirmed_order_count(user_id)
+        except Exception as e:
+            logger.error(f"[DB-ERROR] confirmed-count user={user_id}: {e}")
+            confirmed_count = 0
+        await message.answer(GREETING_RETURNING if confirmed_count >= 3 else GREETING)
     except Exception as e:
         logger.error(f"[FATAL] handle_business_message хато: {e}", exc_info=True)
 
