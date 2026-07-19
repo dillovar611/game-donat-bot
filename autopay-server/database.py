@@ -124,6 +124,7 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN check_hash VARCHAR(64) DEFAULT NULL",
                 "ALTER TABLE orders ADD COLUMN stale_reminder_sent TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN donating_at DATETIME DEFAULT NULL",
+                "ALTER TABLE orders ADD COLUMN reject_reason VARCHAR(255) DEFAULT NULL",
             ):
                 try:
                     await cur.execute(ddl)
@@ -564,6 +565,12 @@ async def update_order_status(order_id: int, status: str):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("UPDATE orders SET status=%s WHERE id=%s", (status, order_id))
+
+
+async def set_order_reject_reason(order_id: int, reason: str):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("UPDATE orders SET reject_reason=%s WHERE id=%s", (reason, order_id))
 
 
 async def set_order_check(order_id: int, file_id: str, check_hash: str = None):
