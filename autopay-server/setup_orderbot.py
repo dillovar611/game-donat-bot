@@ -56,7 +56,13 @@ async def main():
                     )
                 except Exception as e:
                     print(f"  (огоҳӣ барои host={host_pattern}: {e})")
-            await cur.execute("FLUSH PRIVILEGES")
+            try:
+                # Баъзе ҳисобҳои DB иҷозати RELOAD надоранд — FLUSH
+                # PRIVILEGES лозим НЕСТ (GRANT худаш фавран амал мекунад),
+                # пас агар ин хато диҳад, безарар нодида мегирем
+                await cur.execute("FLUSH PRIVILEGES")
+            except Exception as e:
+                print(f"  (FLUSH PRIVILEGES лозим набуд/иҷозат набуд — безарар: {e})")
         await conn.commit()
         print(f"✅ Ҳисоби MySQL сохта шуд: {db_user}")
     finally:
