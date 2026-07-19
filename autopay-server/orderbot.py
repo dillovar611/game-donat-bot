@@ -208,6 +208,14 @@ async def handle_business_message(message: Message):
         logger.info(f"[SKIP-OWN] chat={chat_id} — паёми худи соҳиб, четак карда шуд")
         return
 
+    if message.forward_origin is not None:
+        # Паёми ФОРВАРДШУДА (масалан реклама/чат дигар) — дар дохилаш
+        # метавонанд рақамҳои тасодуфӣ бошанд (вақт, шумора ва ғ.), ки
+        # ҳамчун рақами фармоиш хато шинохта мешаванд. Ин гуна паёмро
+        # тамоман нодида мегирем, то бот спам-ҷавоб нафиристад.
+        logger.info(f"[SKIP-FORWARD] chat={chat_id} — паёми форвардшуда, четак карда шуд")
+        return
+
     try:
         # Калимаҳои шубҳанок — новобаста аз он ки рақами фармоиш ҳаст ё не,
         # ба соҳиб огоҳинома мефиристем (бо матни пурраи паём)
@@ -228,6 +236,13 @@ async def handle_business_message(message: Message):
                 seen_ids.add(oid)
                 order_ids.append(oid)
         logger.info(f"[MATCH] text={text!r} -> {order_ids}")
+
+        if len(order_ids) > 3:
+            # Эҳтимоли зиёд, ки ин матн умуман рақами фармоиш нест (масалан
+            # матни дигар бо бисёр рақами тасодуфӣ) — барои пешгирии спам-и
+            # чандин "ёфт нашуд" паём, тамоман нодида мегирем
+            logger.info(f"[SKIP-TOO-MANY] chat={chat_id} count={len(order_ids)}")
+            return
 
         if order_ids:
             replies = []
