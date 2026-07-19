@@ -179,6 +179,14 @@ async def handle_business_message(message: Message):
     text = message.text or message.caption or ""
     logger.info(f"[IN] chat={chat_id} user={user_id} bcid={message.business_connection_id!r} text={text!r}")
 
+    if user_id == NOTIFY_CHAT_ID:
+        # Ин паёми ХУДИ соҳиб аст (шумо аз app-и худ ба мизоҷ навиштед).
+        # Telegram Business API ин паёмҳоро ҳам ҳамчун business_message
+        # мефиристад (барои синхронизатсия) — бот НАБОЯД ба паёми худи
+        # соҳиб ҷавоб гардонад, вагарна ду "овоз" дар як чат пайдо мешавад.
+        logger.info(f"[SKIP-OWN] chat={chat_id} — паёми худи соҳиб, четак карда шуд")
+        return
+
     try:
         # Калимаҳои шубҳанок — новобаста аз он ки рақами фармоиш ҳаст ё не,
         # ба соҳиб огоҳинома мефиристем (бо матни пурраи паём)
