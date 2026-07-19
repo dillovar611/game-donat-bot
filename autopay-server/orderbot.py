@@ -36,8 +36,20 @@ DB_PORT = cfg.DB_PORT
 DB_USER = cfg.DB_USER          # ҳисоби МАҲДУД — танҳо SELECT ба orders
 DB_PASSWORD = cfg.DB_PASSWORD
 DB_NAME = cfg.DB_NAME
+NOTIFY_CHAT_ID = cfg.NOTIFY_CHAT_ID   # ID-и шахсии соҳиб — паёми оддии бот (на business)
 
 SHOP_BOT_USERNAME = "@DILOVARFFBOT"
+
+# Калимаҳое, ки агар дар паёми мизоҷ пайдо шаванд, ба соҳиб фавран
+# огоҳинома мефиристем (то ин ҳолатро худи бот "ҳал" накунад, балки
+# шумо шахсан бинед). Рӯйхатро дар ҳар вақт васеъ карда метавонед.
+SUSPICIOUS_WORDS = [
+    "фиреб", "фирефт", "дузд", "кидал", "обман", "кинул", "развод",
+    "шикоят", "жалоб", "полиц", "милиц", "прокурор", "суд ме",
+    "чарг", "chargeback", "верни", "баргардон пул", "деньги назад",
+    "мошенник", "scam", "фрод", "fraud", "блокир", "бан кардед",
+    "адвокат", "юрист", "иск",
+]
 
 # ==================== МАТНҲО ====================
 GREETING = (
@@ -66,14 +78,32 @@ async def create_pool():
     )
 
 
-async def get_order_for_user(order_id: int, user_id: int):
+async def get_order_by_id(order_id: int):
+    """Фармоишро БЕ филтри соҳиб мехонад — то дар handle_business_message
+    фаҳмем фармоиш умуман ВУҶУД ДОРАД, вале ба КОРБАРИ ДИГАР тааллуқ дорад
+    (ин ҳолати шубҳанокро аз "рақами тамоман нодуруст" фарқ мекунад)."""
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
-                "SELECT id, status, label, price, reject_reason FROM orders WHERE id=%s AND user_id=%s",
-                (order_id, user_id),
+                "SELECT id, user_id, status, label, price, reject_reason FROM orders WHERE id=%s",
+                (order_id,),
             )
             return await cur.fetchone()
+
+
+async def notify_owner(text: str):
+    try:
+        await bot.send_message(NOTIFY_CHAT_ID, text)
+    except Exception as e:
+        logger.error(f"notify_owner хато: {e}")
+
+
+def _find_suspicious_word(text: str) -> str | None:
+    lower = text.lower()
+    for w in SUSPICIOUS_WORDS:
+        if w in lower:
+            return w
+    return None
 
 
 def _status_text(order: dict) -> str:
@@ -113,14 +143,36 @@ async def handle_business_message(message: Message):
     try:
         chat_id = message.chat.id
         user_id = message.from_user.id
+        sender = message.from_user.full_name or str(user_id)
         text = message.text or message.caption or ""
+
+        # Калимаҳои шубҳанок — новобаста аз он ки рақами фармоиш ҳаст ё не,
+        # ба соҳиб огоҳинома мефиристем (бо матни пурраи паём)
+        sw = _find_suspicious_word(text)
+        if sw:
+            await notify_owner(
+                f"⚠️ Калимаи шубҳанок дар чати шахсӣ!\n\n"
+                f"👤 {sender} (ID: {user_id})\n"
+                f"🔑 Калима: «{sw}»\n"
+                f"💬 Матн: {text[:500]}"
+            )
 
         m = _ORDER_RE.search(text)
         if m:
             order_id = int(m.group(1))
-            order = await get_order_for_user(order_id, user_id)
-            if order:
+            order = await get_order_by_id(order_id)
+            if order and order["user_id"] == user_id:
                 await message.answer(_status_text(order))
+            elif order:
+                # Фармоиш ҳаст, вале ба ИН корбар тааллуқ надорад — мизоҷ
+                # ҳамон "ёфт нашуд"-ро мебинад (то маълумоти каси дигар
+                # ошкор нашавад), вале соҳиб огоҳ мешавад
+                await message.answer(NOT_FOUND)
+                await notify_owner(
+                    f"⚠️ Касе фармоиши #{order_id}-ро санҷид, ки ба ӯ тааллуқ НАДОРАД!\n\n"
+                    f"👤 Пурсанда: {sender} (ID: {user_id})\n"
+                    f"🆔 Ин фармоиш воқеан ба корбари дигар (ID: {order['user_id']}) тааллуқ дорад."
+                )
             else:
                 await message.answer(NOT_FOUND)
             return
