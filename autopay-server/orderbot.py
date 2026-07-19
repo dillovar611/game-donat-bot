@@ -65,6 +65,16 @@ _last_prompt_at: dict[int, float] = {}
 
 _ORDER_RE = re.compile(r"#?(\d{2,7})\b")
 
+# Агар мизоҷ рақами фармоиш нанависад, вале хоҳиши донистани "фармоиши
+# охирин"-и худро нишон диҳад (масалан "фармоишам чи шуд", "фармоиш кай
+# меояд"), охирин фармоиши ҳамон корбарро аз база меёбем ва ҷавоб медиҳем
+def _is_last_order_query(text: str) -> bool:
+    lower = text.lower()
+    if "фармоиш" not in lower:
+        return False
+    triggers = ("охирин", "чи шуд", "чӣ шуд", "кай", "куҷо", "куҷост", "ҳолат", "холат", "хабар")
+    return any(t in lower for t in triggers)
+
 # Ҳимоя аз "тахминзанӣ" — агар як корбар дар муддати кӯтоҳ бисёр рақами
 # ГУНОГУНИ ношиносро санҷад (эҳтимоли кӯшиши ёфтани фармоиши каси дигар),
 # ба соҳиб огоҳинома иловагӣ мефиристем
@@ -102,6 +112,17 @@ async def get_order_by_id(order_id: int):
             await cur.execute(
                 "SELECT id, user_id, status, label, price, reject_reason FROM orders WHERE id=%s",
                 (order_id,),
+            )
+            return await cur.fetchone()
+
+
+async def get_last_order_by_user(user_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, user_id, status, label, price, reject_reason FROM orders "
+                "WHERE user_id=%s ORDER BY id DESC LIMIT 1",
+                (user_id,),
             )
             return await cur.fetchone()
 
@@ -245,6 +266,22 @@ async def handle_business_message(message: Message):
                 )
 
             await message.answer("\n\n".join(replies))
+            return
+
+        if _is_last_order_query(text):
+            try:
+                order = await get_last_order_by_user(user_id)
+            except Exception as e:
+                logger.error(f"[DB-ERROR] last-order user={user_id}: {e}")
+                await message.answer("😅 Мушкили хурди техникӣ, баъдтар кӯшиш кунед 🙏")
+                return
+            if order:
+                await message.answer(_status_text(order))
+            else:
+                await message.answer(
+                    "🤔 Ягон фармоиши қаблии шумо ёфт нашуд. "
+                    "Лутфан рақами фармоишро нависед (мисол: #6506) 🔍"
+                )
             return
 
         if message.photo:
