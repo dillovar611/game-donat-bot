@@ -764,10 +764,10 @@ async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, 
     if reason_clean:
         caption += f"\n📝 Сабаб: {esc(reason_clean)}"
     try:
-        await bot.edit_message_caption(chat_id=chat_id, message_id=msg_id, caption=caption, parse_mode="HTML")
+        await bot.edit_message_caption(chat_id=chat_id, message_id=msg_id, caption=caption, reply_markup=None, parse_mode="HTML")
     except Exception:
         try:
-            await bot.edit_message_text(chat_id=chat_id, message_id=msg_id, text=caption, parse_mode="HTML")
+            await bot.edit_message_text(chat_id=chat_id, message_id=msg_id, text=caption, reply_markup=None, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Навсозии паёми фармоиши #{order_id} нашуд: {e}")
     return True
