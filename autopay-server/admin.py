@@ -688,6 +688,22 @@ _REJECT_REASONS = {
 }
 
 
+async def _heal_stale_order_message(bot, order_id: int, status: str, chat_id: int, msg_id: int):
+    """Агар паёми кӯҳна (аз пеш аз ислоҳи хатогии тугмаҳо) ҳанӯз тугмаҳои
+    фаъол дошта бошад, ҳангоми зер кардани онҳо инҷо тоза мекунем — то
+    паёмҳои қаблан 'гир' мондаро низ ислоҳ кунад."""
+    emoji = "✅" if status == "confirmed" else "❌"
+    label = "тасдиқ шуд" if status == "confirmed" else "рад шуд"
+    caption = f"{emoji} <b>Фармоиши #{order_id} {label} (қаблан).</b>"
+    try:
+        await bot.edit_message_caption(chat_id=chat_id, message_id=msg_id, caption=caption, reply_markup=None, parse_mode="HTML")
+    except Exception:
+        try:
+            await bot.edit_message_text(chat_id=chat_id, message_id=msg_id, text=caption, reply_markup=None, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Тозакунии паёми кӯҳнаи фармоиши #{order_id} нашуд: {e}")
+
+
 @router.callback_query(F.data.startswith("no_"))
 async def order_reject(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
@@ -699,6 +715,7 @@ async def order_reject(call: CallbackQuery, state: FSMContext):
         return
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+        await _heal_stale_order_message(call.bot, order_id, order["status"], call.message.chat.id, call.message.message_id)
         return
 
     await state.update_data(
@@ -807,6 +824,7 @@ async def order_reject_reason_button(call: CallbackQuery, state: FSMContext):
         return
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+        await _heal_stale_order_message(call.bot, order_id, order["status"], call.message.chat.id, call.message.message_id)
         return
 
     if code == "ban":
