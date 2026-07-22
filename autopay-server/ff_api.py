@@ -261,15 +261,18 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
     Донати худкор: аввал FazerCards, агар ноком шавад — MooGold (fallback).
     Агар existing_order_id дода шавад — аввал ҳолати ОНРО тафтиш мекунад
     (то дучандон фармоиш фиристода нашавад).
-    Бармегардонад: (success: bool, api_order_id: str)
+    Бармегардонад: (success: bool, api_order_id: str, uncertain: bool)
+    uncertain=True маънояш: мо ҳељ бор ҷавоби ВОҚЕИИ FazerCards-ро дар бораи
+    ҳолати ниҳоӣ нагирифтем (ҳамеша таймаути шабака) — фармоиш шояд ВОҚЕАН
+    иҷро шуда бошад, пеш аз "Дубора донат" дар FazerCards санҷед!
     """
     # Агар фармоиши пешина ба MooGold тааллуқ дошта бошад
     if existing_order_id.startswith("moo:"):
         ok, tagged = await _moogold_check(existing_order_id[4:])
         if ok is True:
-            return True, tagged
+            return True, tagged, False
         if ok is None:
-            return False, tagged  # ҳанӯз дар ҷараён — мунтазир мемонем
+            return False, tagged, False  # ҳанӯз дар ҷараён — мунтазир мемонем
         existing_order_id = ""  # ноком — аз нав кӯшиш мекунем
 
     # Агар фармоиши пешина ба FazerCards тааллуқ дошта бошад
@@ -280,14 +283,14 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
             status = (status_data.get("order") or {}).get("status") \
                 or status_data.get("status") or ""
         if status == "completed":
-            return True, existing_order_id
+            return True, existing_order_id, False
         if status == "processing":
-            return False, existing_order_id
+            return False, existing_order_id, False
         # failed/cancelled/error — поён фармоиши нав месозем
 
     if not offer_id:
         logger.error("auto_donate: offer_id холист")
-        return False, ""
+        return False, "", False
 
     # ---- Кӯшиши 1: FazerCards ----
     if config.FAZER_KEY:
@@ -298,28 +301,33 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
             api_order_id = str(order_block.get("id") or result.get("id") or "")
 
         if result.get("ok") and api_order_id:
+            ever_confirmed = False  # оё ягон бор ҷавоби воқеии FazerCards гирифтем
             for _ in range(60):
                 await asyncio.sleep(10)
                 status_data = await _fazer_status(api_order_id)
                 status = ""
                 if isinstance(status_data, dict):
+                    if status_data.get("ok") is True:
+                        ever_confirmed = True
                     status = (status_data.get("order") or {}).get("status") \
                         or status_data.get("status") or ""
                 if status == "completed":
-                    return True, api_order_id
+                    return True, api_order_id, False
                 if status in ("failed", "cancelled", "error", "refunded"):
                     break  # ба MooGold мегузарем
             else:
-                # 10 дақиқа гузашт, ҳанӯз "processing" — мунтазир мемонем,
-                # ба MooGold нагузарем (то дучандон фармоиш нашавад)
-                return False, api_order_id
+                # 10 дақиқа гузашт, ҳанӯз "processing" (ё ҳамеша таймаут) —
+                # мунтазир мемонем, ба MooGold нагузарем (то дучандон
+                # фармоиш нашавад)
+                return False, api_order_id, not ever_confirmed
         else:
             logger.warning(f"FazerCards фармоиш нашуд, MooGold-ро санҷем: {result}")
     else:
         logger.warning("FAZER_KEY нест — рост ба MooGold мегузарем")
 
     # ---- Кӯшиши 2: MooGold (fallback) ----
-    return await _moogold_fallback(offer_id, player_id)
+    success, tagged = await _moogold_fallback(offer_id, player_id)
+    return success, tagged, False
 
 
 # ==================== FREE FIRE INDONESIA ====================

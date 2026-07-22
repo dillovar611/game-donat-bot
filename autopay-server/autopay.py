@@ -307,7 +307,7 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
             logger.error(f"Ҳисоботи автотасдиқ ба админ {admin_id} нарасид: {e}")
 
 
-async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: str):
+async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: str, uncertain: bool = False):
     """Пардохт омад, вале донат нашуд — админ бо тугмаҳо огоҳ мешавад."""
     user = await db.get_user(order["user_id"])
     full_name = user.get("full_name") if user else "—"
@@ -318,6 +318,16 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
         [InlineKeyboardButton(text="✅ Дастӣ тасдиқ кардам", callback_data=f"manual_{order['id']}")],
         [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order['id']}")],
     ])
+    if uncertain:
+        warning_line = (
+            f"\n⚠️⚠️ <b>ДИҚҚАТ: ин на радди воқеӣ аст — шабака ба FazerCards "
+            f"такроран таймаут задааст ва мо ҲОЛАТИ НИҲОИИ ВОҚЕИРО намедонем!</b>\n"
+            f"Фармоиш дар FazerCards (ID боло) шояд АЛЛАКАЙ иҷро шуда бошад. "
+            f"Пеш аз «Дубора донат», ҳатман дар FazerCards санҷед — вагарна "
+            f"ду бор донат мешавад!\n"
+        )
+    else:
+        warning_line = ""
     text = (
         f"⚠️ <b>ПАРДОХТ ОМАД, вале донати худкор НАШУД!</b>\n\n"
         f"👤 Харидор: {esc(full_name)} ({esc(username)})\n"
@@ -325,7 +335,8 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
         f"💵 Маблағ: {float(order['price']):.2f} сомонӣ\n\n"
         f"🆔 Фармоиш: #{order['id']}\n"
         f"{api_line}"
-        f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
+        f"🎁 {order['label']} → <code>{order['game_id']}</code>\n"
+        f"{warning_line}\n"
         f"Пули мизоҷ ҚАБУЛ шудааст — ҳатман ҳал кунед!"
     )
     for admin_id in config.ADMIN_IDS:
@@ -433,9 +444,9 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
                 fresh_order["game_id"], fresh_order["offer_id"], fresh_order.get("api_order_id") or ""
             )
             if progress_msg:
-                success, api_order_id = await _run_with_live_progress_text(progress_msg, header, donate_coro)
+                success, api_order_id, uncertain = await _run_with_live_progress_text(progress_msg, header, donate_coro)
             else:
-                success, api_order_id = await donate_coro
+                success, api_order_id, uncertain = await donate_coro
 
             # Сабти ID ҳанӯз ДАР ДОХИЛИ қулф — то даъвати навбатӣ (агар
             # бошад) ҳатман ин ID-ро тоза бинад, на холӣ (равзанаи race)
@@ -494,7 +505,7 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
             )
         except Exception as e:
             logger.error(f"Паёми таъхир ба {user_id} нарасид: {e}")
-        await _admin_report_failure(bot, order, kod, api_order_id)
+        await _admin_report_failure(bot, order, kod, api_order_id, uncertain)
 
 
 async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
@@ -545,7 +556,7 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
                     f"{fresh_order.get('status')} — донат гузаронида шуд"
                 )
                 return
-            success, api_order_id = await ff_api.auto_donate(
+            success, api_order_id, uncertain = await ff_api.auto_donate(
                 fresh_order["game_id"], fresh_order["offer_id"], fresh_order.get("api_order_id") or ""
             )
             if api_order_id:
@@ -599,7 +610,7 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
                 )
             except Exception as e:
                 logger.error(f"Паёми таъхир (эскалатсия) ба {user_id} нарасид: {e}")
-            await _admin_report_failure(bot, order, kod, api_order_id)
+            await _admin_report_failure(bot, order, kod, api_order_id, uncertain)
     finally:
         _in_flight_orders.discard(order_id)
 

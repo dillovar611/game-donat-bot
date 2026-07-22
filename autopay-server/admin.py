@@ -373,7 +373,7 @@ async def _do_donate_group(call: CallbackQuery, orders: list):
     results = []
     for order in orders:
         order_id = order["id"]
-        success, api_order_id = await ff_api.auto_donate(
+        success, api_order_id, _uncertain = await ff_api.auto_donate(
             order["game_id"], order["offer_id"], order.get("api_order_id") or ""
         )
         if api_order_id:
@@ -483,7 +483,7 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
         f"🆔 Фармоиш: #{order_id}\n"
         f"{order['label']} → <code>{order['game_id']}</code>"
     )
-    success, api_order_id = await _run_with_live_progress(
+    success, api_order_id, uncertain = await _run_with_live_progress(
         wait_msg, header,
         ff_api.auto_donate(order["game_id"], order["offer_id"], order.get("api_order_id") or "")
     )
@@ -541,13 +541,21 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
             [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order_id}")],
             [InlineKeyboardButton(text="💬 ЛС ба клент", url=ls_url)],
         ])
+        uncertain_line = (
+            f"\n⚠️⚠️ <b>ДИҚҚАТ: ин на радди воқеӣ аст — шабака ба FazerCards "
+            f"такроран таймаут задааст, ҳолати ниҳоии воқеӣ номаълум аст!</b>\n"
+            f"Фармоиш шояд АЛЛАКАЙ иҷро шуда бошад — пеш аз «Дубора донат» "
+            f"дар FazerCards санҷед, вагарна ду бор донат мешавад!\n"
+            if uncertain else ""
+        )
         await _safe_edit_caption(
             wait_msg,
             f"⚠️ <b>Донати худкор нашуд!</b>\n\n"
             f"🆔 Фармоиш: #{order_id}\n"
             f"{api_id_line}"
             f"🆔 ID: <code>{order['game_id']}</code>\n"
-            f"{order['label']}\n\n"
+            f"{order['label']}\n"
+            f"{uncertain_line}\n"
             f"Метавонед дубора кӯшиш кунед ё дастӣ донат карда тасдиқ кунед.",
             retry_kb
         )
