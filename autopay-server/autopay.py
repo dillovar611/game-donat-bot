@@ -441,7 +441,8 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
                 logger.error(f"Паёми оғози донат ба {user_id} нарасид: {e}")
 
             donate_coro = ff_api.auto_donate(
-                fresh_order["game_id"], fresh_order["offer_id"], fresh_order.get("api_order_id") or ""
+                fresh_order["game_id"], fresh_order["offer_id"], fresh_order.get("api_order_id") or "",
+                order_id
             )
             if progress_msg:
                 success, api_order_id, uncertain = await _run_with_live_progress_text(progress_msg, header, donate_coro)
@@ -557,7 +558,8 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
                 )
                 return
             success, api_order_id, uncertain = await ff_api.auto_donate(
-                fresh_order["game_id"], fresh_order["offer_id"], fresh_order.get("api_order_id") or ""
+                fresh_order["game_id"], fresh_order["offer_id"], fresh_order.get("api_order_id") or "",
+                order_id
             )
             if api_order_id:
                 await db.set_order_api_id(order_id, api_order_id)

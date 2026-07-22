@@ -374,7 +374,8 @@ async def _do_donate_group(call: CallbackQuery, orders: list):
     for order in orders:
         order_id = order["id"]
         success, api_order_id, _uncertain = await ff_api.auto_donate(
-            order["game_id"], order["offer_id"], order.get("api_order_id") or ""
+            order["game_id"], order["offer_id"], order.get("api_order_id") or "",
+            order_id
         )
         if api_order_id:
             await db.set_order_api_id(order_id, api_order_id)
@@ -485,7 +486,7 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
     )
     success, api_order_id, uncertain = await _run_with_live_progress(
         wait_msg, header,
-        ff_api.auto_donate(order["game_id"], order["offer_id"], order.get("api_order_id") or "")
+        ff_api.auto_donate(order["game_id"], order["offer_id"], order.get("api_order_id") or "", order_id)
     )
 
     if api_order_id:

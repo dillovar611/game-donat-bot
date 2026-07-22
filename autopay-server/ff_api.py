@@ -112,12 +112,15 @@ async def _nickname_fazer(player_id: str) -> str:
 
 
 # ==================== ДОНАТИ ХУДКОР (FazerCards) ====================
-async def _fazer_order(offer_id: str, player_id: str) -> dict:
+async def _fazer_order(offer_id: str, player_id: str, order_id: int | str = "") -> dict:
     """Фармоиш ба FazerCards мефиристад."""
     headers = {
         "X-API-Key": config.FAZER_KEY,
         "Content-Type": "application/json",
-        "Idempotency-Key": str(uuid.uuid4()),
+        # Калиди собит (аз рӯи order_id-и худамон), на тасодуфӣ — то агар
+        # "Дубора донат" зада шавад, FazerCards дархостро такрорӣ шинохта,
+        # фармоиши ДУЮМ насозад (зидди дучандон харҷ)
+        "Idempotency-Key": f"donate-{order_id}" if order_id else str(uuid.uuid4()),
     }
     payload = {
         "category_id": config.FF_CATEGORY_ORDER,
@@ -256,7 +259,7 @@ async def _moogold_fallback(offer_id: str, player_id: str):
     return False, f"moo:{moo_order_id}"
 
 
-async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""):
+async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = "", order_id: int | str = ""):
     """
     Донати худкор: аввал FazerCards, агар ноком шавад — MooGold (fallback).
     Агар existing_order_id дода шавад — аввал ҳолати ОНРО тафтиш мекунад
@@ -294,7 +297,7 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
 
     # ---- Кӯшиши 1: FazerCards ----
     if config.FAZER_KEY:
-        result = await _fazer_order(offer_id, player_id)
+        result = await _fazer_order(offer_id, player_id, order_id)
         api_order_id = ""
         if isinstance(result, dict):
             order_block = result.get("order") or {}
