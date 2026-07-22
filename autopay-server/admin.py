@@ -2282,9 +2282,9 @@ async def order_confirm_stars(call: CallbackQuery):
     )
     await _safe_edit_caption(call.message, header, None)
 
-    success, api_order_id = await _run_with_live_progress(
+    success, api_order_id, uncertain = await _run_with_live_progress(
         call.message, header,
-        ff_api.buy_telegram_stars(tg_username, order["amount"])
+        ff_api.buy_telegram_stars(tg_username, order["amount"], order_id)
     )
 
     if api_order_id:
@@ -2329,12 +2329,20 @@ async def order_confirm_stars(call: CallbackQuery):
             [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order_id}")],
             [InlineKeyboardButton(text="💬 ЛС ба клент", url=ls_url)],
         ])
+        uncertain_line = (
+            f"\n⚠️⚠️ <b>ДИҚҚАТ: шабака ба FazerCards таймаут задааст — мо "
+            f"НАФАҲМИДЕМ фармоиш дар тарафи онҳо сохта шуд ё не!</b>\n"
+            f"Пеш аз «Дубора кӯшиш», дар FazerCards санҷед, вагарна дучандон "
+            f"харҷ мешавад!\n"
+            if uncertain else ""
+        )
         await _safe_edit_caption(
             call.message,
             f"⚠️ <b>Хато рух дод!</b>\n\n"
             f"🆔 Фармоиш: #{order_id}\n"
             f"{api_id_line}\n"
-            f"📱 @{tg_username} — {order['label']}\n\n"
+            f"📱 @{tg_username} — {order['label']}\n"
+            f"{uncertain_line}\n"
             f"Метавонед дубора кӯшиш кунед ё дастӣ тасдиқ кунед.",
             retry_kb
         )
@@ -2366,9 +2374,9 @@ async def order_confirm_premium(call: CallbackQuery):
     )
     await _safe_edit_caption(call.message, header, None)
 
-    success, api_order_id = await _run_with_live_progress(
+    success, api_order_id, uncertain = await _run_with_live_progress(
         call.message, header,
-        ff_api.buy_telegram_premium(tg_username, order["amount"])
+        ff_api.buy_telegram_premium(tg_username, order["amount"], order_id)
     )
 
     if api_order_id:
@@ -2413,12 +2421,20 @@ async def order_confirm_premium(call: CallbackQuery):
             [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order_id}")],
             [InlineKeyboardButton(text="💬 ЛС ба клент", url=ls_url)],
         ])
+        uncertain_line = (
+            f"\n⚠️⚠️ <b>ДИҚҚАТ: шабака ба FazerCards таймаут задааст — мо "
+            f"НАФАҲМИДЕМ фармоиш дар тарафи онҳо сохта шуд ё не!</b>\n"
+            f"Пеш аз «Дубора кӯшиш», дар FazerCards санҷед, вагарна дучандон "
+            f"харҷ мешавад!\n"
+            if uncertain else ""
+        )
         await _safe_edit_caption(
             call.message,
             f"⚠️ <b>Хато рух дод!</b>\n\n"
             f"🆔 Фармоиш: #{order_id}\n"
             f"{api_id_line}\n"
-            f"📱 @{tg_username} — {order['label']}\n\n"
+            f"📱 @{tg_username} — {order['label']}\n"
+            f"{uncertain_line}\n"
             f"Метавонед дубора кӯшиш кунед ё дастӣ тасдиқ кунед.",
             retry_kb
         )

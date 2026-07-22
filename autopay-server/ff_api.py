@@ -501,18 +501,24 @@ async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str
 
 
 # ==================== TELEGRAM STARS / PREMIUM ====================
-async def buy_telegram_stars(username: str, quantity: int):
+async def buy_telegram_stars(username: str, quantity: int, order_id: int | str = ""):
     """
     Харидани Telegram Stars.
-    Бармегардонад: (success: bool, order_id: str)
+    Бармегардонад: (success: bool, order_id: str, uncertain: bool)
+    uncertain=True маънояш: дархост ба FazerCards таймаут задааст ва мо
+    ҳатто НАФАҲМИДЕМ фармоиш дар тарафи онҳо сохта шуд ё не — пеш аз
+    "Дубора кӯшиш" дар FazerCards санҷед!
     """
     if not config.FAZER_KEY:
-        return False, ""
+        return False, "", False
     username = username.lstrip("@")
     headers = {
         "X-API-Key": config.FAZER_KEY,
         "Content-Type": "application/json",
-        "Idempotency-Key": str(uuid.uuid4()),
+        # Калиди собит (аз рӯи order_id-и худамон), на тасодуфӣ — то агар
+        # "Дубора кӯшиш" зада шавад, FazerCards ҳамон дархостро такрорӣ
+        # шинохта, ФАРМОИШИ ДУЮМ насозад (зидди дучандон харҷ)
+        "Idempotency-Key": f"stars-{order_id}" if order_id else str(uuid.uuid4()),
     }
     payload = {"telegram_username": username, "quantity": quantity}
     try:
@@ -526,27 +532,28 @@ async def buy_telegram_stars(username: str, quantity: int):
         logger.info(f"Telegram Stars buy: {result}")
     except Exception as e:
         logger.error(f"Telegram Stars buy хато: {e}")
-        return False, ""
+        return False, "", True
 
     if result.get("ok"):
         order = result.get("order") or {}
-        order_id = str(order.get("id", ""))
-        return True, order_id
-    return False, ""
+        api_id = str(order.get("id", ""))
+        return True, api_id, False
+    return False, "", False
 
 
-async def buy_telegram_premium(username: str, months: int):
+async def buy_telegram_premium(username: str, months: int, order_id: int | str = ""):
     """
     Харидани Telegram Premium.
-    Бармегардонад: (success: bool, order_id: str)
+    Бармегардонад: (success: bool, order_id: str, uncertain: bool)
+    uncertain=True — ниг. изоҳи buy_telegram_stars.
     """
     if not config.FAZER_KEY:
-        return False, ""
+        return False, "", False
     username = username.lstrip("@")
     headers = {
         "X-API-Key": config.FAZER_KEY,
         "Content-Type": "application/json",
-        "Idempotency-Key": str(uuid.uuid4()),
+        "Idempotency-Key": f"premium-{order_id}" if order_id else str(uuid.uuid4()),
     }
     payload = {"telegram_username": username, "months": months}
     try:
@@ -560,10 +567,10 @@ async def buy_telegram_premium(username: str, months: int):
         logger.info(f"Telegram Premium buy: {result}")
     except Exception as e:
         logger.error(f"Telegram Premium buy хато: {e}")
-        return False, ""
+        return False, "", True
 
     if result.get("ok"):
         order = result.get("order") or {}
-        order_id = str(order.get("id", ""))
-        return True, order_id
-    return False, ""
+        api_id = str(order.get("id", ""))
+        return True, api_id, False
+    return False, "", False
