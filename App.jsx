@@ -1,5 +1,4 @@
 import { useState } from "react";
-import SensCalculator from "./SensCalculator.jsx";
 
 const translations = {
   tj: {
@@ -259,7 +258,6 @@ export default function App() {
   const goBack = () => {
     if (selectedProduct) { setSelectedProduct(null); return; }
     if (selectedGame) { setSelectedGame(null); return; }
-    if (tab === "sens") { setTab("home"); return; }
     if (topUpStep > 0) { setTopUpStep(topUpStep - 1); return; }
   };
 
@@ -527,34 +525,6 @@ export default function App() {
         }} onClick={() => setShowBonus(true)}>
           🎁 BONUS CODE: WELCOME
         </div>
-      </div>
-
-      {/* Sensitivity calculator entry */}
-      <div
-        onClick={() => setTab("sens")}
-        style={{
-          margin: "10px 16px 4px",
-          background: "linear-gradient(135deg, #1a0d24, #241428)",
-          border: "1px solid #bf5af244",
-          borderRadius: 18,
-          padding: "16px",
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          cursor: "pointer",
-          boxShadow: "0 4px 20px #bf5af222",
-        }}
-      >
-        <div style={{ fontSize: 26 }}>🎯</div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontWeight: 900, fontSize: 14, color: "#bf5af2" }}>
-            {lang === "tj" ? "Ҳисобкунаки сензитивият" : "Калькулятор сенсы"}
-          </div>
-          <div style={{ fontSize: 11, color: "#666", marginTop: 2 }}>
-            {lang === "tj" ? "Танзимоти FF барои дасти шумо" : "Настройки FF под ваш стиль"}
-          </div>
-        </div>
-        <div style={{ color: "#444", fontSize: 18 }}>›</div>
       </div>
 
       {/* Games grid */}
@@ -981,7 +951,7 @@ export default function App() {
 
       {/* Header */}
       <div style={styles.header}>
-        {isGameOpen || tab === "topup" || tab === "sens" ? (
+        {isGameOpen || tab === "topup" ? (
           <button onClick={goBack} style={{
             background: "#141a2e", border: "1px solid #ffffff11",
             color: "#aaa", padding: "8px 14px", borderRadius: 10,
@@ -1006,8 +976,6 @@ export default function App() {
           <HistoryScreen />
         ) : tab === "topup" ? (
           <TopUpScreen />
-        ) : tab === "sens" ? (
-          <SensCalculator lang={lang} />
         ) : tab === "profile" ? (
           <ProfileScreen />
         ) : null}
