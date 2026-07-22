@@ -127,19 +127,31 @@ async def _fazer_order(offer_id: str, player_id: str, order_id: int | str = "") 
         "offer_id": offer_id,
         "fields": {"player_id": player_id},
     }
-    try:
-        async with aiohttp.ClientSession() as s:
-            async with s.post(
-                f"{config.FAZER_BASE}/topups/order",
-                json=payload, headers=headers,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as r:
-                data = await r.json(content_type=None)
-        logger.info(f"FazerCards order: {data}")
-        return data
-    except Exception as e:
-        logger.error(f"FazerCards order хато: {e}")
-        return {"ok": False, "error": str(e)}
+    # То 3 кӯшиш бо ҳамон калиди собит — агар дархост дар роҳи шабака гум
+    # шавад/таймаут кунад (на хатои воқеии FazerCards), такрор бехатар аст
+    # (FazerCards ҳамон фармоишро бармегардонад, дуюм насозад)
+    last_error = ""
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.post(
+                    f"{config.FAZER_BASE}/topups/order",
+                    json=payload, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as r:
+                    data = await r.json(content_type=None)
+            logger.info(f"FazerCards order: {data}")
+            return data
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(
+                f"FazerCards order кӯшиши {attempt + 1}/3 ноком "
+                f"(хато: {last_error or 'таймаут/шабака'})"
+            )
+            if attempt < 2:
+                await asyncio.sleep(3)
+    logger.error(f"FazerCards order хато (баъд аз 3 кӯшиш): {last_error}")
+    return {"ok": False, "error": last_error}
 
 
 async def _fazer_status(order_id: str) -> dict:
@@ -524,17 +536,26 @@ async def buy_telegram_stars(username: str, quantity: int, order_id: int | str =
         "Idempotency-Key": f"stars-{order_id}" if order_id else str(uuid.uuid4()),
     }
     payload = {"telegram_username": username, "quantity": quantity}
-    try:
-        async with aiohttp.ClientSession() as s:
-            async with s.post(
-                f"{config.FAZER_BASE}/telegram/stars/buy",
-                json=payload, headers=headers,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as r:
-                result = await r.json(content_type=None)
-        logger.info(f"Telegram Stars buy: {result}")
-    except Exception as e:
-        logger.error(f"Telegram Stars buy хато: {e}")
+    result = None
+    last_error = ""
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.post(
+                    f"{config.FAZER_BASE}/telegram/stars/buy",
+                    json=payload, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as r:
+                    result = await r.json(content_type=None)
+            logger.info(f"Telegram Stars buy: {result}")
+            break
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"Telegram Stars buy кӯшиши {attempt + 1}/3 ноком (хато: {last_error or 'таймаут/шабака'})")
+            if attempt < 2:
+                await asyncio.sleep(3)
+    if result is None:
+        logger.error(f"Telegram Stars buy хато (баъд аз 3 кӯшиш): {last_error}")
         return False, "", True
 
     if result.get("ok"):
@@ -559,17 +580,26 @@ async def buy_telegram_premium(username: str, months: int, order_id: int | str =
         "Idempotency-Key": f"premium-{order_id}" if order_id else str(uuid.uuid4()),
     }
     payload = {"telegram_username": username, "months": months}
-    try:
-        async with aiohttp.ClientSession() as s:
-            async with s.post(
-                f"{config.FAZER_BASE}/telegram/premium/buy",
-                json=payload, headers=headers,
-                timeout=aiohttp.ClientTimeout(total=30)
-            ) as r:
-                result = await r.json(content_type=None)
-        logger.info(f"Telegram Premium buy: {result}")
-    except Exception as e:
-        logger.error(f"Telegram Premium buy хато: {e}")
+    result = None
+    last_error = ""
+    for attempt in range(3):
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.post(
+                    f"{config.FAZER_BASE}/telegram/premium/buy",
+                    json=payload, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=30)
+                ) as r:
+                    result = await r.json(content_type=None)
+            logger.info(f"Telegram Premium buy: {result}")
+            break
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"Telegram Premium buy кӯшиши {attempt + 1}/3 ноком (хато: {last_error or 'таймаут/шабака'})")
+            if attempt < 2:
+                await asyncio.sleep(3)
+    if result is None:
+        logger.error(f"Telegram Premium buy хато (баъд аз 3 кӯшиш): {last_error}")
         return False, "", True
 
     if result.get("ok"):
