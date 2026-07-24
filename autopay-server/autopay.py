@@ -445,9 +445,9 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
                 order_id
             )
             if progress_msg:
-                success, api_order_id, uncertain = await _run_with_live_progress_text(progress_msg, header, donate_coro)
+                success, api_order_id, uncertain, cost_usd = await _run_with_live_progress_text(progress_msg, header, donate_coro)
             else:
-                success, api_order_id, uncertain = await donate_coro
+                success, api_order_id, uncertain, cost_usd = await donate_coro
 
             # Сабти ID ҳанӯз ДАР ДОХИЛИ қулф — то даъвати навбатӣ (агар
             # бошад) ҳатман ин ID-ро тоза бинад, на холӣ (равзанаи race)
@@ -460,6 +460,8 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
     if success:
         await db.update_order_status(order_id, "confirmed")
         await db.set_confirmed_at(order_id)
+        if cost_usd:
+            await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
 
         # Мукофоти реферралӣ
         try:
@@ -506,6 +508,8 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
             )
         except Exception as e:
             logger.error(f"Паёми таъхир ба {user_id} нарасид: {e}")
+        if uncertain:
+            await db.flag_order_uncertain(order_id)
         await _admin_report_failure(bot, order, kod, api_order_id, uncertain)
 
 
@@ -557,7 +561,7 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
                     f"{fresh_order.get('status')} — донат гузаронида шуд"
                 )
                 return
-            success, api_order_id, uncertain = await ff_api.auto_donate(
+            success, api_order_id, uncertain, cost_usd = await ff_api.auto_donate(
                 fresh_order["game_id"], fresh_order["offer_id"], fresh_order.get("api_order_id") or "",
                 order_id
             )
@@ -567,6 +571,8 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
         if success:
             await db.update_order_status(order_id, "confirmed")
             await db.set_confirmed_at(order_id)
+            if cost_usd:
+                await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
 
             try:
                 reward, referrer_id = await db.credit_referral_for_order(order_id)
@@ -612,6 +618,8 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
                 )
             except Exception as e:
                 logger.error(f"Паёми таъхир (эскалатсия) ба {user_id} нарасид: {e}")
+            if uncertain:
+                await db.flag_order_uncertain(order_id)
             await _admin_report_failure(bot, order, kod, api_order_id, uncertain)
     finally:
         _in_flight_orders.discard(order_id)

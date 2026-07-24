@@ -39,6 +39,11 @@ DB_USER = os.getenv("DB_USER", "")
 DB_PASSWORD = os.getenv("DB_PASSWORD", "")
 DB_NAME = os.getenv("DB_NAME", "")
 
+# ==================== ФОИДА (профит) ====================
+# Курби USD→TJS, ки шумо ҳангоми харидани доллар (масалан аз Bybit) мегиред —
+# барои ҳисоб кардани фоидаи холис (нархи фурӯш минус арзиши воқеӣ)
+USD_TO_TJS_RATE = float(os.getenv("USD_TO_TJS_RATE", "9.35"))
+
 # ==================== FazerCards API (донати худкор) ====================
 FAZER_KEY = os.getenv("FAZER_KEY", "")
 FAZER_BASE = os.getenv("FAZER_BASE", "https://api.fzr.cards/api/v2")

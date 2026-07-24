@@ -125,6 +125,8 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN stale_reminder_sent TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN donating_at DATETIME DEFAULT NULL",
                 "ALTER TABLE orders ADD COLUMN reject_reason VARCHAR(255) DEFAULT NULL",
+                "ALTER TABLE orders ADD COLUMN cost_tjs DECIMAL(10,2) DEFAULT NULL",
+                "ALTER TABLE orders ADD COLUMN uncertain_flagged TINYINT DEFAULT 0",
             ):
                 try:
                     await cur.execute(ddl)
@@ -571,6 +573,22 @@ async def set_order_reject_reason(order_id: int, reason: str):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("UPDATE orders SET reject_reason=%s WHERE id=%s", (reason, order_id))
+
+
+async def set_order_cost(order_id: int, cost_tjs: float):
+    """Арзиши воқеии фармоиш (сомонӣ, аз рӯи USD-и FazerCards/MooGold ва курби
+    USD_TO_TJS_RATE)-ро сабт мекунад — барои ҳисоби фоидаи холис."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("UPDATE orders SET cost_tjs=%s WHERE id=%s", (cost_tjs, order_id))
+
+
+async def flag_order_uncertain(order_id: int):
+    """Аломат мегузорад, ки ин фармоиш бо сабаби таймаути шабака (на радди
+    воқеӣ) 'нашуд' гуфта шудааст — барои гузориши шабона."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("UPDATE orders SET uncertain_flagged=1 WHERE id=%s", (order_id,))
 
 
 async def set_order_check(order_id: int, file_id: str, check_hash: str = None):
@@ -1041,6 +1059,75 @@ async def get_daily_report() -> dict:
             }
             best_weekday = weekday_tj.get(best_weekday_en, best_weekday_en or "—")
 
+            # ---- Топ-5 маҳсулот (аз рӯи даромад, 7 рӯзи охир) ----
+            await cur.execute(
+                "SELECT label, COUNT(*) AS cnt, COALESCE(SUM(price),0) AS rev FROM orders "
+                "WHERE status='confirmed' AND created_at >= %s "
+                "GROUP BY label ORDER BY rev DESC LIMIT 5",
+                (today_tj - timedelta(days=7),)
+            )
+            top_products = [
+                {"label": r["label"] or "—", "count": r["cnt"], "revenue": float(r["rev"])}
+                for r in await cur.fetchall()
+            ]
+
+            # ---- Тақсимот аз рӯи усули пардохт (имрӯз) ----
+            await cur.execute(
+                "SELECT payment_method, "
+                "SUM(CASE WHEN status='confirmed' THEN 1 ELSE 0 END) AS confirmed_c, "
+                "SUM(CASE WHEN status IN ('rejected','failed') THEN 1 ELSE 0 END) AS rejected_c "
+                "FROM orders WHERE created_at >= %s GROUP BY payment_method",
+                (today_tj,)
+            )
+            payment_breakdown = [
+                {
+                    "method": r["payment_method"] or "—",
+                    "confirmed": r["confirmed_c"],
+                    "rejected": r["rejected_c"],
+                }
+                for r in await cur.fetchall() if (r["confirmed_c"] or r["rejected_c"])
+            ]
+
+            # ---- Фармоишҳои "номуайян" (таймаути такрории FazerCards) имрӯз ----
+            await cur.execute(
+                "SELECT COUNT(*) AS c FROM orders WHERE uncertain_flagged=1 AND created_at >= %s",
+                (today_tj,)
+            )
+            uncertain_today = (await cur.fetchone())["c"]
+
+            # ---- Мизоҷони "хомӯшшуда" (охирин харид 14+ рӯз пеш) ----
+            dormant_cutoff = datetime.now(TJ_TZ) - timedelta(days=14)
+            await cur.execute(
+                "SELECT COUNT(*) AS c FROM ("
+                "    SELECT user_id, MAX(created_at) AS last_order FROM orders "
+                "    WHERE status='confirmed' GROUP BY user_id"
+                ") t WHERE last_order < %s",
+                (dormant_cutoff,)
+            )
+            dormant_customers = (await cur.fetchone())["c"]
+
+            # ---- Фоидаи холис имрӯз (нархи фурӯш минус арзиши воқеӣ) ----
+            await cur.execute(
+                "SELECT COALESCE(SUM(price - cost_tjs),0) AS profit, COUNT(*) AS with_cost FROM orders "
+                "WHERE status='confirmed' AND cost_tjs IS NOT NULL AND created_at >= %s",
+                (today_tj,)
+            )
+            profit_row = await cur.fetchone()
+            profit_today = float(profit_row["profit"])
+            orders_with_cost_today = profit_row["with_cost"]
+
+            # ---- Фурӯши ҳар рӯзи 7 рӯзи охир (барои диаграммаи матнӣ) ----
+            await cur.execute(
+                "SELECT DATE(created_at) AS d, COALESCE(SUM(price),0) AS s FROM orders "
+                "WHERE status='confirmed' AND created_at >= %s GROUP BY DATE(created_at)",
+                (today_tj - timedelta(days=6),)
+            )
+            by_day = {r["d"]: float(r["s"]) for r in await cur.fetchall()}
+            last_7_days_sales = [
+                {"date": (today_tj - timedelta(days=i)), "sales": by_day.get(today_tj - timedelta(days=i), 0.0)}
+                for i in range(6, -1, -1)
+            ]
+
             return {
                 "new_today": new_today,
                 "new_3d": new_3d,
@@ -1069,6 +1156,13 @@ async def get_daily_report() -> dict:
                 "peak_hour_count": peak_hour_count,
                 "best_weekday": best_weekday,
                 "best_weekday_sales": best_weekday_sales,
+                "top_products": top_products,
+                "payment_breakdown": payment_breakdown,
+                "uncertain_today": uncertain_today,
+                "dormant_customers": dormant_customers,
+                "profit_today": profit_today,
+                "orders_with_cost_today": orders_with_cost_today,
+                "last_7_days_sales": last_7_days_sales,
             }
 
 

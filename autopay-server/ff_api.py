@@ -19,6 +19,22 @@ import config
 logger = logging.getLogger(__name__)
 
 
+def _extract_cost_usd(data):
+    """Арзиши воқеии USD-ро аз ҷавоби FazerCards мебарорад (агар мавҷуд бошад)."""
+    if not isinstance(data, dict):
+        return None
+    order_block = data.get("order") or {}
+    for src in (order_block, data):
+        for key in ("total_usd", "price_usd", "chargedUsd"):
+            v = src.get(key)
+            if v is not None:
+                try:
+                    return float(v)
+                except (TypeError, ValueError):
+                    pass
+    return None
+
+
 # ==================== НОМИ АККАУНТ ====================
 async def get_nickname(player_id: str) -> str:
     """
@@ -276,18 +292,20 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
     Донати худкор: аввал FazerCards, агар ноком шавад — MooGold (fallback).
     Агар existing_order_id дода шавад — аввал ҳолати ОНРО тафтиш мекунад
     (то дучандон фармоиш фиристода нашавад).
-    Бармегардонад: (success: bool, api_order_id: str, uncertain: bool)
+    Бармегардонад: (success: bool, api_order_id: str, uncertain: bool, cost_usd: float | None)
     uncertain=True маънояш: мо ҳељ бор ҷавоби ВОҚЕИИ FazerCards-ро дар бораи
     ҳолати ниҳоӣ нагирифтем (ҳамеша таймаути шабака) — фармоиш шояд ВОҚЕАН
     иҷро шуда бошад, пеш аз "Дубора донат" дар FazerCards санҷед!
+    cost_usd — арзиши воқеии USD-и FazerCards барои ин фармоиш (агар
+    маълум бошад) — барои ҳисоби фоидаи холис.
     """
     # Агар фармоиши пешина ба MooGold тааллуқ дошта бошад
     if existing_order_id.startswith("moo:"):
         ok, tagged = await _moogold_check(existing_order_id[4:])
         if ok is True:
-            return True, tagged, False
+            return True, tagged, False, None
         if ok is None:
-            return False, tagged, False  # ҳанӯз дар ҷараён — мунтазир мемонем
+            return False, tagged, False, None  # ҳанӯз дар ҷараён — мунтазир мемонем
         existing_order_id = ""  # ноком — аз нав кӯшиш мекунем
 
     # Агар фармоиши пешина ба FazerCards тааллуқ дошта бошад
@@ -298,14 +316,14 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
             status = (status_data.get("order") or {}).get("status") \
                 or status_data.get("status") or ""
         if status == "completed":
-            return True, existing_order_id, False
+            return True, existing_order_id, False, _extract_cost_usd(status_data)
         if status == "processing":
-            return False, existing_order_id, False
+            return False, existing_order_id, False, None
         # failed/cancelled/error — поён фармоиши нав месозем
 
     if not offer_id:
         logger.error("auto_donate: offer_id холист")
-        return False, "", False
+        return False, "", False, None
 
     # ---- Кӯшиши 1: FazerCards ----
     if config.FAZER_KEY:
@@ -314,6 +332,7 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
         if isinstance(result, dict):
             order_block = result.get("order") or {}
             api_order_id = str(order_block.get("id") or result.get("id") or "")
+        cost_usd = _extract_cost_usd(result)
 
         if result.get("ok") and api_order_id:
             ever_confirmed = False  # оё ягон бор ҷавоби воқеии FazerCards гирифтем
@@ -327,22 +346,22 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
                     status = (status_data.get("order") or {}).get("status") \
                         or status_data.get("status") or ""
                 if status == "completed":
-                    return True, api_order_id, False
+                    return True, api_order_id, False, (cost_usd or _extract_cost_usd(status_data))
                 if status in ("failed", "cancelled", "error", "refunded"):
                     break  # ба MooGold мегузарем
             else:
                 # 10 дақиқа гузашт, ҳанӯз "processing" (ё ҳамеша таймаут) —
                 # мунтазир мемонем, ба MooGold нагузарем (то дучандон
                 # фармоиш нашавад)
-                return False, api_order_id, not ever_confirmed
+                return False, api_order_id, not ever_confirmed, cost_usd
         else:
             logger.warning(f"FazerCards фармоиш нашуд, MooGold-ро санҷем: {result}")
     else:
         logger.warning("FAZER_KEY нест — рост ба MooGold мегузарем")
 
-    # ---- Кӯшиши 2: MooGold (fallback) ----
+    # ---- Кӯшиши 2: MooGold (fallback) — арзиши воқеӣ маълум нест ----
     success, tagged = await _moogold_fallback(offer_id, player_id)
-    return success, tagged, False
+    return success, tagged, False, None
 
 
 # ==================== FREE FIRE INDONESIA ====================
@@ -519,13 +538,13 @@ async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str
 async def buy_telegram_stars(username: str, quantity: int, order_id: int | str = ""):
     """
     Харидани Telegram Stars.
-    Бармегардонад: (success: bool, order_id: str, uncertain: bool)
+    Бармегардонад: (success: bool, order_id: str, uncertain: bool, cost_usd: float | None)
     uncertain=True маънояш: дархост ба FazerCards таймаут задааст ва мо
     ҳатто НАФАҲМИДЕМ фармоиш дар тарафи онҳо сохта шуд ё не — пеш аз
     "Дубора кӯшиш" дар FazerCards санҷед!
     """
     if not config.FAZER_KEY:
-        return False, "", False
+        return False, "", False, None
     username = username.lstrip("@")
     headers = {
         "X-API-Key": config.FAZER_KEY,
@@ -556,23 +575,23 @@ async def buy_telegram_stars(username: str, quantity: int, order_id: int | str =
                 await asyncio.sleep(3)
     if result is None:
         logger.error(f"Telegram Stars buy хато (баъд аз 3 кӯшиш): {last_error}")
-        return False, "", True
+        return False, "", True, None
 
     if result.get("ok"):
         order = result.get("order") or {}
         api_id = str(order.get("id", ""))
-        return True, api_id, False
-    return False, "", False
+        return True, api_id, False, _extract_cost_usd(result)
+    return False, "", False, None
 
 
 async def buy_telegram_premium(username: str, months: int, order_id: int | str = ""):
     """
     Харидани Telegram Premium.
-    Бармегардонад: (success: bool, order_id: str, uncertain: bool)
+    Бармегардонад: (success: bool, order_id: str, uncertain: bool, cost_usd: float | None)
     uncertain=True — ниг. изоҳи buy_telegram_stars.
     """
     if not config.FAZER_KEY:
-        return False, "", False
+        return False, "", False, None
     username = username.lstrip("@")
     headers = {
         "X-API-Key": config.FAZER_KEY,
@@ -600,10 +619,10 @@ async def buy_telegram_premium(username: str, months: int, order_id: int | str =
                 await asyncio.sleep(3)
     if result is None:
         logger.error(f"Telegram Premium buy хато (баъд аз 3 кӯшиш): {last_error}")
-        return False, "", True
+        return False, "", True, None
 
     if result.get("ok"):
         order = result.get("order") or {}
         api_id = str(order.get("id", ""))
-        return True, api_id, False
-    return False, "", False
+        return True, api_id, False, _extract_cost_usd(result)
+    return False, "", False, None

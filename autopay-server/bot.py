@@ -652,6 +652,24 @@ async def top_referrers(call: CallbackQuery):
 
 
 # ==================== ГУЗОРИШИ РӾЗОНА (соати 00:00) ====================
+_PM_LABELS_REPORT = {
+    "dushanbe_city": "🏙 Душанбе Сити",
+    "alif": "💳 Алиф",
+    "eskhata": "🏦 Эсхата",
+    "referral_balance": "💰 Баланси рефералӣ",
+}
+
+_WEEKDAY_SHORT_TJ = ["Дш", "Сш", "Чш", "Пш", "Ҷм", "Шн", "Яш"]
+
+
+def _sparkline(values):
+    blocks = "▁▂▃▄▅▆▇█"
+    max_v = max(values) if values else 0
+    if max_v <= 0:
+        return blocks[0] * len(values)
+    return "".join(blocks[min(7, int(v / max_v * 7))] for v in values)
+
+
 def _format_daily_report(stats: dict) -> str:
     def _fmt_change(pct):
         if pct > 0:
@@ -664,6 +682,23 @@ def _format_daily_report(stats: dict) -> str:
     change_7d_str = _fmt_change(stats["change_7d"])
     change_30d_str = _fmt_change(stats["change_30d"])
     peak_hour_str = f"{stats['peak_hour']:02d}:00" if stats.get("peak_hour") is not None else "—"
+
+    sparkline = _sparkline([d["sales"] for d in stats.get("last_7_days_sales", [])])
+    weekday_labels = " ".join(_WEEKDAY_SHORT_TJ[d["date"].weekday()] for d in stats.get("last_7_days_sales", []))
+
+    top_products_lines = "\n".join(
+        f"   {i + 1}. {esc(p['label'])} — {p['count']} фармоиш, {p['revenue']:.2f} сом"
+        for i, p in enumerate(stats.get("top_products", []))
+    ) or "   —"
+
+    payment_lines = "\n".join(
+        f"   {_PM_LABELS_REPORT.get(p['method'], p['method'])}: {p['confirmed']} ✅ / {p['rejected']} ❌"
+        for p in stats.get("payment_breakdown", [])
+    ) or "   —"
+
+    confirmed_today = stats["confirmed_today"]
+    with_cost = stats.get("orders_with_cost_today", 0)
+    coverage = f" (аз {with_cost}/{confirmed_today} фармоиш)" if confirmed_today else ""
 
     return (
         f"🌙 <b>Гузориши шабона</b>\n\n"
@@ -694,7 +729,16 @@ def _format_daily_report(stats: dict) -> str:
         f"⏰ <b>Соати пик (30 рӯзи охир):</b> "
         f"<b>{peak_hour_str}</b> ({stats['peak_hour_count']} фармоиш)\n"
         f"📅 <b>Рӯзи беҳтарин (30 рӯзи охир):</b> "
-        f"<b>{stats['best_weekday']}</b> ({stats['best_weekday_sales']:.2f} сом)"
+        f"<b>{stats['best_weekday']}</b> ({stats['best_weekday_sales']:.2f} сом)\n\n"
+        f"📊 <b>Тамоюли 7 рӯз:</b> <code>{sparkline}</code>\n"
+        f"   <code>{weekday_labels}</code>\n\n"
+        f"🏆 <b>Топ-5 маҳсулот (7 рӯз):</b>\n"
+        f"{top_products_lines}\n\n"
+        f"💳 <b>Пардохт аз рӯи усул (имрӯз):</b>\n"
+        f"{payment_lines}\n\n"
+        f"⚠️ <b>Фармоишҳои \"номуайян\" (таймаути FazerCards) имрӯз:</b> <b>{stats['uncertain_today']}</b>\n"
+        f"😴 <b>Мизоҷони хомӯшшуда (14+ рӯз бе харид):</b> <b>{stats['dormant_customers']}</b>\n"
+        f"💵 <b>Фоидаи холис имрӯз:</b> <b>~{stats['profit_today']:.2f} сом</b>{coverage}"
     )
 
 

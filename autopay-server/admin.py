@@ -373,7 +373,7 @@ async def _do_donate_group(call: CallbackQuery, orders: list):
     results = []
     for order in orders:
         order_id = order["id"]
-        success, api_order_id, _uncertain = await ff_api.auto_donate(
+        success, api_order_id, uncertain, cost_usd = await ff_api.auto_donate(
             order["game_id"], order["offer_id"], order.get("api_order_id") or "",
             order_id
         )
@@ -382,10 +382,14 @@ async def _do_donate_group(call: CallbackQuery, orders: list):
         if success:
             await db.update_order_status(order_id, "confirmed")
             await db.set_confirmed_at(order_id)
+            if cost_usd:
+                await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
             await _credit_referral_and_notify(call.bot, order_id)
             results.append((order, True, api_order_id))
         else:
             await db.update_order_status(order_id, "failed")
+            if uncertain:
+                await db.flag_order_uncertain(order_id)
             results.append((order, False, api_order_id))
 
     ok_items = [r for r in results if r[1]]
@@ -484,7 +488,7 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
         f"🆔 Фармоиш: #{order_id}\n"
         f"{order['label']} → <code>{order['game_id']}</code>"
     )
-    success, api_order_id, uncertain = await _run_with_live_progress(
+    success, api_order_id, uncertain, cost_usd = await _run_with_live_progress(
         wait_msg, header,
         ff_api.auto_donate(order["game_id"], order["offer_id"], order.get("api_order_id") or "", order_id)
     )
@@ -497,6 +501,8 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
     if success:
         await db.update_order_status(order_id, "confirmed")
         await db.set_confirmed_at(order_id)
+        if cost_usd:
+            await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
         await _credit_referral_and_notify(call.bot, order_id)
         # Ба корбар
         try:
@@ -529,6 +535,8 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
     else:
         # Донат нашуд — статусро 'failed' мегузорем
         await db.update_order_status(order_id, "failed")
+        if uncertain:
+            await db.flag_order_uncertain(order_id)
         # ЛС линки клент
         try:
             user_chat = await call.bot.get_chat(order["user_id"])
@@ -987,6 +995,17 @@ async def a_reengagement_stats(call: CallbackQuery):
     await _safe_edit(call, text, kb)
 
 
+_WEEKDAY_SHORT_TJ = ["Дш", "Сш", "Чш", "Пш", "Ҷм", "Шн", "Яш"]
+
+
+def _sparkline(values):
+    blocks = "▁▂▃▄▅▆▇█"
+    max_v = max(values) if values else 0
+    if max_v <= 0:
+        return blocks[0] * len(values)
+    return "".join(blocks[min(7, int(v / max_v * 7))] for v in values)
+
+
 @router.callback_query(F.data == "a_daily_report")
 async def a_daily_report(call: CallbackQuery):
     if not is_admin(call.from_user.id):
@@ -1010,6 +1029,23 @@ async def a_daily_report(call: CallbackQuery):
     change_7d_str = _fmt_change(stats["change_7d"])
     change_30d_str = _fmt_change(stats["change_30d"])
     peak_hour_str = f"{stats['peak_hour']:02d}:00" if stats.get("peak_hour") is not None else "—"
+
+    sparkline = _sparkline([d["sales"] for d in stats.get("last_7_days_sales", [])])
+    weekday_labels = " ".join(_WEEKDAY_SHORT_TJ[d["date"].weekday()] for d in stats.get("last_7_days_sales", []))
+
+    top_products_lines = "\n".join(
+        f"   {i + 1}. {esc(p['label'])} — {p['count']} фармоиш, {p['revenue']:.2f} сом"
+        for i, p in enumerate(stats.get("top_products", []))
+    ) or "   —"
+
+    payment_lines = "\n".join(
+        f"   {_PM_LABELS.get(p['method'], p['method'])}: {p['confirmed']} ✅ / {p['rejected']} ❌"
+        for p in stats.get("payment_breakdown", [])
+    ) or "   —"
+
+    confirmed_today = stats["confirmed_today"]
+    with_cost = stats.get("orders_with_cost_today", 0)
+    coverage = f" (аз {with_cost}/{confirmed_today} фармоиш)" if confirmed_today else ""
 
     text = (
         f"🌙 <b>Гузориши шабона</b>\n\n"
@@ -1040,7 +1076,16 @@ async def a_daily_report(call: CallbackQuery):
         f"⏰ <b>Соати пик (30 рӯзи охир):</b> "
         f"<b>{peak_hour_str}</b> ({stats['peak_hour_count']} фармоиш)\n"
         f"📅 <b>Рӯзи беҳтарин (30 рӯзи охир):</b> "
-        f"<b>{stats['best_weekday']}</b> ({stats['best_weekday_sales']:.2f} сом)"
+        f"<b>{stats['best_weekday']}</b> ({stats['best_weekday_sales']:.2f} сом)\n\n"
+        f"📊 <b>Тамоюли 7 рӯз:</b> <code>{sparkline}</code>\n"
+        f"   <code>{weekday_labels}</code>\n\n"
+        f"🏆 <b>Топ-5 маҳсулот (7 рӯз):</b>\n"
+        f"{top_products_lines}\n\n"
+        f"💳 <b>Пардохт аз рӯи усул (имрӯз):</b>\n"
+        f"{payment_lines}\n\n"
+        f"⚠️ <b>Фармоишҳои \"номуайян\" (таймаути FazerCards) имрӯз:</b> <b>{stats['uncertain_today']}</b>\n"
+        f"😴 <b>Мизоҷони хомӯшшуда (14+ рӯз бе харид):</b> <b>{stats['dormant_customers']}</b>\n"
+        f"💵 <b>Фоидаи холис имрӯз:</b> <b>~{stats['profit_today']:.2f} сом</b>{coverage}"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")]
@@ -2283,7 +2328,7 @@ async def order_confirm_stars(call: CallbackQuery):
     )
     await _safe_edit_caption(call.message, header, None)
 
-    success, api_order_id, uncertain = await _run_with_live_progress(
+    success, api_order_id, uncertain, cost_usd = await _run_with_live_progress(
         call.message, header,
         ff_api.buy_telegram_stars(tg_username, order["amount"], order_id)
     )
@@ -2296,6 +2341,8 @@ async def order_confirm_stars(call: CallbackQuery):
     if success:
         await db.update_order_status(order_id, "confirmed")
         await db.set_confirmed_at(order_id)
+        if cost_usd:
+            await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
         await _credit_referral_and_notify(call.bot, order_id)
         try:
             await call.bot.send_message(
@@ -2319,6 +2366,8 @@ async def order_confirm_stars(call: CallbackQuery):
         )
     else:
         await db.update_order_status(order_id, "failed")
+        if uncertain:
+            await db.flag_order_uncertain(order_id)
         try:
             user_chat = await call.bot.get_chat(order["user_id"])
             ls_url = f"https://t.me/{user_chat.username}" if user_chat.username else f"tg://user?id={order['user_id']}"
@@ -2375,7 +2424,7 @@ async def order_confirm_premium(call: CallbackQuery):
     )
     await _safe_edit_caption(call.message, header, None)
 
-    success, api_order_id, uncertain = await _run_with_live_progress(
+    success, api_order_id, uncertain, cost_usd = await _run_with_live_progress(
         call.message, header,
         ff_api.buy_telegram_premium(tg_username, order["amount"], order_id)
     )
@@ -2388,6 +2437,8 @@ async def order_confirm_premium(call: CallbackQuery):
     if success:
         await db.update_order_status(order_id, "confirmed")
         await db.set_confirmed_at(order_id)
+        if cost_usd:
+            await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
         await _credit_referral_and_notify(call.bot, order_id)
         try:
             await call.bot.send_message(
@@ -2411,6 +2462,8 @@ async def order_confirm_premium(call: CallbackQuery):
         )
     else:
         await db.update_order_status(order_id, "failed")
+        if uncertain:
+            await db.flag_order_uncertain(order_id)
         try:
             user_chat = await call.bot.get_chat(order["user_id"])
             ls_url = f"https://t.me/{user_chat.username}" if user_chat.username else f"tg://user?id={order['user_id']}"
