@@ -333,6 +333,7 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
             order_block = result.get("order") or {}
             api_order_id = str(order_block.get("id") or result.get("id") or "")
         cost_usd = _extract_cost_usd(result)
+        logger.info(f"[COST-DEBUG] auto_donate: cost_usd={cost_usd!r} extracted from order-creation result for offer={offer_id}")
 
         if result.get("ok") and api_order_id:
             ever_confirmed = False  # оё ягон бор ҷавоби воқеии FazerCards гирифтем
@@ -346,7 +347,9 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
                     status = (status_data.get("order") or {}).get("status") \
                         or status_data.get("status") or ""
                 if status == "completed":
-                    return True, api_order_id, False, (cost_usd or _extract_cost_usd(status_data))
+                    final_cost = cost_usd or _extract_cost_usd(status_data)
+                    logger.info(f"[COST-DEBUG] auto_donate: completed, cost_usd={cost_usd!r} status_data_cost={_extract_cost_usd(status_data)!r} final_cost={final_cost!r}")
+                    return True, api_order_id, False, final_cost
                 if status in ("failed", "cancelled", "error", "refunded"):
                     break  # ба MooGold мегузарем
             else:

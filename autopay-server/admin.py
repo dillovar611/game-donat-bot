@@ -492,6 +492,7 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
         wait_msg, header,
         ff_api.auto_donate(order["game_id"], order["offer_id"], order.get("api_order_id") or "", order_id)
     )
+    logger.info(f"[COST-DEBUG] _do_donate: order={order_id} success={success} cost_usd={cost_usd!r}")
 
     if api_order_id:
         await db.set_order_api_id(order_id, api_order_id)

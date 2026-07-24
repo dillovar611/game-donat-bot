@@ -448,6 +448,7 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
                 success, api_order_id, uncertain, cost_usd = await _run_with_live_progress_text(progress_msg, header, donate_coro)
             else:
                 success, api_order_id, uncertain, cost_usd = await donate_coro
+            logger.info(f"[COST-DEBUG] run_donate_inner: order={order_id} success={success} cost_usd={cost_usd!r}")
 
             # Сабти ID ҳанӯз ДАР ДОХИЛИ қулф — то даъвати навбатӣ (агар
             # бошад) ҳатман ин ID-ро тоза бинад, на холӣ (равзанаи race)
@@ -565,6 +566,7 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
                 fresh_order["game_id"], fresh_order["offer_id"], fresh_order.get("api_order_id") or "",
                 order_id
             )
+            logger.info(f"[COST-DEBUG] run_donate_for_escalated: order={order_id} success={success} cost_usd={cost_usd!r}")
             if api_order_id:
                 await db.set_order_api_id(order_id, api_order_id)
 
