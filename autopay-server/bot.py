@@ -747,13 +747,18 @@ TJ_TZ = ZoneInfo("Asia/Dushanbe")
 
 
 async def _daily_report_loop(bot: Bot):
-    """Ҳар шаб дар соати 00:00 (вақти Тоҷикистон) гузоришро ба админ мефиристад."""
+    """
+    Ҳар шаб дар соати 23:59 (вақти Тоҷикистон) гузоришро ба админ мефиристад.
+    ДИҚҚАТ: маҳз 23:59, НА 00:00 — агар дар 00:00 фиристода шавад, рӯз аллакай
+    иваз шудааст ва get_daily_report() омори РӮЗИ НАВРО (ҳанӯз холӣ, ҳама 0)
+    мешуморад, на рӯзи гузаштаро.
+    """
     while True:
         now = datetime.now(TJ_TZ)
-        next_midnight = (now + timedelta(days=1)).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        wait_seconds = (next_midnight - now).total_seconds()
+        target = now.replace(hour=23, minute=59, second=0, microsecond=0)
+        if target <= now:
+            target += timedelta(days=1)
+        wait_seconds = (target - now).total_seconds()
         await asyncio.sleep(wait_seconds)
 
         try:
