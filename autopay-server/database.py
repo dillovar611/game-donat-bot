@@ -76,6 +76,8 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN discount5_used TINYINT DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN referrer_id BIGINT DEFAULT NULL",
                 "ALTER TABLE users ADD COLUMN referral_balance DECIMAL(10,2) DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN winback_sent TINYINT DEFAULT 0",
+                "ALTER TABLE users ADD COLUMN winback_active TINYINT DEFAULT 0",
             ):
                 try:
                     await cur.execute(ddl)
@@ -811,6 +813,61 @@ async def clear_discount(user_id: int):
                 await cur.execute(
                     "UPDATE users SET discount_percent=0 WHERE id=%s", (user_id,)
                 )
+
+
+# ==================== ТАХФИФИ БАРГАРДОНИИ МИЗОҶОНИ ХОМӮШШУДА ====================
+WINBACK_PERCENT = 3.0
+WINBACK_DORMANT_DAYS = 14
+
+
+async def get_dormant_customers_for_winback() -> list:
+    """
+    Мизоҷоне, ки ҳадди ақал як хариди тасдиқшуда доранд, аммо аз хариди
+    ОХИРИНИ онҳо WINBACK_DORMANT_DAYS+ рӯз гузаштааст, ва ҳанӯз ЯГОН БОР
+    паёми баргардонӣ нагирифтаанд (winback як маротиба дар тамоми умри
+    мизоҷ дода мешавад).
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT u.id, u.username, u.full_name FROM users u "
+                "WHERE u.winback_sent=0 "
+                "AND (SELECT COUNT(*) FROM orders WHERE orders.user_id=u.id AND status='confirmed') >= 1 "
+                "AND (SELECT MAX(created_at) FROM orders WHERE orders.user_id=u.id AND status='confirmed') "
+                "    <= NOW() - INTERVAL %s DAY",
+                (WINBACK_DORMANT_DAYS,)
+            )
+            return await cur.fetchall()
+
+
+async def mark_winback_sent(user_id: int):
+    """Паёми баргардониро сабт мекунад ва тахфифи -3%-ро барои хариди навбатӣ фаъол мекунад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE users SET winback_sent=1, winback_active=1 WHERE id=%s",
+                (user_id,)
+            )
+
+
+async def get_winback_discount(user_id: int) -> float:
+    """Тахфифи фаъоли баргардонӣ (фоиз), 0 агар набошад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT winback_active FROM users WHERE id=%s", (user_id,)
+            )
+            row = await cur.fetchone()
+            return WINBACK_PERCENT if row and row[0] else 0.0
+
+
+async def clear_winback(user_id: int):
+    """Тахфифи баргардониро бекор мекунад — баъд аз он ки як бор нишон дода шуд."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE users SET winback_active=0 WHERE id=%s", (user_id,)
+            )
 
 
 async def get_reengagement_stats() -> dict:

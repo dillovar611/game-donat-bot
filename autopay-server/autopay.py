@@ -19,6 +19,7 @@ DC Next, ки барномаи Android ба канали махсуси Telegram
 """
 import asyncio
 import html
+import time
 import unicodedata
 import logging
 import re
@@ -56,6 +57,16 @@ _queue_count = 0  # чанд фармоиш ҳоло дар навбат/кор 
 # claim_order_for_donate ба база расад). Хеле тезтар аз DB-claim, пас
 # race-ро дар ҳамон лаҳза мебандад.
 _in_flight_orders: set[int] = set()
+
+# Огоҳии худкори "эҳтимол проблемаи шабака" — агар якчанд фармоиш паси
+# ҳам бо сабаби таймаути шабака (uncertain=True) ноком шаванд, ба админ
+# ЯК огоҳии алоҳида фиристода мешавад (на ҳар фармоиш алоҳида), то админ
+# фавран фаҳмад мушкил дар шабака аст, на дар як фармоиши мушаххас.
+_NETWORK_ALERT_THRESHOLD = 3      # чанд ноком дар равзан барои огоҳӣ
+_NETWORK_ALERT_WINDOW_MIN = 10    # равзани вақт (дақиқа)
+_NETWORK_ALERT_COOLDOWN_MIN = 30  # то огоҳии навбатӣ (зидди спам)
+_recent_uncertain_failures: list = []  # рӯйхати вақти ҳар ноками "номуайян"
+_last_network_alert_at = None
 
 
 def esc(text) -> str:
@@ -345,8 +356,44 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
             logger.error(f"Ҳисоботи автотасдиқ ба админ {admin_id} нарасид: {e}")
 
 
+async def _check_network_health_alert(bot: Bot):
+    """
+    Агар дар равзани охирин якчанд ноками "номуайян" (таймаути шабака ба
+    FazerCards) ҷамъ шуда бошанд, ба админ ЯК огоҳии умумӣ мефиристад —
+    то ки худи мушкили шабакаро фавран фаҳмад, на аз рӯи фармоишҳои
+    алоҳида тахмин занад.
+    """
+    global _last_network_alert_at
+    now = time.monotonic()
+    cutoff = now - _NETWORK_ALERT_WINDOW_MIN * 60
+    _recent_uncertain_failures[:] = [t for t in _recent_uncertain_failures if t >= cutoff]
+
+    if len(_recent_uncertain_failures) < _NETWORK_ALERT_THRESHOLD:
+        return
+    if _last_network_alert_at is not None and now - _last_network_alert_at < _NETWORK_ALERT_COOLDOWN_MIN * 60:
+        return
+
+    _last_network_alert_at = now
+    count = len(_recent_uncertain_failures)
+    text = (
+        f"🚨 <b>Эҳтимол проблемаи шабака бо FazerCards!</b>\n\n"
+        f"Дар {_NETWORK_ALERT_WINDOW_MIN} дақиқаи охир <b>{count} фармоиш</b> бо сабаби "
+        f"таймаути шабака (на радди воқеӣ) ноком шуданд.\n\n"
+        f"Ин эҳтимолан алоқаи байни сервери шумо ва FazerCards аст, на "
+        f"мушкили худи фармоишҳо. Агар идома дошта бошад, шабака/провайдерро санҷед."
+    )
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, text, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Огоҳии саломатии шабака ба админ {admin_id} нарасид: {e}")
+
+
 async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: str, uncertain: bool = False):
     """Пардохт омад, вале донат нашуд — админ бо тугмаҳо огоҳ мешавад."""
+    if uncertain:
+        _recent_uncertain_failures.append(time.monotonic())
+        await _check_network_health_alert(bot)
     user = await db.get_user(order["user_id"])
     full_name = user.get("full_name") if user else "—"
     username = f"@{user['username']}" if user and user.get("username") else "—"

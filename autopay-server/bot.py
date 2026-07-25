@@ -899,6 +899,28 @@ async def _reengagement_loop(bot: Bot):
         except Exception as e:
             logger.error(f"Хатогӣ дар санҷиши гурӯҳи бе-order: {e}")
 
+        # ---- Гурӯҳи 2: мизоҷони хомӯшшуда (14+ рӯз бе харид) — тахфифи баргардонӣ -3% ----
+        try:
+            for u in await db.get_dormant_customers_for_winback():
+                try:
+                    await db.mark_winback_sent(u["id"])
+                    await bot.send_message(
+                        u["id"],
+                        "🎁 <b>Мо шуморо пазмон шудем!</b>\n\n"
+                        "Шумо дер боз назди мо наомадед. Барои шумо як "
+                        "тӯҳфаи хурд гузоштем — ба хариди навбатии шумо "
+                        "<b>-3% тахфиф</b> худкор ҳисоб карда мешавад "
+                        "(як маротибагӣ).\n\n"
+                        "🛒 Барои истифода — танҳо фармоиш диҳед, тахфиф "
+                        "худаш дар нархи пардохт ҳисоб мешавад.",
+                        parse_mode="HTML"
+                    )
+                    await _notify_admins_reengagement(bot, "Тахфифи баргардонии -3% фиристода шуд", u)
+                except Exception as e:
+                    logger.error(f"Паёми баргардонӣ ба {u['id']} нарасид: {e}")
+        except Exception as e:
+            logger.error(f"Хатогӣ дар санҷиши гурӯҳи мизоҷони хомӯшшуда: {e}")
+
 
 # ==================== ЁДОВАРӢ БАРОИ ФАРМОИШҲОИ ДАСТИИ ДЕРМОНДА ====================
 async def _stale_paid_orders_loop(bot: Bot):

@@ -562,6 +562,21 @@ async def _unique_autopay_price(base_price: float) -> float:
     return round(base_price + 0.99, 2)
 
 
+async def _apply_winback_discount(user_id: int, price: float) -> tuple[float, str]:
+    """
+    Агар мизоҷ тахфифи фаъоли баргардонӣ дошта бошад (мизоҷи хомӯшшуда,
+    ки паёми "мо шуморо пазмон шудем" гирифтааст), -3%-ро ба нарх татбиқ
+    мекунад ва тахфифро истифодашуда мешуморад (як маротиба).
+    """
+    pct = await db.get_winback_discount(user_id)
+    if not pct:
+        return price, ""
+    new_price = round(price * (1 - pct / 100), 2)
+    await db.clear_winback(user_id)
+    note = f"🎁 <b>Тахфифи баргардонӣ -{pct:g}%</b> татбиқ шуд!\n"
+    return new_price, note
+
+
 @router.callback_query(F.data == "terms_accept", BuyState.choose_payment)
 async def show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -570,15 +585,18 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
     # Автопардохт: ҳам Душанбе Сити, ҳам Алиф (ҳарду ба корти DC меоянд)
     is_autopay = (method in ("dushanbe_city", "alif") and not is_cart)
 
+    winback_note = ""
     if is_autopay:
-        # Автопардохт: БЕ тахфифи сатҳ. Нархи каме нодир — то система
-        # пардохтро аз рӯи маблағ шиносад (барои DC инчунин коменти
-        # card_XXXX бо рақами фармоиш кор мекунад).
+        # Автопардохт: тахфифи сатҳи кӯҳна татбиқ намешавад, вале тахфифи
+        # баргардонии мизоҷи хомӯшшуда ҳа — ба нархи АСОСӢ, пеш аз
+        # беназиркунии сент (то система пардохтро аз рӯи маблағ шиносад,
+        # барои DC инчунин коменти card_XXXX бо рақами фармоиш кор мекунад).
         disc_pct, disc_amt = 0.0, 0.0
-        price = await _unique_autopay_price(round(float(data["price"]), 2))
+        base_price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(data["price"]), 2))
+        price = await _unique_autopay_price(base_price)
         await state.update_data(price=price)
     elif data.get("is_custom_price"):
-        # Нархи шахсии мизоҷ — тахфифи сатҳ ба ин намерасад
+        # Нархи шахсии мизоҷ — тахфиф ба ин намерасад
         price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     elif method == "alif":
         # Алиф (сабад): нархи каме нодир — то маблағи дарёфтшуда АЙНАН бо
@@ -586,15 +604,17 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
         # худи линки пардохт (amount=) низ мегузарад — мизоҷ маҳз ҳамин
         # маблағро мебинад дар барномаи Алиф.
         disc_pct, disc_amt = 0.0, 0.0
-        price = round(float(data["price"]), 2) + round(random.randint(1, 99) / 100, 2)
+        base_price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(data["price"]), 2))
+        price = base_price + round(random.randint(1, 99) / 100, 2)
         price = round(price, 2)
         await state.update_data(price=price)
     else:
         price, disc_pct, disc_amt = data["price"], 0.0, 0.0
+        price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
         await state.update_data(price=price)
     order_id = data.get("product_id") or "cart" + str(uuid.uuid4())[:8]
     eskhata_note = ""
-    discount_note = ""
+    discount_note = winback_note
 
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
@@ -1172,10 +1192,11 @@ async def ffid_terms_reject(call: CallbackQuery, state: FSMContext):
 async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     price, disc_pct, disc_amt = data["price"], 0.0, 0.0
+    price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
     await state.update_data(price=price)
     order_id = data.get("product_id", 0)
     eskhata_note = ""
-    discount_note = ""
+    discount_note = winback_note
 
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
@@ -1479,10 +1500,11 @@ async def pubg_terms_reject(call: CallbackQuery, state: FSMContext):
 async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     price, disc_pct, disc_amt = data["price"], 0.0, 0.0
+    price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
     await state.update_data(price=price)
     order_id = data.get("product_id", 0)
     eskhata_note = ""
-    discount_note = ""
+    discount_note = winback_note
 
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
@@ -1775,10 +1797,11 @@ async def stars_terms_reject(call: CallbackQuery, state: FSMContext):
 async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     price, disc_pct, disc_amt = data["price"], 0.0, 0.0
+    price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
     await state.update_data(price=price)
     order_id = data.get("product_id", 0)
     eskhata_note = ""
-    discount_note = ""
+    discount_note = winback_note
 
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
@@ -2048,10 +2071,11 @@ async def premium_terms_reject(call: CallbackQuery, state: FSMContext):
 async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     price, disc_pct, disc_amt = data["price"], 0.0, 0.0
+    price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
     await state.update_data(price=price)
     order_id = data.get("product_id", 0)
     eskhata_note = ""
-    discount_note = ""
+    discount_note = winback_note
 
     method = data.get("pending_payment_method", "alif")
     if method == "dushanbe_city":
