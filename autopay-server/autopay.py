@@ -146,12 +146,15 @@ async def handle_dc_notification(message: Message):
     if order_ref:
         order = await db.get_order(order_ref)
         if order and order.get("payment_method") in ("dushanbe_city", "alif"):
-            if order.get("status") in ("autopay_search", "awaiting_autopay"):
+            if order.get("status") in ("autopay_search", "awaiting_autopay", "expired"):
                 # Маблағро месанҷем — бояд бо нархи фармоиш баробар бошад
                 if abs(float(order["price"]) - summa) > 0.011:
                     await _notify_admins_wrong_amount(message.bot, order, summa, kod)
                     return
-                # Kod-ро ба ин фармоиш мебандем (резерв, зидди такрор)
+                # Kod-ро ба ин фармоиш мебандем (резерв, зидди такрор) — ҳатто
+                # агар фармоиш "мӯҳлаташ гузашта" бошад (мизоҷ бо силкаи
+                # кӯҳна баъд аз якчанд рӯз пул фиристода бошад), то вақте
+                # чекашро фиристад, buy.py ҳамин Kod-ро ёфта тавонад
                 await db.mark_kod_matched(kod, order_ref)
                 if order["status"] == "autopay_search":
                     # Чек аллакай омадааст → фавран донат
@@ -159,7 +162,7 @@ async def handle_dc_notification(message: Message):
                 else:
                     # Чек ҳанӯз наомадааст → интизор; вақте чек ояд,
                     # buy.py ҳамин Kod-и резервшударо меёбад
-                    logger.info(f"Autopay: пардохти #{order_ref} омад, чек интизор")
+                    logger.info(f"Autopay: пардохти #{order_ref} омад (статус: {order['status']}), чек интизор")
                 return
             if order.get("status") == "paid":
                 # Фармоиш аллакай ба админ фиристода шуда буд (мӯҳлати
@@ -221,7 +224,7 @@ async def handle_dc_scan_message(message: Message):
             if not order or order.get("payment_method") not in ("dushanbe_city", "alif"):
                 continue
             status = order.get("status")
-            if status not in ("autopay_search", "awaiting_autopay", "paid"):
+            if status not in ("autopay_search", "awaiting_autopay", "paid", "expired"):
                 continue
             if abs(float(order["price"]) - summa) > 0.011:
                 await _notify_admins_wrong_amount(message.bot, order, summa, synth_kod)

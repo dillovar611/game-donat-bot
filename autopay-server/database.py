@@ -1648,12 +1648,13 @@ async def find_kod_for_order(order_id: int):
 
 async def claim_order_for_donate(order_id: int) -> bool:
     """Атомикӣ: фармоишро ба 'paid' мегузаронад, ФАҚАТ агар он ҳанӯз дар
-    ҳолати автопардохт бошад. False = касе аллакай гирифтааст (такрор!)."""
+    ҳолати автопардохт бошад (ё "мӯҳлаташ гузашта", вале пардохти дерина
+    воқеан омада бошад). False = касе аллакай гирифтааст (такрор!)."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
                 "UPDATE orders SET status='paid' WHERE id=%s "
-                "AND status IN ('awaiting_autopay','autopay_search')",
+                "AND status IN ('awaiting_autopay','autopay_search','expired')",
                 (order_id,)
             )
             return cur.rowcount > 0
