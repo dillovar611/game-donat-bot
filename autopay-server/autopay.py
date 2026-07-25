@@ -43,8 +43,12 @@ MAX_AGE_MINUTES = 20      # мӯҳлати умумии фармоиши авт�
 SEARCH_TIMEOUT_MIN = 10   # чек омад, вале пардохт то ин дақиқа ёфт нашуд → ба админ
 EXPIRY_WARN_BEFORE_MIN = 3  # чанд дақиқа пеш аз итмоми мӯҳлат огоҳ кунем
 
-# Навбати автодонат — донатҳо паси ҳам иҷро мешаванд
-_donate_lock = asyncio.Lock()
+# Навбати автодонат — то 4 донат ҳамзамон иҷро мешаванд (пеш танҳо 1,
+# ки дар соати пик боиси интизории беҳуда мешуд; бехатарии зидди
+# дукаратшавӣ аз claim_order_for_donate/claim_paid_order_for_autodonate
+# (атомикӣ дар база) меояд, на аз ин семафор — пас мувозисозӣ бехатар аст)
+_DONATE_CONCURRENCY = 4
+_donate_semaphore = asyncio.Semaphore(_DONATE_CONCURRENCY)
 _queue_count = 0  # чанд фармоиш ҳоло дар навбат/кор аст
 
 # Монеаи иловагӣ (дар хотираи барнома, на база) — зидди он ки run_donate
@@ -431,7 +435,7 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
     ahead = _queue_count
     _queue_count += 1
     try:
-        if ahead > 0:
+        if ahead >= _DONATE_CONCURRENCY:
             queue_text = (
                 f"⏳ <b>Автодонати шумо дар навбат аст.</b>\n\n"
                 f"Пеш аз шумо: <b>{ahead} фармоиш</b>.\n"
@@ -449,7 +453,7 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
 
     # ---- Марҳилаи 3: донат (паси ҳам, тавассути навбат) — бо progress bar ----
     try:
-        async with _donate_lock:
+        async with _donate_semaphore:
             # Бехатарии иловагӣ: пеш аз фиристодан ба API, аз база маълумоти
             # ТОЗАРО мехонем (на он чи дар аввали функсия дошта будем) — то
             # агар ин фармоиш аллакай ба FazerCards/MooGold фиристода шуда
@@ -585,7 +589,7 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
         except Exception as e:
             logger.error(f"Паёми 'ёфта шуд' (эскалатсия) ба {user_id} нарасид: {e}")
 
-        async with _donate_lock:
+        async with _donate_semaphore:
             # Санҷиши иловагӣ: агар байни claim ва расидан ба ин ҷо касе
             # (масалан «❌ Рад кардан»-и админ) фармоишро ба ҳолати ниҳоӣ
             # гузаронида бошад, донат намекунем
