@@ -39,8 +39,9 @@ _KOD_RE = re.compile(r"Kod\s+(\d+)", re.IGNORECASE)
 # "card§8848" (ё card_8848) дар notification нишон медиҳад
 _CARD_RE = re.compile(r"card\D{0,3}(\d{1,10})", re.IGNORECASE)
 
-MAX_AGE_MINUTES = 15      # мӯҳлати умумии фармоиши автопардохт
+MAX_AGE_MINUTES = 20      # мӯҳлати умумии фармоиши автопардохт
 SEARCH_TIMEOUT_MIN = 10   # чек омад, вале пардохт то ин дақиқа ёфт нашуд → ба админ
+EXPIRY_WARN_BEFORE_MIN = 3  # чанд дақиқа пеш аз итмоми мӯҳлат огоҳ кунем
 
 # Навбати автодонат — донатҳо паси ҳам иҷро мешаванд
 _donate_lock = asyncio.Lock()
@@ -155,7 +156,23 @@ async def handle_dc_notification(message: Message):
                 # агар фармоиш "мӯҳлаташ гузашта" бошад (мизоҷ бо силкаи
                 # кӯҳна баъд аз якчанд рӯз пул фиристода бошад), то вақте
                 # чекашро фиристад, buy.py ҳамин Kod-ро ёфта тавонад
+                was_expired = order["status"] == "expired"
                 await db.mark_kod_matched(kod, order_ref)
+                if was_expired:
+                    # Пардохти дерина барои фармоиши аллакай "мӯҳлаташ
+                    # гузашта" — мизоҷро огоҳ мекунем, то чекро фиристад
+                    await db.mark_order_late_recovered(order_ref)
+                    try:
+                        await message.bot.send_message(
+                            order["user_id"],
+                            f"✅ <b>Мо пардохти шуморо ёфтем!</b>\n\n"
+                            f"🆔 Фармоиш: #{order_ref}\n\n"
+                            f"Лутфан расми чекро ба ин чат фиристед, то донат "
+                            f"худкор иҷро шавад. 🙏",
+                            parse_mode="HTML"
+                        )
+                    except Exception as e:
+                        logger.error(f"Огоҳии пардохти дерина ба {order['user_id']} нарасид: {e}")
                 if order["status"] == "autopay_search":
                     # Чек аллакай омадааст → фавран донат
                     asyncio.create_task(run_donate(message.bot, order, kod))
@@ -236,7 +253,21 @@ async def handle_dc_scan_message(message: Message):
                 # анҷом медиҳем
                 asyncio.create_task(run_donate_for_escalated(message.bot, order, synth_kod))
                 continue
+            was_expired = status == "expired"
             await db.mark_kod_matched(synth_kod, int(order_ref))
+            if was_expired:
+                await db.mark_order_late_recovered(int(order_ref))
+                try:
+                    await message.bot.send_message(
+                        order["user_id"],
+                        f"✅ <b>Мо пардохти шуморо ёфтем!</b>\n\n"
+                        f"🆔 Фармоиш: #{order_ref}\n\n"
+                        f"Лутфан расми чекро ба ин чат фиристед, то донат "
+                        f"худкор иҷро шавад. 🙏",
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.error(f"Огоҳии пардохти дерина (DCSCAN) ба {order['user_id']} нарасид: {e}")
             if status == "autopay_search":
                 # Чек аллакай омадааст → фавран донат
                 asyncio.create_task(run_donate(message.bot, order, synth_kod))
@@ -647,6 +678,24 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
             await db.recover_stuck_donating_orders(3)
         except Exception as e:
             logger.error(f"Хатогӣ дар барқарорсозии 'donating': {e}")
+
+        # ---- Огоҳии "шитоб кунед!" пеш аз ба итмом расидани мӯҳлат ----
+        try:
+            nearing = await db.get_orders_nearing_expiry(EXPIRY_WARN_BEFORE_MIN, MAX_AGE_MINUTES)
+            for order in nearing:
+                try:
+                    await bot.send_message(
+                        order["user_id"],
+                        f"⏰ <b>Шитоб кунед! Фармоиши #{order['id']}</b>\n\n"
+                        f"Танҳо {EXPIRY_WARN_BEFORE_MIN} дақиқа то ба итмом расидани вақт монд. "
+                        f"Агар пардохт карда бошед, расми чекро ҳозир фиристед — "
+                        f"то донат худкор иҷро шавад. 🙏",
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.error(f"Огоҳии итмоми мӯҳлат ба {order['user_id']} нарасид: {e}")
+        except Exception as e:
+            logger.error(f"Хатогӣ дар огоҳии итмоми мӯҳлат: {e}")
 
         # ---- Чек наомада, мӯҳлат гузашт ----
         try:

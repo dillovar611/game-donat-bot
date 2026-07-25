@@ -127,6 +127,8 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN reject_reason VARCHAR(255) DEFAULT NULL",
                 "ALTER TABLE orders ADD COLUMN cost_tjs DECIMAL(10,2) DEFAULT NULL",
                 "ALTER TABLE orders ADD COLUMN uncertain_flagged TINYINT DEFAULT 0",
+                "ALTER TABLE orders ADD COLUMN expiry_warned TINYINT DEFAULT 0",
+                "ALTER TABLE orders ADD COLUMN late_recovered TINYINT DEFAULT 0",
             ):
                 try:
                     await cur.execute(ddl)
@@ -1095,6 +1097,13 @@ async def get_daily_report() -> dict:
             )
             uncertain_today = (await cur.fetchone())["c"]
 
+            # ---- Фармоишҳои бо пардохти дерина наҷотёфта (имрӯз) ----
+            await cur.execute(
+                "SELECT COUNT(*) AS c FROM orders WHERE late_recovered=1 AND created_at >= %s",
+                (today_tj,)
+            )
+            late_recovered_today = (await cur.fetchone())["c"]
+
             # ---- Мизоҷони "хомӯшшуда" (охирин харид 14+ рӯз пеш) ----
             dormant_cutoff = datetime.now(TJ_TZ) - timedelta(days=14)
             await cur.execute(
@@ -1159,6 +1168,7 @@ async def get_daily_report() -> dict:
                 "top_products": top_products,
                 "payment_breakdown": payment_breakdown,
                 "uncertain_today": uncertain_today,
+                "late_recovered_today": late_recovered_today,
                 "dormant_customers": dormant_customers,
                 "profit_today": profit_today,
                 "orders_with_cost_today": orders_with_cost_today,
@@ -1605,6 +1615,37 @@ async def expire_stale_awaiting_orders(max_age_minutes: int = 15) -> list:
                     tuple(ids)
                 )
             return stale
+
+
+async def get_orders_nearing_expiry(warn_before_minutes: int, max_age_minutes: int) -> list:
+    """Фармоишҳои 'awaiting_autopay', ки то ба итмом расидани мӯҳлат камтар
+    аз warn_before_minutes мондааст ва ҳанӯз огоҳ карда нашудаанд —
+    аломати огоҳиро мегузорад ва рӯйхаташонро бармегардонад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders WHERE status='awaiting_autopay' AND expiry_warned=0 "
+                "AND created_at < NOW() - INTERVAL %s MINUTE "
+                "AND created_at >= NOW() - INTERVAL %s MINUTE",
+                (max_age_minutes - warn_before_minutes, max_age_minutes)
+            )
+            rows = await cur.fetchall()
+            if rows:
+                ids = [o["id"] for o in rows]
+                fmt = ",".join(["%s"] * len(ids))
+                await cur.execute(
+                    f"UPDATE orders SET expiry_warned=1 WHERE id IN ({fmt})",
+                    tuple(ids)
+                )
+            return rows
+
+
+async def mark_order_late_recovered(order_id: int):
+    """Аломат мегузорад, ки ин фармоиш пас аз "мӯҳлаташ гузашт" бо пардохти
+    дерина наҷот ёфтааст — барои омори гузориши шабона."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("UPDATE orders SET late_recovered=1 WHERE id=%s", (order_id,))
 
 
 async def is_kod_seen(kod: str) -> bool:

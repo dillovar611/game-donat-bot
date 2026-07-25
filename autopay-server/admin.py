@@ -1085,6 +1085,7 @@ async def a_daily_report(call: CallbackQuery):
         f"💳 <b>Пардохт аз рӯи усул (имрӯз):</b>\n"
         f"{payment_lines}\n\n"
         f"⚠️ <b>Фармоишҳои \"номуайян\" (таймаути FazerCards) имрӯз:</b> <b>{stats['uncertain_today']}</b>\n"
+        f"🔄 <b>Пардохти дерина наҷотёфта (имрӯз):</b> <b>{stats['late_recovered_today']}</b>\n"
         f"😴 <b>Мизоҷони хомӯшшуда (14+ рӯз бе харид):</b> <b>{stats['dormant_customers']}</b>\n"
         f"💵 <b>Фоидаи холис имрӯз:</b> <b>~{stats['profit_today']:.2f} сом</b>{coverage}"
     )
