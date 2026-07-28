@@ -165,6 +165,7 @@ async def a_products_menu(call: CallbackQuery):
         [InlineKeyboardButton(text="💎 FF Indonesia", callback_data="a_ffid_products")],
         [InlineKeyboardButton(text="💰 PUBG UC",      callback_data="a_pubg_products")],
         [InlineKeyboardButton(text="⭐ Stars/Premium", callback_data="a_tg_products")],
+        [InlineKeyboardButton(text="🎁 Комбоҳо",       callback_data="a_combos")],
         [InlineKeyboardButton(text="🔙 Бозгашт",      callback_data="a_back")],
     ])
     await _safe_edit(call, "💎 <b>Идоракунии маҷсулотҳо</b>\n\nХизматро интихоб кунед:", kb)
@@ -304,6 +305,50 @@ async def a_check_search_photo(message: Message, state: FSMContext):
     await message.answer("\n".join(lines), parse_mode="HTML")
 
 
+async def _combo_confirm(call: CallbackQuery, order: dict):
+    """
+    Тасдиқи фармоиши комбо — донати худкор НЕСТ. Фармоиш тасдиқшуда
+    қайд карда мешавад ва ба админ рӯйхати пурраи он чи бояд дастӣ иҷро
+    шавад нишон дода мешавад.
+    """
+    order_id = order["id"]
+    await db.update_order_status(order_id, "confirmed")
+    await db.set_confirmed_at(order_id)
+    await _credit_referral_and_notify(call.bot, order_id)
+
+    items = await db.get_combo_items(order["combo_id"])
+    lines = []
+    for it in items:
+        qty = it.get("quantity") or 1
+        if it.get("product_id"):
+            label = it.get("product_label") or f"💎 {it.get('product_amount')}"
+        else:
+            label = it.get("custom_label") or "—"
+        lines.append(f"  • {esc(label)} ×{qty}")
+    checklist = "\n".join(lines) or "  —"
+
+    await call.answer("✅ Тасдиқ шуд — дастӣ иҷро кунед!", show_alert=False)
+    await _safe_edit_caption(
+        call.message,
+        f"✅ <b>Комбо тасдиқ шуд — ДАСТӢ иҷро кунед!</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n"
+        f"🆔 ID: <code>{order['game_id']}</code>\n\n"
+        f"🎁 <b>Чиро иҷро кардан лозим:</b>\n{checklist}",
+        None
+    )
+
+    try:
+        await call.bot.send_message(
+            order["user_id"],
+            f"✅ <b>Комбои шумо тасдиқ шуд!</b>\n\n"
+            f"🆔 Фармоиш: #{order_id}\n\n"
+            f"🎁 Дар наздиктарин вақт иҷро карда мешавад — интизор бошед. 🙏",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Хабари тасдиқи комбо ба {order['user_id']} нарасид: {e}")
+
+
 # ==================== ТАСДИҚИ ФАРМОИШ → ДОНАТИ ХУДКОР ====================
 @router.callback_query(F.data.startswith("ok_"))
 async def order_confirm(call: CallbackQuery):
@@ -320,6 +365,12 @@ async def order_confirm(call: CallbackQuery):
     # Пешгирии такрор — агар аллакай коркард шуда бошад
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+        return
+
+    # Комбо — донати худкор НЕСТ (қисмҳояш омехта аз маҳсулоти автопардохт ва
+    # ашёи дастӣ буда метавонанд), пас админ ҳамаашро дастӣ иҷро мекунад
+    if order.get("combo_id"):
+        await _combo_confirm(call, order)
         return
 
     # Агар статус 'paid' ё 'donating' бошад, атомикӣ банд мекунем — то агар
@@ -1922,6 +1973,262 @@ async def _do_donate_ffid(call: CallbackQuery, order: dict, player_id: str, wait
             f"Метавонед дубора кӯшиш кунед ё дастӣ донат карда тасдиқ кунед.",
             retry_kb
         )
+
+
+# ==================== ИДОРАКУНИИ КОМБОҲО ====================
+@router.callback_query(F.data == "a_combos")
+async def a_combos(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    combos = await db.get_combos()
+    buttons = []
+    for c in combos:
+        active = "🟢" if c["is_active"] else "🔴"
+        buttons.append([InlineKeyboardButton(
+            text=f"{active} {c['label']} — {float(c['price']):.2f} сом",
+            callback_data=f"combo_view_{c['id']}"
+        )])
+    buttons.append([InlineKeyboardButton(text="➕ Комбои нав", callback_data="combo_add")])
+    buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")])
+    await _safe_edit(
+        call,
+        "🎁 <b>Идоракунии комбоҳо</b>\n\nБарои дидан/таҳрир интихоб кунед:",
+        InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+
+
+@router.callback_query(F.data.startswith("combo_view_"))
+async def a_combo_view(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    combo_id = int(call.data.split("_")[2])
+    combo = await db.get_combo(combo_id)
+    if not combo:
+        await call.answer("❌ Ёфт нашуд!", show_alert=True)
+        return
+    items = await db.get_combo_items(combo_id)
+    lines = []
+    for it in items:
+        qty = it.get("quantity") or 1
+        if it.get("product_id"):
+            label = it.get("product_label") or f"💎 {it.get('product_amount')}"
+        else:
+            label = it.get("custom_label") or "—"
+        lines.append(f"  • {esc(label)} ×{qty}")
+    items_text = "\n".join(lines) or "  — холӣ —"
+
+    toggle_btn = "🔴 Хомӯш кардан" if combo["is_active"] else "🟢 Фаъол кардан"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=toggle_btn, callback_data=f"combo_toggle_{combo_id}")],
+        [InlineKeyboardButton(text="🗑 Нест кардан", callback_data=f"combo_del_{combo_id}")],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_combos")],
+    ])
+    await _safe_edit(
+        call,
+        f"🎁 <b>{esc(combo['label'])}</b>\n\n"
+        f"💵 Нарх: <b>{float(combo['price']):.2f} сом</b>\n\n"
+        f"📦 <b>Таркиб:</b>\n{items_text}",
+        kb
+    )
+
+
+@router.callback_query(F.data.startswith("combo_toggle_"))
+async def a_combo_toggle(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    combo_id = int(call.data.split("_")[2])
+    await db.toggle_combo_active(combo_id)
+    await call.answer("✅ Навсозӣ шуд!")
+    await a_combo_view(call)
+
+
+@router.callback_query(F.data.startswith("combo_del_"))
+async def a_combo_delete(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    combo_id = int(call.data.split("_")[2])
+    await db.delete_combo(combo_id)
+    await call.answer("✅ Нест карда шуд!")
+    await a_combos(call)
+
+
+class ComboState(StatesGroup):
+    add_name = State()
+    add_price = State()
+    add_items = State()
+    add_custom_label = State()
+
+
+async def _render_combo_items_kb(state: FSMContext) -> tuple[str, InlineKeyboardMarkup]:
+    data = await state.get_data()
+    products = await db.get_all_products()
+    qty_map = data.get("combo_qty", {})  # {product_id_str: qty}
+    customs = data.get("combo_customs", [])
+
+    buttons = []
+    for p in products:
+        pid = p["id"]
+        label = p.get("label") or f"💎 {p['amount']}"
+        qty = qty_map.get(str(pid), 0)
+        mark = "✅" if qty > 0 else "☐"
+        buttons.append([InlineKeyboardButton(
+            text=f"{mark} {label}", callback_data=f"combo_padd_{pid}"
+        )])
+        if qty > 0:
+            buttons.append([
+                InlineKeyboardButton(text="➖", callback_data=f"combo_pminus_{pid}"),
+                InlineKeyboardButton(text=f"{qty} дона", callback_data="combo_noop"),
+                InlineKeyboardButton(text="➕", callback_data=f"combo_padd_{pid}"),
+            ])
+    buttons.append([InlineKeyboardButton(text="✍️ Илова кардани дастӣ (масалан Level-Up)", callback_data="combo_custom_add")])
+    buttons.append([InlineKeyboardButton(text="✅ Тамом — Сабт кардан", callback_data="combo_finish")])
+    buttons.append([InlineKeyboardButton(text="❌ Бекор кардан", callback_data="a_combos")])
+
+    chosen_lines = []
+    for p in products:
+        qty = qty_map.get(str(p["id"]), 0)
+        if qty > 0:
+            label = p.get("label") or f"💎 {p['amount']}"
+            chosen_lines.append(f"  • {label} ×{qty}")
+    for c in customs:
+        chosen_lines.append(f"  • {esc(c)} ×1 (дастӣ)")
+    chosen_text = "\n".join(chosen_lines) or "  — ҳанӯз холӣ —"
+
+    text = (
+        f"🎁 <b>Комбо: {esc(data.get('combo_label',''))}</b>\n"
+        f"💵 Нарх: <b>{float(data.get('combo_price', 0)):.2f} сом</b>\n\n"
+        f"Маҳсулотҳоро интихоб кунед (пахш = илова, ➖/➕ = миқдор):\n\n"
+        f"{chosen_text}"
+    )
+    return text, InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+@router.callback_query(F.data == "combo_add")
+async def a_combo_add(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await _safe_edit(
+        call,
+        "➕ <b>Комбои нав</b>\n\nНоми комборо нависед (масалан: VIP Combo):",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_combos")]
+        ])
+    )
+    await state.set_state(ComboState.add_name)
+
+
+@router.message(ComboState.add_name)
+async def a_combo_add_name(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.update_data(combo_label=message.text.strip())
+    await message.answer(
+        "💵 Ҳоло нархи умумии комбо (сомонӣ)-ро нависед (масалан: 150.00):",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_combos")]
+        ])
+    )
+    await state.set_state(ComboState.add_price)
+
+
+@router.message(ComboState.add_price)
+async def a_combo_add_price(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        price = float(message.text.strip().replace(",", "."))
+    except Exception:
+        await message.answer("⚠️ Хато! Рақами нархро дуруст нависед (масалан: 150.00)")
+        return
+    await state.update_data(combo_price=price, combo_qty={}, combo_customs=[])
+    text, kb = await _render_combo_items_kb(state)
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+    await state.set_state(ComboState.add_items)
+
+
+@router.callback_query(F.data == "combo_noop")
+async def a_combo_noop(call: CallbackQuery):
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("combo_padd_"), ComboState.add_items)
+async def a_combo_item_add(call: CallbackQuery, state: FSMContext):
+    pid = call.data.split("_")[2]
+    data = await state.get_data()
+    qty_map = dict(data.get("combo_qty", {}))
+    qty_map[pid] = qty_map.get(pid, 0) + 1
+    await state.update_data(combo_qty=qty_map)
+    text, kb = await _render_combo_items_kb(state)
+    await _safe_edit(call, text, kb)
+
+
+@router.callback_query(F.data.startswith("combo_pminus_"), ComboState.add_items)
+async def a_combo_item_minus(call: CallbackQuery, state: FSMContext):
+    pid = call.data.split("_")[2]
+    data = await state.get_data()
+    qty_map = dict(data.get("combo_qty", {}))
+    if qty_map.get(pid, 0) > 0:
+        qty_map[pid] -= 1
+        if qty_map[pid] <= 0:
+            qty_map.pop(pid, None)
+    await state.update_data(combo_qty=qty_map)
+    text, kb = await _render_combo_items_kb(state)
+    await _safe_edit(call, text, kb)
+
+
+@router.callback_query(F.data == "combo_custom_add", ComboState.add_items)
+async def a_combo_custom_add(call: CallbackQuery, state: FSMContext):
+    await _safe_edit(
+        call,
+        "✍️ Номи ашёи дастиро нависед (масалан: Пропуски прокачка):",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="combo_custom_cancel")]
+        ])
+    )
+    await state.set_state(ComboState.add_custom_label)
+
+
+@router.callback_query(F.data == "combo_custom_cancel", ComboState.add_custom_label)
+async def a_combo_custom_cancel(call: CallbackQuery, state: FSMContext):
+    await state.set_state(ComboState.add_items)
+    text, kb = await _render_combo_items_kb(state)
+    await _safe_edit(call, text, kb)
+
+
+@router.message(ComboState.add_custom_label)
+async def a_combo_custom_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    customs = list(data.get("combo_customs", []))
+    customs.append(message.text.strip())
+    await state.update_data(combo_customs=customs)
+    await state.set_state(ComboState.add_items)
+    text, kb = await _render_combo_items_kb(state)
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.callback_query(F.data == "combo_finish", ComboState.add_items)
+async def a_combo_finish(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    data = await state.get_data()
+    qty_map = data.get("combo_qty", {})
+    customs = data.get("combo_customs", [])
+    if not qty_map and not customs:
+        await call.answer("⚠️ Ҳадди ақал як маҳсулот/ашё илова кунед!", show_alert=True)
+        return
+
+    combo_id = await db.create_combo(data.get("combo_label", "Комбо"), float(data.get("combo_price", 0)))
+    for pid_str, qty in qty_map.items():
+        if qty > 0:
+            await db.add_combo_item(combo_id, product_id=int(pid_str), custom_label=None, quantity=qty)
+    for label in customs:
+        await db.add_combo_item(combo_id, product_id=None, custom_label=label, quantity=1)
+
+    await state.clear()
+    await call.answer("✅ Комбо сабт шуд!")
+    await a_combos(call)
 
 
 # ==================== ИДОРАКУНИИ FF INDONESIA МАҲСУЛОТ ====================

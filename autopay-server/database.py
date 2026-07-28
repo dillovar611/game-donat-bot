@@ -99,6 +99,26 @@ async def init_db():
                 await cur.execute("ALTER TABLE products ADD COLUMN is_featured TINYINT DEFAULT 0")
             except Exception:
                 pass
+            # ---- Комбоҳо (бандли якчанд маҳсулот бо нархи ягона) ----
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS combos (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    label VARCHAR(255) NOT NULL,
+                    price DECIMAL(10,2) NOT NULL,
+                    is_active TINYINT DEFAULT 1,
+                    sort_order INT DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS combo_items (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    combo_id INT NOT NULL,
+                    product_id INT DEFAULT NULL,
+                    custom_label VARCHAR(255) DEFAULT NULL,
+                    quantity INT DEFAULT 1
+                )
+            """)
             # ---- Фармоишҳо ----
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS orders (
@@ -131,6 +151,7 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN uncertain_flagged TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN expiry_warned TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN late_recovered TINYINT DEFAULT 0",
+                "ALTER TABLE orders ADD COLUMN combo_id INT DEFAULT NULL",
             ):
                 try:
                     await cur.execute(ddl)
@@ -490,20 +511,102 @@ async def delete_product(product_id: int):
             await cur.execute("DELETE FROM products WHERE id=%s", (product_id,))
 
 
+# ==================== КОМБОҲО ====================
+async def create_combo(label: str, price: float) -> int:
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO combos (label, price) VALUES (%s,%s)", (label, price)
+            )
+            return cur.lastrowid
+
+
+async def get_combos() -> list:
+    """Ҳамаи комбоҳо (фаъол ва ғайрифаъол) — барои админ."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT * FROM combos ORDER BY sort_order, id")
+            return await cur.fetchall()
+
+
+async def get_active_combos() -> list:
+    """Танҳо комбоҳои фаъол — барои мизоҷ."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM combos WHERE is_active=1 ORDER BY sort_order, id"
+            )
+            return await cur.fetchall()
+
+
+async def get_combo(combo_id: int) -> dict | None:
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT * FROM combos WHERE id=%s", (combo_id,))
+            return await cur.fetchone()
+
+
+async def toggle_combo_active(combo_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE combos SET is_active = 1 - is_active WHERE id=%s", (combo_id,)
+            )
+
+
+async def delete_combo(combo_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("DELETE FROM combo_items WHERE combo_id=%s", (combo_id,))
+            await cur.execute("DELETE FROM combos WHERE id=%s", (combo_id,))
+
+
+async def add_combo_item(combo_id: int, product_id: int | None, custom_label: str | None, quantity: int = 1):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO combo_items (combo_id, product_id, custom_label, quantity) "
+                "VALUES (%s,%s,%s,%s)",
+                (combo_id, product_id, custom_label, quantity)
+            )
+
+
+async def get_combo_items(combo_id: int) -> list:
+    """Ҳар қисми комбо — агар аз маҳсулоти мавҷуда бошад, ном/миқдорашро
+    аз ҷадвали products мегирад; агар дастӣ (custom_label) бошад, ҳамонро."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT ci.*, p.label AS product_label, p.amount AS product_amount, "
+                "p.offer_id AS product_offer_id FROM combo_items ci "
+                "LEFT JOIN products p ON p.id = ci.product_id "
+                "WHERE ci.combo_id=%s ORDER BY ci.id",
+                (combo_id,)
+            )
+            return await cur.fetchall()
+
+
+async def delete_combo_item(item_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("DELETE FROM combo_items WHERE id=%s", (item_id,))
+
+
 # ==================== ФАРМОИШҲО ====================
 async def create_order(user_id, game_id, nickname, amount, price, label, offer_id,
-                        payment_method, order_group_id=None):
+                        payment_method, order_group_id=None, combo_id=None):
     """Фармоиши нав месозад ва ID-ро бармегардонад. order_group_id — барои
-    сабад (якчанд маҳсулот дар як пардохт), фармоишҳои як гурӯҳро мепайвандад."""
+    сабад (якчанд маҳсулот дар як пардохт), фармоишҳои як гурӯҳро мепайвандад.
+    combo_id — агар ин фармоиш харидани комбо бошад."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("""
                 INSERT INTO orders
                     (user_id, game_id, nickname, amount, price, label, offer_id,
-                     payment_method, order_group_id, status)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')
+                     payment_method, order_group_id, combo_id, status)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,'pending')
             """, (user_id, game_id, nickname, amount, price, label, offer_id,
-                  payment_method, order_group_id))
+                  payment_method, order_group_id, combo_id))
             return cur.lastrowid
 
 

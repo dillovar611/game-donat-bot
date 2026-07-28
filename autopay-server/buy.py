@@ -236,6 +236,7 @@ async def show_products(call: CallbackQuery, state: FSMContext):
             callback_data=f"prod_{p['id']}"
         )])
     buttons.append([InlineKeyboardButton(text="🛒 Якчанд маҳсулот интихоб кардан", callback_data="cart_start")])
+    buttons.append([InlineKeyboardButton(text="🎁 Комбоҳо", callback_data="combo_list")])
     buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="buy")])
 
     await _safe_edit(
@@ -244,6 +245,77 @@ async def show_products(call: CallbackQuery, state: FSMContext):
         InlineKeyboardMarkup(inline_keyboard=buttons)
     )
     await state.set_state(BuyState.choose_product)
+
+
+# ==================== КОМБОҲО ====================
+@router.callback_query(F.data == "combo_list")
+async def combo_list(call: CallbackQuery, state: FSMContext):
+    combos = await db.get_active_combos()
+    if not combos:
+        await call.answer("❌ Ҳозир комбо нест.", show_alert=True)
+        return
+    buttons = [
+        [InlineKeyboardButton(
+            text=f"🎁 {c['label']} — {float(c['price']):.2f} сом",
+            callback_data=f"combo_pick_{c['id']}"
+        )]
+        for c in combos
+    ]
+    buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="id_ok")])
+    await _safe_edit(
+        call,
+        "🎁 <b>Комбоҳо</b>\n\nКомбои хостаатонро интихоб кунед:",
+        InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+    await state.set_state(BuyState.choose_product)
+
+
+@router.callback_query(F.data.startswith("combo_pick_"), BuyState.choose_product)
+async def combo_pick(call: CallbackQuery, state: FSMContext):
+    combo_id = int(call.data.split("_")[2])
+    combo = await db.get_combo(combo_id)
+    if not combo or not combo.get("is_active"):
+        await call.answer("❌ Ин комбо дигар фаъол нест!", show_alert=True)
+        return
+
+    await state.update_data(
+        product_id=None,
+        amount=0,
+        price=float(combo["price"]),
+        label=f"🎁 {combo['label']}",
+        offer_id="",
+        eskhata_link="",
+        is_custom_price=True,
+        combo_id=combo_id,
+    )
+    data = await state.get_data()
+    nickname = data.get("nickname", "")
+    nick_line = f"👤 Ном: <b>{esc(nickname)}</b>\n" if nickname else ""
+
+    kb_rows = [
+        [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="pay_dc")],
+        [InlineKeyboardButton(text="💳 Алиф",          callback_data="pay_alif")],
+        [InlineKeyboardButton(text="🏦 Эсхата",        callback_data="pay_eskhata")],
+    ]
+    balance = await db.get_referral_balance(call.from_user.id)
+    if balance >= data["price"]:
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
+            callback_data="pay_balance"
+        )])
+    kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="combo_list")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    await _safe_edit(
+        call,
+        f"🛒 <b>Тасдиқи фармоиш</b>\n\n"
+        f"🆔 ID: <code>{data['player_id']}</code>\n"
+        f"{nick_line}"
+        f"🎁 Комбо: <b>{combo['label']}</b>\n"
+        f"💵 Нарх: <b>{data['price']:.2f} сомонӣ</b>\n\n"
+        f"💰 Тариқи пардохтро интихоб кунед:",
+        kb
+    )
+    await state.set_state(BuyState.choose_payment)
 
 
 # ==================== САБАД (ЯКЧАНД МАҲСУЛОТ) ====================
@@ -562,6 +634,28 @@ async def _unique_autopay_price(base_price: float) -> float:
     return round(base_price + 0.99, 2)
 
 
+async def _combo_breakdown_text(combo_id: int | None) -> str:
+    """
+    Рӯйхати ичозати комбо барои каптиони админ — то донад дар дохили
+    комбо чӣ ҳаст ва бояд ба таври ДАСТӢ чӣ иҷро кунад (комбо худкор
+    донат намешавад).
+    """
+    if not combo_id:
+        return ""
+    items = await db.get_combo_items(combo_id)
+    if not items:
+        return ""
+    lines = []
+    for it in items:
+        qty = it.get("quantity") or 1
+        if it.get("product_id"):
+            label = it.get("product_label") or f"💎 {it.get('product_amount')}"
+        else:
+            label = it.get("custom_label") or "—"
+        lines.append(f"  • {esc(label)} ×{qty}")
+    return "\n\n🎁 <b>Дар дохили комбо (дастӣ иҷро кунед):</b>\n" + "\n".join(lines)
+
+
 async def _apply_winback_discount(user_id: int, price: float) -> tuple[float, str]:
     """
     Агар мизоҷ тахфифи фаъоли баргардонӣ дошта бошад (мизоҷи хомӯшшуда,
@@ -582,8 +676,11 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     method = data.get("pending_payment_method", "alif")
     is_cart = bool(data.get("cart_items"))
-    # Автопардохт: ҳам Душанбе Сити, ҳам Алиф (ҳарду ба корти DC меоянд)
-    is_autopay = (method in ("dushanbe_city", "alif") and not is_cart)
+    # Автопардохт: ҳам Душанбе Сити, ҳам Алиф (ҳарду ба корти DC меоянд).
+    # Комбоҳо ҳамеша тавассути чек (дастӣ) мераванд — на автопардохт, зеро
+    # донати онҳо дастист (якчанд қисм дошта метавонанд, аз ҷумла қисмҳои
+    # дастӣ мисли Level-Up Pass).
+    is_autopay = (method in ("dushanbe_city", "alif") and not is_cart and not data.get("combo_id"))
 
     winback_note = ""
     if is_autopay:
@@ -846,8 +943,10 @@ async def receive_check(message: Message, state: FSMContext):
         label=data["label"],
         offer_id=data.get("offer_id", ""),
         payment_method=data.get("payment_method", ""),
+        combo_id=data.get("combo_id"),
     )
     await db.set_order_check(order_id, file_id, check_hash)
+    combo_breakdown = await _combo_breakdown_text(data.get("combo_id"))
 
     # Ба корбар
     await message.answer(
@@ -872,6 +971,7 @@ async def receive_check(message: Message, state: FSMContext):
         f"👤 Ном: <b>{esc(nickname)}</b>\n"
         f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
         f"💵 Маблағ: <b>{data['price']:.2f} сомонӣ</b>"
+        f"{combo_breakdown}"
     )
     # ЛС тугма — танҳо агар username бошад (tg://user?id= боиси
     # BUTTON_USER_PRIVACY_RESTRICTED ва рад шудани тамоми паём мешавад,
@@ -2264,8 +2364,10 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
         label=data["label"],
         offer_id=data.get("offer_id", ""),
         payment_method="referral_balance",
+        combo_id=data.get("combo_id"),
     )
     await db.mark_order_paid_with_balance(order_id)
+    combo_breakdown = await _combo_breakdown_text(data.get("combo_id"))
 
     await _safe_edit(
         call,
@@ -2288,6 +2390,7 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
         f"{extra_line}"
         f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
         f"💵 Маблағ: <b>{price:.2f} сомонӣ</b> (аз баланси реферралӣ)"
+        f"{combo_breakdown}"
     )
     admin_kb_rows = [
         [InlineKeyboardButton(text="✅ Тасдиқ — донат кун", callback_data=f"{confirm_prefix}_{order_id}")],
