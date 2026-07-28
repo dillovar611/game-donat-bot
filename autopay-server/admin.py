@@ -153,6 +153,7 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔍 Маълумоти корбар",   callback_data="a_user_info")],
         [InlineKeyboardButton(text="🔎 ҶустуҷӮи фармоиш",   callback_data="a_order_search")],
         [InlineKeyboardButton(text="💎 Нархи шахсии мизоҷ", callback_data="a_custom_price")],
+        [InlineKeyboardButton(text="💳 Рақами корти ДС",     callback_data="a_dc_card")],
     ])
 
 
@@ -169,6 +170,46 @@ async def a_products_menu(call: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Бозгашт",      callback_data="a_back")],
     ])
     await _safe_edit(call, "💎 <b>Идоракунии маҷсулотҳо</b>\n\nХизматро интихоб кунед:", kb)
+
+
+# ==================== РАҚАМИ КОРТИ ДУШАНБЕ СИТИ ====================
+class DCCardState(StatesGroup):
+    change = State()
+
+
+@router.callback_query(F.data == "a_dc_card")
+async def a_dc_card(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    current = await db.get_dc_card_number()
+    await _safe_edit(
+        call,
+        f"💳 <b>Рақами корти Душанбе Сити</b>\n\n"
+        f"Ҳозира: <code>{current}</code>\n\n"
+        f"Рақами нави картро нависед (ин рақам дар ҲАМАИ линкҳои пардохти "
+        f"Душанбе Сити — FF, FFID, PUBG, Stars, Premium — худкор иваз мешавад):",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_back")]
+        ])
+    )
+    await state.set_state(DCCardState.change)
+
+
+@router.message(DCCardState.change)
+async def a_dc_card_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    card_number = message.text.strip()
+    if not card_number.isdigit() or len(card_number) < 10:
+        await message.answer("⚠️ Хато! Рақами картро танҳо бо рақамҳо нависед (масалан: 9762000226598802).")
+        return
+    await db.set_dc_card_number(card_number)
+    await state.clear()
+    await message.answer(
+        f"✅ Рақами корти ДС иваз шуд ба: <code>{card_number}</code>\n\n"
+        f"Аз ҳозир ҳамаи линкҳои пардохти нав ҳамин рақамро истифода мебаранд.",
+        parse_mode="HTML"
+    )
 
 
 @router.message(Command("admin"))

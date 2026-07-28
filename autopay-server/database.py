@@ -99,6 +99,13 @@ async def init_db():
                 await cur.execute("ALTER TABLE products ADD COLUMN is_featured TINYINT DEFAULT 0")
             except Exception:
                 pass
+            # ---- Танзимот (key-value, барои рақами корти ДС, leaderboard ва ғ.) ----
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS settings (
+                    key_name VARCHAR(100) PRIMARY KEY,
+                    value TEXT
+                )
+            """)
             # ---- Комбоҳо (бандли якчанд маҳсулот бо нархи ягона) ----
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS combos (
@@ -1378,6 +1385,19 @@ async def set_setting(key: str, value: str):
                 "ON DUPLICATE KEY UPDATE value=%s",
                 (key, value, value)
             )
+
+
+DEFAULT_DC_CARD_NUMBER = "9762000226598802"
+
+
+async def get_dc_card_number() -> str:
+    """Рақами корти Душанбе Сити — дар ҳамаи линкҳои пардохт истифода мешавад."""
+    value = await get_setting("dc_card_number")
+    return value or DEFAULT_DC_CARD_NUMBER
+
+
+async def set_dc_card_number(card_number: str):
+    await set_setting("dc_card_number", card_number)
 
 
 async def increment_review_count() -> int:
