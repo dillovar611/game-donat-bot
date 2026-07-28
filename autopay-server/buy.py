@@ -462,6 +462,27 @@ async def cart_done(call: CallbackQuery, state: FSMContext):
             })
             total += price
 
+    if len(items) == 1:
+        # Сабад бо ФАҚАТ як маҳсулот — мисли фармоиши оддии ягона рафтор
+        # мекунад (на ҳамчун "сабад"), то автопардохти Душанбе Сити/Алиф
+        # фаъол шавад ва дар коменти корт рақами фармоиши ВОҚЕӢ равад, на
+        # placeholder-и сабад (пеш ин боиси "рақами фармоиш хато" мешуд).
+        only = items[0]
+        only_product = products_by_id.get(only["product_id"]) or {}
+        await state.update_data(
+            product_id=only["product_id"],
+            amount=only["amount"],
+            price=only["price"],
+            label=only["label"],
+            offer_id=only["offer_id"],
+            is_custom_price=only["is_custom_price"],
+            eskhata_link=only_product.get("eskhata_link") or "",
+            cart=None,
+            cart_items=None,
+        )
+        await _show_payment_method_choice(call, state)
+        return
+
     await state.update_data(
         cart_items=items,
         price=round(total, 2),
@@ -505,28 +526,12 @@ async def cart_done(call: CallbackQuery, state: FSMContext):
 
 
 # ==================== ИНТИХОБИ ТАРИҚИ ПАРДОХТ ====================
-@router.callback_query(F.data.startswith("prod_"), BuyState.choose_product)
-async def choose_payment(call: CallbackQuery, state: FSMContext):
-    product_id = int(call.data.split("_")[1])
-    product = await db.get_product(product_id)
-    if not product:
-        await call.answer("❌ Маҳсулот ёфт нашуд!", show_alert=True)
-        return
-
-    # Нархи шахсии мизоҷ (VIP pricing) — танҳо барои FF СНГ
-    custom_price = await db.get_custom_price(call.from_user.id, product_id)
-    final_price = custom_price if custom_price is not None else float(product["price"])
-
-    await state.update_data(
-        product_id=product_id,
-        amount=product["amount"],
-        price=final_price,
-        label=product.get("label") or f"💎 {product['amount']}",
-        offer_id=product.get("offer_id") or "",
-        eskhata_link=product.get("eskhata_link") or "",
-        is_custom_price=custom_price is not None,
-    )
-
+async def _show_payment_method_choice(call: CallbackQuery, state: FSMContext):
+    """
+    Экрани «Тасдиқи фармоиш» + интихоби тариқи пардохт — барои маҳсулоти
+    ягона (аз рӯйхат ё аз сабад-бо-як-маҳсулот, ки ба ин ҳамин тавр
+    фурӯхта мешавад — то автопардохт фаъол бошад).
+    """
     data = await state.get_data()
     label = data["label"]
     nickname = data.get("nickname", "")
@@ -558,6 +563,31 @@ async def choose_payment(call: CallbackQuery, state: FSMContext):
         kb
     )
     await state.set_state(BuyState.choose_payment)
+
+
+@router.callback_query(F.data.startswith("prod_"), BuyState.choose_product)
+async def choose_payment(call: CallbackQuery, state: FSMContext):
+    product_id = int(call.data.split("_")[1])
+    product = await db.get_product(product_id)
+    if not product:
+        await call.answer("❌ Маҳсулот ёфт нашуд!", show_alert=True)
+        return
+
+    # Нархи шахсии мизоҷ (VIP pricing) — танҳо барои FF СНГ
+    custom_price = await db.get_custom_price(call.from_user.id, product_id)
+    final_price = custom_price if custom_price is not None else float(product["price"])
+
+    await state.update_data(
+        product_id=product_id,
+        amount=product["amount"],
+        price=final_price,
+        label=product.get("label") or f"💎 {product['amount']}",
+        offer_id=product.get("offer_id") or "",
+        eskhata_link=product.get("eskhata_link") or "",
+        is_custom_price=custom_price is not None,
+        cart_items=None,
+    )
+    await _show_payment_method_choice(call, state)
 
 
 # ==================== РОЗИГӢ ПЕШ АЗ РЕКВИЗИТ ====================
