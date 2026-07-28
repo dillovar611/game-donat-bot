@@ -688,6 +688,7 @@ def _format_daily_report(stats: dict) -> str:
 
     top_products_lines = "\n".join(
         f"   {i + 1}. {esc(p['label'])} — {p['count']} фармоиш, {p['revenue']:.2f} сом"
+        + (f" (фоида {p['margin_percent']:.1f}%)" if p.get("margin_percent") is not None else "")
         for i, p in enumerate(stats.get("top_products", []))
     ) or "   —"
 
@@ -699,6 +700,8 @@ def _format_daily_report(stats: dict) -> str:
     confirmed_today = stats["confirmed_today"]
     with_cost = stats.get("orders_with_cost_today", 0)
     coverage = f" (аз {with_cost}/{confirmed_today} фармоиш)" if confirmed_today else ""
+    margin_pct = stats.get("profit_margin_percent")
+    margin_line = f" — <b>{margin_pct:.1f}%</b> аз арзиши харид" if margin_pct is not None else ""
 
     return (
         f"🌙 <b>Гузориши шабона</b>\n\n"
@@ -739,7 +742,7 @@ def _format_daily_report(stats: dict) -> str:
         f"⚠️ <b>Фармоишҳои \"номуайян\" (таймаути FazerCards) имрӯз:</b> <b>{stats['uncertain_today']}</b>\n"
         f"🔄 <b>Пардохти дерина наҷотёфта (имрӯз):</b> <b>{stats['late_recovered_today']}</b>\n"
         f"😴 <b>Мизоҷони хомӯшшуда (14+ рӯз бе харид):</b> <b>{stats['dormant_customers']}</b>\n"
-        f"💵 <b>Фоидаи холис имрӯз:</b> <b>~{stats['profit_today']:.2f} сом</b>{coverage}"
+        f"💵 <b>Фоидаи холис имрӯз:</b> <b>~{stats['profit_today']:.2f} сом</b>{coverage}{margin_line}"
     )
 
 

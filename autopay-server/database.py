@@ -1120,15 +1120,25 @@ async def get_daily_report() -> dict:
 
             # ---- Топ-5 маҳсулот (аз рӯи даромад, 7 рӯзи охир) ----
             await cur.execute(
-                "SELECT label, COUNT(*) AS cnt, COALESCE(SUM(price),0) AS rev FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s "
+                "SELECT label, COUNT(*) AS cnt, COALESCE(SUM(price),0) AS rev, "
+                "COALESCE(SUM(cost_tjs),0) AS cost, "
+                "SUM(CASE WHEN cost_tjs IS NOT NULL THEN 1 ELSE 0 END) AS with_cost "
+                "FROM orders WHERE status='confirmed' AND created_at >= %s "
                 "GROUP BY label ORDER BY rev DESC LIMIT 5",
                 (today_tj - timedelta(days=7),)
             )
-            top_products = [
-                {"label": r["label"] or "—", "count": r["cnt"], "revenue": float(r["rev"])}
-                for r in await cur.fetchall()
-            ]
+            top_products = []
+            for r in await cur.fetchall():
+                rev = float(r["rev"])
+                cost = float(r["cost"])
+                with_cost = r["with_cost"]
+                margin_percent = round((rev - cost) / cost * 100, 1) if with_cost and cost > 0 else None
+                top_products.append({
+                    "label": r["label"] or "—",
+                    "count": r["cnt"],
+                    "revenue": rev,
+                    "margin_percent": margin_percent,
+                })
 
             # ---- Тақсимот аз рӯи усули пардохт (имрӯз) ----
             await cur.execute(
@@ -1174,13 +1184,19 @@ async def get_daily_report() -> dict:
 
             # ---- Фоидаи холис имрӯз (нархи фурӯш минус арзиши воқеӣ) ----
             await cur.execute(
-                "SELECT COALESCE(SUM(price - cost_tjs),0) AS profit, COUNT(*) AS with_cost FROM orders "
+                "SELECT COALESCE(SUM(price - cost_tjs),0) AS profit, "
+                "COALESCE(SUM(cost_tjs),0) AS total_cost, COUNT(*) AS with_cost FROM orders "
                 "WHERE status='confirmed' AND cost_tjs IS NOT NULL AND created_at >= %s",
                 (today_tj,)
             )
             profit_row = await cur.fetchone()
             profit_today = float(profit_row["profit"])
             orders_with_cost_today = profit_row["with_cost"]
+            total_cost_today = float(profit_row["total_cost"])
+            profit_margin_percent = (
+                round(profit_today / total_cost_today * 100, 1)
+                if total_cost_today > 0 else None
+            )
 
             # ---- Фурӯши ҳар рӯзи 7 рӯзи охир (барои диаграммаи матнӣ) ----
             await cur.execute(
@@ -1229,6 +1245,7 @@ async def get_daily_report() -> dict:
                 "dormant_customers": dormant_customers,
                 "profit_today": profit_today,
                 "orders_with_cost_today": orders_with_cost_today,
+                "profit_margin_percent": profit_margin_percent,
                 "last_7_days_sales": last_7_days_sales,
             }
 
