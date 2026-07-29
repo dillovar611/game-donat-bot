@@ -94,6 +94,26 @@ def _is_ack_message(text: str) -> bool:
     return any(w in stripped for w in ACK_WORDS)
 
 
+# Агар мизоҷ танҳо салом гӯяд (бе рақами фармоиш ё саволи дигар), як
+# ҷумлаи КӮТОҲ мефиристем — то бидонад чӣ гуна рақами фармоишро санҷад.
+# (На GREETING-и пурраи кӯҳна, ки барои ҲАР паёми номаълум такрор мешуд.)
+GREETING_WORDS = (
+    "салом", "ассалом", "ассалому", "саломалейкум", "салам",
+    "здравств", "привет", "прив",
+    "hi", "hello", "hey",
+)
+SHORT_GREETING_REPLY = (
+    "👋 Салом! Барои санҷидани фармоиш рақамашро нависед (мисол: #17600) 🔍"
+)
+
+
+def _is_greeting_message(text: str) -> bool:
+    stripped = text.strip().lower()
+    if not stripped or len(stripped) > 40:
+        return False
+    return any(w in stripped for w in GREETING_WORDS)
+
+
 # Агар мизоҷ бидуни рақами фармоиш дар бораи нарх/маҳсулот пурсад, ба ҷои
 # GREETING-и умумӣ мустақим ба боти дӯкон равона мекунем
 CATALOG_WORDS = (
@@ -372,6 +392,10 @@ async def handle_business_message(message: Message):
                 f"💎🛍 Барои нарх ва маҳсулот, лутфан ба {SHOP_BOT_USERNAME} равед — "
                 f"ҳамаи маълумот дар он ҷост, фавран мебинед! 😊"
             )
+            return
+
+        if _is_greeting_message(text):
+            await message.answer(SHORT_GREETING_REPLY)
             return
 
         if message.photo:
