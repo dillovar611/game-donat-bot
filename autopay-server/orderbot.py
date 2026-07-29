@@ -114,6 +114,17 @@ def _is_greeting_message(text: str) -> bool:
     return any(w in stripped for w in GREETING_WORDS)
 
 
+# Агар мизоҷ бе рақами фармоиш чанд паёми паси ҳам нависад (на салом, на
+# ташаккур, на саволи каталог), бот ҳар дафъа ХОМӮШ мемонад — вале ҳар
+# 3-юмин паёми чунин, як ёдоварии КӮТОҲ мефиристад, то мизоҷ фаромӯш
+# накунад, ки рақами фармоиш лозим аст (бе он ки ҳар паёмро халал расонад)
+_unmatched_msg_count: dict[int, int] = {}
+ORDER_NUMBER_NUDGE = (
+    "🔍 Агар дар бораи фармоиш пурсида истода бошед, лутфан рақамашро "
+    "нависед (мисол: #17600), то фавран санҷам."
+)
+
+
 # Агар мизоҷ бидуни рақами фармоиш дар бораи нарх/маҳсулот пурсад, ба ҷои
 # GREETING-и умумӣ мустақим ба боти дӯкон равона мекунем
 CATALOG_WORDS = (
@@ -402,8 +413,12 @@ async def handle_business_message(message: Message):
             await message.answer(GOT_PHOTO_NO_NUMBER)
             return
 
-        # Дигар паёмҳо (сӯҳбати оддии мизоҷ бо соҳиб) — бот ҳеҷ чиз намегӯяд,
-        # хомӯш мемонад, то соҳиб худаш ҷавоб диҳад
+        # Дигар паёмҳо (сӯҳбати оддии мизоҷ бо соҳиб) — бот одатан хомӯш
+        # мемонад, то соҳиб худаш ҷавоб диҳад; фақат ҳар 3-юмин чунин паём
+        # ёдоварии кӯтоҳи рақами фармоишро мефиристад
+        _unmatched_msg_count[chat_id] = _unmatched_msg_count.get(chat_id, 0) + 1
+        if _unmatched_msg_count[chat_id] % 3 == 0:
+            await message.answer(ORDER_NUMBER_NUDGE)
     except Exception as e:
         logger.error(f"[FATAL] handle_business_message хато: {e}", exc_info=True)
 
