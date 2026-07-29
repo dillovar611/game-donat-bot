@@ -1009,8 +1009,9 @@ async def receive_check(message: Message, state: FSMContext):
     # BUTTON_USER_PRIVACY_RESTRICTED ва рад шудани тамоми паём мешавад,
     # агар танзимоти privacy-и корбар маҳдуд бошад)
     username_val = message.from_user.username
+    confirm_text = "✅ Тасдиқ — дастӣ иҷро кунед" if data.get("combo_id") else "✅ Тасдиқ — донат кун"
     admin_kb_rows = [
-        [InlineKeyboardButton(text="✅ Тасдиқ — донат кун", callback_data=f"ok_{order_id}")],
+        [InlineKeyboardButton(text=confirm_text, callback_data=f"ok_{order_id}")],
         [InlineKeyboardButton(text="❌ Рад кардан",          callback_data=f"no_{order_id}")],
     ]
     if username_val:
@@ -2428,8 +2429,9 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
         f"💵 Маблағ: <b>{price:.2f} сомонӣ</b> (аз баланси реферралӣ)"
         f"{combo_breakdown}"
     )
+    confirm_text = "✅ Тасдиқ — дастӣ иҷро кунед" if data.get("combo_id") else "✅ Тасдиқ — донат кун"
     admin_kb_rows = [
-        [InlineKeyboardButton(text="✅ Тасдиқ — донат кун", callback_data=f"{confirm_prefix}_{order_id}")],
+        [InlineKeyboardButton(text=confirm_text, callback_data=f"{confirm_prefix}_{order_id}")],
         [InlineKeyboardButton(text="❌ Рад кардан",          callback_data=f"no_{order_id}")],
     ]
     if username_val:
