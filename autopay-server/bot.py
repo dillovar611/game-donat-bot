@@ -984,6 +984,8 @@ async def main():
     asyncio.create_task(_backup_loop(bot))
     # Ёдоварӣ барои фармоишҳои дастии дермонда — ҳар 5 дақиқа
     asyncio.create_task(_stale_paid_orders_loop(bot))
+    # Тӯҳфаи тасодуфӣ — ҳар N фармоиши тасдиқшуда
+    asyncio.create_task(autopay.giveaway_loop(bot))
     await dp.start_polling(bot)
 
 

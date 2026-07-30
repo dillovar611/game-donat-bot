@@ -19,6 +19,7 @@ DC Next, ки барномаи Android ба канали махсуси Telegram
 """
 import asyncio
 import html
+import random
 import time
 import unicodedata
 import logging
@@ -813,3 +814,112 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
                         logger.error(f"Чеки дастӣ ба админ {admin_id} нарасид: {e}")
         except Exception as e:
             logger.error(f"Хатогӣ дар expiry (search): {e}")
+
+
+GIVEAWAY_DEFAULT_EVERY_N = 25
+
+
+async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
+    """Ба барандаи тасодуфӣ маҳсулоти тӯҳфаро худкор донат мекунад ва огоҳ мекунад."""
+    product = await db.get_product(product_id)
+    if not product:
+        logger.error(f"Giveaway: маҳсулоти тӯҳфа #{product_id} дигар вуҷуд надорад")
+        return
+
+    player = await db.get_last_player_id(winner_id, "")
+    if not player or not player.get("player_id"):
+        logger.warning(f"Giveaway: барандаи {winner_id} ID-и бозӣ надорад — тӯҳфа гузаронида шуд")
+        return
+
+    label = product.get("label") or f"💎 {product['amount']}"
+    order_id = await db.create_order(
+        user_id=winner_id,
+        game_id=player["player_id"],
+        nickname=player.get("nickname", ""),
+        amount=product["amount"],
+        price=0,
+        label=f"🎁 Тӯҳфаи ройгон: {label}",
+        offer_id=product.get("offer_id") or "",
+        payment_method="giveaway",
+    )
+    success, api_order_id, uncertain, cost_usd = await ff_api.auto_donate(
+        player["player_id"], product.get("offer_id") or "", "", order_id
+    )
+    if api_order_id:
+        await db.set_order_api_id(order_id, api_order_id)
+
+    if success:
+        await db.update_order_status(order_id, "confirmed")
+        await db.set_confirmed_at(order_id)
+        try:
+            await bot.send_message(
+                winner_id,
+                f"🎉🎁 <b>Муборак! Шумо барандаи тӯҳфаи ройгон шудед!</b>\n\n"
+                f"Ҳамчун ташаккур барои харидатон, системаи мо тасодуфан шуморо "
+                f"интихоб кард ва <b>{label}</b> ба ҳисоби шумо БЕПУЛ фиристод! 🎊\n\n"
+                f"🙏 Ташаккур, ки бо мо ҳастед!",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Паёми тӯҳфа ба {winner_id} нарасид: {e}")
+        for admin_id in config.ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"🎁 <b>Тӯҳфаи тасодуфӣ фиристода шуд!</b>\n\n"
+                    f"👤 Баранда: <code>{winner_id}</code>\n"
+                    f"🎁 {label}\n"
+                    f"🆔 Фармоиш: #{order_id}",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Огоҳии тӯҳфа ба админ {admin_id} нарасид: {e}")
+    else:
+        await db.update_order_status(order_id, "failed")
+        for admin_id in config.ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"⚠️ <b>Тӯҳфаи тасодуфӣ НАШУД!</b>\n\n"
+                    f"👤 Баранда: <code>{winner_id}</code>\n"
+                    f"🎁 {label}\n"
+                    f"🆔 Фармоиш: #{order_id}\n\n"
+                    f"Лутфан дастӣ иҷро кунед.",
+                    parse_mode="HTML"
+                )
+            except Exception as e:
+                logger.error(f"Огоҳии хатои тӯҳфа ба админ {admin_id} нарасид: {e}")
+
+
+async def giveaway_loop(bot: Bot, interval_seconds: int = 60):
+    """
+    Ҳар дақиқа шумораи умумии фармоишҳои тасдиқшударо месанҷад. Ҳар боре,
+    ки он ба каратаи N (масалан 25) нав мерасад, аз ҳамон N фармоиши охирин
+    як барандаи тасодуфиро интихоб карда, маҳсулоти танзимшударо ба ӯ БЕПУЛ
+    худкор донат мекунад. Агар маҳсулоти тӯҳфа ҳанӯз танзим нашуда бошад
+    (аз admin), функсия хомӯш чизе намекунад.
+    """
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            product_id_str = await db.get_setting("giveaway_product_id")
+            if not product_id_str:
+                continue
+
+            every_n = int(await db.get_setting("giveaway_every_n") or str(GIVEAWAY_DEFAULT_EVERY_N))
+            total_confirmed = await db.count_confirmed_orders()
+            last_multiple = int(await db.get_setting("giveaway_last_multiple") or "0")
+            current_multiple = total_confirmed // every_n
+
+            if current_multiple <= last_multiple:
+                continue
+
+            for m in range(last_multiple + 1, current_multiple + 1):
+                offset = (m - 1) * every_n
+                batch = await db.get_confirmed_batch_user_ids(offset, every_n)
+                if batch:
+                    winner_id = random.choice(batch)
+                    asyncio.create_task(_send_giveaway_gift(bot, winner_id, int(product_id_str)))
+            await db.set_setting("giveaway_last_multiple", str(current_multiple))
+        except Exception as e:
+            logger.error(f"Хатогӣ дар giveaway_loop: {e}")

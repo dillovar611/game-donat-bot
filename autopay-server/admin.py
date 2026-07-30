@@ -154,6 +154,7 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔎 ҶустуҷӮи фармоиш",   callback_data="a_order_search")],
         [InlineKeyboardButton(text="💎 Нархи шахсии мизоҷ", callback_data="a_custom_price")],
         [InlineKeyboardButton(text="💳 Рақами корти ДС",     callback_data="a_dc_card")],
+        [InlineKeyboardButton(text="🎁 Тӯҳфаи тасодуфӣ",      callback_data="a_giveaway")],
     ])
 
 
@@ -210,6 +211,106 @@ async def a_dc_card_save(message: Message, state: FSMContext):
         f"Аз ҳозир ҳамаи линкҳои пардохти нав ҳамин рақамро истифода мебаранд.",
         parse_mode="HTML"
     )
+
+
+# ==================== ТӮҲФАИ ТАСОДУФӢ (ҳар N фармоиши тасдиқшуда) ====================
+class GiveawayState(StatesGroup):
+    change_n = State()
+
+
+@router.callback_query(F.data == "a_giveaway")
+async def a_giveaway(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    every_n = await db.get_setting("giveaway_every_n") or "25"
+    product_id_str = await db.get_setting("giveaway_product_id")
+    product_line = "❌ ҳанӯз танзим нашудааст"
+    if product_id_str:
+        product = await db.get_product(int(product_id_str))
+        if product:
+            label = product.get("label") or f"💎 {product['amount']}"
+            product_line = f"{label} ({float(product['price']):.2f} сом)"
+        else:
+            product_line = "❌ маҳсулот нест шудааст, аз нав интихоб кунед"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"✏️ Иваз кардани миқдор (ҳозира: ҳар {every_n})", callback_data="giveaway_change_n")],
+        [InlineKeyboardButton(text="🎁 Интихоби маҳсулоти тӯҳфа", callback_data="giveaway_pick_product")],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")],
+    ])
+    await _safe_edit(
+        call,
+        f"🎁 <b>Тӯҳфаи тасодуфӣ</b>\n\n"
+        f"Ҳар <b>{every_n}</b>-умин фармоиши тасдиқшуда, яке аз он {every_n} харидор "
+        f"тасодуфан интихоб мешавад ва тӯҳфаро БЕПУЛ мегирад (худкор).\n\n"
+        f"🎁 Маҳсулоти тӯҳфа: <b>{product_line}</b>\n\n"
+        f"Агар маҳсулот танзим нашуда бошад, тӯҳфа фиристода намешавад.",
+        kb
+    )
+
+
+@router.callback_query(F.data == "giveaway_change_n")
+async def a_giveaway_change_n(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await _safe_edit(
+        call,
+        "✏️ Ҳар чанд фармоиши тасдиқшуда як тӯҳфа диҳем? Рақамро нависед (масалан: 25):",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_giveaway")]
+        ])
+    )
+    await state.set_state(GiveawayState.change_n)
+
+
+@router.message(GiveawayState.change_n)
+async def a_giveaway_change_n_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        n = int(message.text.strip())
+        if n < 2:
+            raise ValueError
+    except Exception:
+        await message.answer("⚠️ Хато! Рақами бутун нависед (ҳадди ақал 2), масалан: 25")
+        return
+    await db.set_setting("giveaway_every_n", str(n))
+    await state.clear()
+    await message.answer(f"✅ Ҳоло ҳар {n} фармоиши тасдиқшуда як тӯҳфа дода мешавад.")
+
+
+@router.callback_query(F.data == "giveaway_pick_product")
+async def a_giveaway_pick_product(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    products = await db.get_all_products()
+    if not products:
+        await call.answer("❌ Ҳозир маҳсулот нест!", show_alert=True)
+        return
+    buttons = [
+        [InlineKeyboardButton(
+            text=f"{p.get('label') or ('💎 ' + str(p['amount']))} — {float(p['price']):.2f} сом",
+            callback_data=f"giveaway_set_{p['id']}"
+        )]
+        for p in products
+    ]
+    buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_giveaway")])
+    await _safe_edit(
+        call,
+        "🎁 <b>Кадом маҳсулот ҳамчун тӯҳфа дода шавад?</b>\n\n"
+        "(Тавсия: маҳсулоти арзон, масалан ваучери лайт — то хароҷот кам бошад)",
+        InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+
+
+@router.callback_query(F.data.startswith("giveaway_set_"))
+async def a_giveaway_set_product(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    product_id = int(call.data.split("_")[2])
+    await db.set_setting("giveaway_product_id", str(product_id))
+    await call.answer("✅ Маҳсулоти тӯҳфа танзим шуд!")
+    await a_giveaway(call)
 
 
 @router.message(Command("admin"))

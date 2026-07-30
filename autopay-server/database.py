@@ -488,6 +488,26 @@ async def add_product(amount: int, price: float, label: str, offer_id: str):
             )
 
 
+# ==================== ТӮҲФАИ ТАСОДУФӢ (ҳар N фармоиши тасдиқшуда) ====================
+async def count_confirmed_orders() -> int:
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT COUNT(*) FROM orders WHERE status='confirmed'")
+            row = await cur.fetchone()
+            return row[0] if row else 0
+
+
+async def get_confirmed_batch_user_ids(offset: int, limit: int) -> list:
+    """user_id-и як 'порсия'-и фармоишҳои тасдиқшуда (аз рӯи тартиби id) — барои интихоби тасодуфии барандаи тӯҳфа."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT user_id FROM orders WHERE status='confirmed' ORDER BY id ASC LIMIT %s OFFSET %s",
+                (limit, offset)
+            )
+            return [r[0] for r in await cur.fetchall()]
+
+
 async def update_product(product_id: int, amount: int, price: float, label: str, offer_id: str):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
