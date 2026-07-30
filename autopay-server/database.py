@@ -568,6 +568,21 @@ async def delete_combo(combo_id: int):
             await cur.execute("DELETE FROM combos WHERE id=%s", (combo_id,))
 
 
+async def clear_combo_items(combo_id: int):
+    """Ҳамаи қисмҳои комборо нест мекунад — барои таҳрир (нест + аз нав сабт)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("DELETE FROM combo_items WHERE combo_id=%s", (combo_id,))
+
+
+async def update_combo(combo_id: int, label: str, price: float):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE combos SET label=%s, price=%s WHERE id=%s", (label, price, combo_id)
+            )
+
+
 async def add_combo_item(combo_id: int, product_id: int | None, custom_label: str | None, quantity: int = 1):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:

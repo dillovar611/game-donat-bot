@@ -2060,6 +2060,7 @@ async def a_combo_view(call: CallbackQuery):
 
     toggle_btn = "🔴 Хомӯш кардан" if combo["is_active"] else "🟢 Фаъол кардан"
     kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Таҳрир кардани таркиб", callback_data=f"combo_edit_{combo_id}")],
         [InlineKeyboardButton(text=toggle_btn, callback_data=f"combo_toggle_{combo_id}")],
         [InlineKeyboardButton(text="🗑 Нест кардан", callback_data=f"combo_del_{combo_id}")],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_combos")],
@@ -2093,6 +2094,39 @@ async def a_combo_delete(call: CallbackQuery):
     await a_combos(call)
 
 
+@router.callback_query(F.data.startswith("combo_edit_"))
+async def a_combo_edit(call: CallbackQuery, state: FSMContext):
+    """Таркиби комбои МАВҶУДАро бо ҳамон интерфейси интихоб дубора кушода
+    метавонад иваз кунад — то лозим набошад ҳама чизро аз нав созед."""
+    if not is_admin(call.from_user.id):
+        return
+    combo_id = int(call.data.split("_")[2])
+    combo = await db.get_combo(combo_id)
+    if not combo:
+        await call.answer("❌ Ёфт нашуд!", show_alert=True)
+        return
+    items = await db.get_combo_items(combo_id)
+    qty_map = {}
+    customs = []
+    for it in items:
+        qty = it.get("quantity") or 1
+        if it.get("product_id"):
+            qty_map[str(it["product_id"])] = qty
+        else:
+            customs.append(it.get("custom_label") or "—")
+
+    await state.update_data(
+        combo_edit_id=combo_id,
+        combo_label=combo["label"],
+        combo_price=float(combo["price"]),
+        combo_qty=qty_map,
+        combo_customs=customs,
+    )
+    text, kb = await _render_combo_items_kb(state)
+    await _safe_edit(call, text, kb)
+    await state.set_state(ComboState.add_items)
+
+
 class ComboState(StatesGroup):
     add_name = State()
     add_price = State()
@@ -2113,7 +2147,7 @@ async def _render_combo_items_kb(state: FSMContext) -> tuple[str, InlineKeyboard
         qty = qty_map.get(str(pid), 0)
         mark = "✅" if qty > 0 else "☐"
         buttons.append([InlineKeyboardButton(
-            text=f"{mark} {label}", callback_data=f"combo_padd_{pid}"
+            text=f"{mark} {label}", callback_data=f"combo_ptoggle_{pid}"
         )])
         if qty > 0:
             buttons.append([
@@ -2148,6 +2182,9 @@ async def _render_combo_items_kb(state: FSMContext) -> tuple[str, InlineKeyboard
 async def a_combo_add(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
         return
+    # Тоза кардани ҳар боқимондаи як таҳрир/сохтани қаблӣ (масалан агар
+    # админ бекор карда буд) — то он ба ин комбои НАВ омехта нашавад
+    await state.clear()
     await _safe_edit(
         call,
         "➕ <b>Комбои нав</b>\n\nНоми комборо нависед (масалан: VIP Combo):",
@@ -2190,6 +2227,26 @@ async def a_combo_add_price(message: Message, state: FSMContext):
 @router.callback_query(F.data == "combo_noop")
 async def a_combo_noop(call: CallbackQuery):
     await call.answer()
+
+
+@router.callback_query(F.data.startswith("combo_ptoggle_"), ComboState.add_items)
+async def a_combo_item_toggle(call: CallbackQuery, state: FSMContext):
+    """
+    Пахши АСОСИИ сатри маҳсулот — интихоб/бекор кардан (0 ↔ 1), на илова
+    кардани беохир. Барои миқдори бештар аз 1, тугмаи ➕ алоҳида ҳаст.
+    Ин аз он ҷилавгирӣ мекунад, ки як пахши тасодуфӣ маҳсулоти нохостаро
+    ба комбо ҳамеша илова кунад бе роҳи осони бозгашт.
+    """
+    pid = call.data.split("_")[2]
+    data = await state.get_data()
+    qty_map = dict(data.get("combo_qty", {}))
+    if qty_map.get(pid, 0) > 0:
+        qty_map.pop(pid, None)
+    else:
+        qty_map[pid] = 1
+    await state.update_data(combo_qty=qty_map)
+    text, kb = await _render_combo_items_kb(state)
+    await _safe_edit(call, text, kb)
 
 
 @router.callback_query(F.data.startswith("combo_padd_"), ComboState.add_items)
@@ -2260,7 +2317,13 @@ async def a_combo_finish(call: CallbackQuery, state: FSMContext):
         await call.answer("⚠️ Ҳадди ақал як маҳсулот/ашё илова кунед!", show_alert=True)
         return
 
-    combo_id = await db.create_combo(data.get("combo_label", "Комбо"), float(data.get("combo_price", 0)))
+    edit_id = data.get("combo_edit_id")
+    if edit_id:
+        await db.update_combo(edit_id, data.get("combo_label", "Комбо"), float(data.get("combo_price", 0)))
+        await db.clear_combo_items(edit_id)
+        combo_id = edit_id
+    else:
+        combo_id = await db.create_combo(data.get("combo_label", "Комбо"), float(data.get("combo_price", 0)))
     for pid_str, qty in qty_map.items():
         if qty > 0:
             await db.add_combo_item(combo_id, product_id=int(pid_str), custom_label=None, quantity=qty)
@@ -2268,7 +2331,7 @@ async def a_combo_finish(call: CallbackQuery, state: FSMContext):
         await db.add_combo_item(combo_id, product_id=None, custom_label=label, quantity=1)
 
     await state.clear()
-    await call.answer("✅ Комбо сабт шуд!")
+    await call.answer("✅ Таркиб навсозӣ шуд!" if edit_id else "✅ Комбо сабт шуд!")
     await a_combos(call)
 
 
