@@ -287,6 +287,8 @@ async def combo_pick(call: CallbackQuery, state: FSMContext):
         eskhata_link="",
         is_custom_price=True,
         combo_id=combo_id,
+        cart=None,
+        cart_items=None,
     )
     data = await state.get_data()
     nickname = data.get("nickname", "")
@@ -479,6 +481,7 @@ async def cart_done(call: CallbackQuery, state: FSMContext):
             eskhata_link=only_product.get("eskhata_link") or "",
             cart=None,
             cart_items=None,
+            combo_id=None,
         )
         await _show_payment_method_choice(call, state)
         return
@@ -488,6 +491,7 @@ async def cart_done(call: CallbackQuery, state: FSMContext):
         price=round(total, 2),
         label=" + ".join(_summarize_cart_labels(cart, products_by_id)),
         is_custom_price=any(i["is_custom_price"] for i in items),
+        combo_id=None,
     )
 
     data = await state.get_data()
@@ -586,6 +590,7 @@ async def choose_payment(call: CallbackQuery, state: FSMContext):
         eskhata_link=product.get("eskhata_link") or "",
         is_custom_price=custom_price is not None,
         cart_items=None,
+        combo_id=None,
     )
     await _show_payment_method_choice(call, state)
 
@@ -1237,6 +1242,7 @@ async def ffid_choose_payment(call: CallbackQuery, state: FSMContext):
         label=product.get("label") or f"💎 {product['amount']}",
         offer_id=product.get("offer_id") or "",
         eskhata_link=product.get("eskhata_link") or "",
+        combo_id=None,
     )
 
     data = await state.get_data()
@@ -1552,6 +1558,7 @@ async def pubg_choose_payment(call: CallbackQuery, state: FSMContext):
         label=product.get("label") or f"💰 {product['amount']}",
         offer_id=product.get("offer_id") or "",
         eskhata_link=product.get("eskhata_link") or "",
+        combo_id=None,
     )
 
     data = await state.get_data()
@@ -1854,6 +1861,7 @@ async def stars_choose_payment(call: CallbackQuery, state: FSMContext):
         price=float(product["price"]),
         label=f"⭐ {product['amount']} Stars",
         eskhata_link=product.get("eskhata_link") or "",
+        combo_id=None,
     )
     data = await state.get_data()
 
@@ -2129,6 +2137,7 @@ async def premium_choose_payment(call: CallbackQuery, state: FSMContext):
         price=float(product["price"]),
         label=f"💎 Premium {product['months']} моҳ",
         eskhata_link=product.get("eskhata_link") or "",
+        combo_id=None,
     )
     data = await state.get_data()
 
