@@ -283,6 +283,32 @@ def _status_text(order: dict) -> str:
     return f"{header}\n{body}"
 
 
+async def _log_to_channel(message: Message, user_id: int, sender: str, text: str):
+    """
+    Нусхаи ҲАР паёми чати business (аз ду тараф — мизоҷ ва соҳиб) ба
+    каналчаи хусусии сабт мефиристад — то агар мизоҷ баъдтар паёмашро
+    аз Telegram нест кунад ҳам, нусхаи он дар канал боқӣ монад. Ин бот
+    ба база НАВИСТА НАМЕТАВОНАД (ҳисоби МАҲДУДИ SELECT-ӣ), бинобар ин
+    сабт танҳо тавассути Telegram-и худ (канал) сурат мегирад.
+    """
+    log_channel_id = getattr(cfg, "LOG_CHANNEL_ID", None)
+    if not log_channel_id:
+        return
+    who = "🧑‍💼 Шумо" if user_id == NOTIFY_CHAT_ID else f"👤 {sender}"
+    header = f"{who} (ID: <code>{user_id}</code>)"
+    try:
+        if message.photo:
+            await bot.send_photo(
+                log_channel_id, message.photo[-1].file_id,
+                caption=f"{header}\n{text}" if text else header,
+                parse_mode="HTML"
+            )
+        elif text:
+            await bot.send_message(log_channel_id, f"{header}:\n{text}", parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"[LOG-CHANNEL] нашуд: {e}")
+
+
 @dp.business_message()
 async def handle_business_message(message: Message):
     chat_id = message.chat.id
@@ -290,6 +316,8 @@ async def handle_business_message(message: Message):
     sender = message.from_user.full_name or str(user_id)
     text = message.text or message.caption or ""
     logger.info(f"[IN] chat={chat_id} user={user_id} bcid={message.business_connection_id!r} text={text!r}")
+
+    await _log_to_channel(message, user_id, sender, text)
 
     if user_id == NOTIFY_CHAT_ID:
         # Ин паёми ХУДИ соҳиб аст (шумо аз app-и худ ба мизоҷ навиштед).
