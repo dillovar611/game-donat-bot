@@ -2497,6 +2497,9 @@ class TopupState(StatesGroup):
     wait_check    = State()  # интизори расми чек
 
 
+PRESET_TOPUP_AMOUNTS = [20, 50, 100, 200, 500]
+
+
 @router.callback_query(F.data == "topup_balance")
 async def topup_start(call: CallbackQuery, state: FSMContext):
     if call.from_user.id not in config.ADMIN_IDS:
@@ -2504,17 +2507,43 @@ async def topup_start(call: CallbackQuery, state: FSMContext):
         return
     await state.clear()
     max_amount = await db.get_max_balance_topup()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
+    preset_buttons = [
+        InlineKeyboardButton(text=f"{amt} сом", callback_data=f"topup_preset_{amt}")
+        for amt in PRESET_TOPUP_AMOUNTS if amt <= max_amount
+    ]
+    preset_rows = [preset_buttons[i:i + 3] for i in range(0, len(preset_buttons), 3)]
+    kb = InlineKeyboardMarkup(inline_keyboard=preset_rows + [
         [InlineKeyboardButton(text="🔙 Бекор", callback_data="profile_menu")]
     ])
     await _safe_edit(
         call,
         f"💰 <b>Пур кардани баланс</b>\n\n"
-        f"Маблағеро, ки мехоҳед ба баланс илова кунед, нависед (сомонӣ).\n"
+        f"Тугмаеро пахш кунед ё маблағи дилхоҳро худатон нависед (сомонӣ).\n"
         f"Ҳадди максималӣ: <b>{max_amount:.2f} сомонӣ</b>",
         kb
     )
     await state.set_state(TopupState.enter_amount)
+
+
+@router.callback_query(F.data.startswith("topup_preset_"), TopupState.enter_amount)
+async def topup_preset_pick(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id not in config.ADMIN_IDS:
+        return
+    amount = float(call.data.replace("topup_preset_", ""))
+    await state.update_data(topup_amount=amount)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="topup_pay_dc")],
+        [InlineKeyboardButton(text="💳 Алиф",          callback_data="topup_pay_alif")],
+        [InlineKeyboardButton(text="🔙 Бекор",          callback_data="profile_menu")],
+    ])
+    await _safe_edit(
+        call,
+        f"💰 <b>Пур кардани баланс</b>\n\n"
+        f"💵 Маблағ: <b>{amount:.2f} сомонӣ</b>\n\n"
+        f"Тариқи пардохтро интихоб кунед:",
+        kb
+    )
+    await state.set_state(TopupState.choose_method)
 
 
 @router.message(TopupState.enter_amount)

@@ -331,6 +331,13 @@ async def _notify_admins_unmatched(bot: Bot, summa: float, kod: str):
             logger.error(f"Огоҳии пардохти ношинос ба {admin_id} нарасид: {e}")
 
 
+_PM_LABELS_SHORT = {
+    "dushanbe_city": "🏙 Душанбе Сити",
+    "alif": "💳 Алиф",
+    "referral_balance": "💰 Аз баланс",
+}
+
+
 async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: str):
     """Ҳисоботи муфассал ба админ баъд аз донати муваффақ."""
     user = await db.get_user(order["user_id"])
@@ -339,12 +346,22 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
     created_at = order.get("created_at")
     time_str = created_at.strftime("%H:%M") if created_at else "—"
     api_line = f"🆔 ID FazerCards: <code>{api_order_id}</code>\n" if api_order_id else ""
+
+    payment_method = order.get("payment_method")
+    payment_line = f"💳 Тариқи пардохт: {_PM_LABELS_SHORT.get(payment_method, payment_method or '—')}\n"
+    balance_line = ""
+    if payment_method == "referral_balance":
+        current_balance = await db.get_referral_balance(order["user_id"])
+        balance_line = f"💰 Баланси ҳозираи мизоҷ: {current_balance:.2f} сом\n"
+
     text = (
         f"⚡ <b>АВТОТАСДИҚ — Донат муваффақ шуд!</b>\n\n"
         f"👤 Харидор: {esc(full_name)}\n"
         f"📱 Username: {esc(username)}\n"
         f"🆔 ID Telegram: <code>{order['user_id']}</code>\n"
         f"💵 Нархи маҳсулот: {float(order['price']):.2f} сомонӣ\n"
+        f"{payment_line}"
+        f"{balance_line}"
         f"🕒 Вақти харид: {time_str}\n\n"
         f"🆔 Фармоиш: #{order['id']}\n"
         f"{api_line}"
