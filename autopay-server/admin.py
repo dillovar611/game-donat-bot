@@ -275,8 +275,13 @@ async def a_giveaway_change_n_save(message: Message, state: FSMContext):
         await message.answer("⚠️ Хато! Рақами бутун нависед (ҳадди ақал 2), масалан: 25")
         return
     await db.set_setting("giveaway_every_n", str(n))
+    # База кардани ҳисобкунак ба ҲОЗИРА — вагарна системаи ба тамоми
+    # фармоишҳои ТО ҲОЗИР (шояд ҳазорон) нигоҳ карда, якбора даҳҳо тӯҳфа
+    # мефиристад ба ҷои интизори фармоишҳои НАВ
+    total = await db.count_confirmed_orders()
+    await db.set_setting("giveaway_last_multiple", str(total // n))
     await state.clear()
-    await message.answer(f"✅ Ҳоло ҳар {n} фармоиши тасдиқшуда як тӯҳфа дода мешавад.")
+    await message.answer(f"✅ Ҳоло ҳар {n} фармоиши тасдиқшудаи НАВ (аз ҳозир) як тӯҳфа дода мешавад.")
 
 
 @router.callback_query(F.data == "giveaway_pick_product")
@@ -309,7 +314,12 @@ async def a_giveaway_set_product(call: CallbackQuery):
         return
     product_id = int(call.data.split("_")[2])
     await db.set_setting("giveaway_product_id", str(product_id))
-    await call.answer("✅ Маҳсулоти тӯҳфа танзим шуд!")
+    # База кардани ҳисобкунак ба ҲОЗИРА — то фармоишҳои кӯҳна ҳисоб нашаванд
+    # (бинг. изоҳи болотар дар a_giveaway_change_n_save)
+    every_n = int(await db.get_setting("giveaway_every_n") or "25")
+    total = await db.count_confirmed_orders()
+    await db.set_setting("giveaway_last_multiple", str(total // every_n))
+    await call.answer("✅ Маҳсулоти тӯҳфа танзим шуд! (Танҳо фармоишҳои НАВ ҳисоб мешаванд)")
     await a_giveaway(call)
 
 

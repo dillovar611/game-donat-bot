@@ -914,12 +914,18 @@ async def giveaway_loop(bot: Bot, interval_seconds: int = 60):
             if current_multiple <= last_multiple:
                 continue
 
-            for m in range(last_multiple + 1, current_multiple + 1):
-                offset = (m - 1) * every_n
-                batch = await db.get_confirmed_batch_user_ids(offset, every_n)
-                if batch:
-                    winner_id = random.choice(batch)
-                    asyncio.create_task(_send_giveaway_gift(bot, winner_id, int(product_id_str)))
-            await db.set_setting("giveaway_last_multiple", str(current_multiple))
+            # Ҳимояи иловагӣ: ҳатто агар шумораи каратаҳои гузашта хеле
+            # зиёд бошад (масалан ҳисобкунак хато монда буд ё бекфони
+            # калон ҷамъ шуда буд), дар ЯК давра НА БЕШТАР АЗ 1 тӯҳфа
+            # мефиристем (на current_multiple - last_multiple адад якбора)
+            # — то флуди тӯҳфаҳо ҳељ гоҳ такрор нашавад. Агар якчанд карата
+            # қафо монда бошад, дар давраҳои навбатӣ якто-якто ҷуброн мешавад.
+            next_multiple = last_multiple + 1
+            offset = (next_multiple - 1) * every_n
+            batch = await db.get_confirmed_batch_user_ids(offset, every_n)
+            if batch:
+                winner_id = random.choice(batch)
+                asyncio.create_task(_send_giveaway_gift(bot, winner_id, int(product_id_str)))
+            await db.set_setting("giveaway_last_multiple", str(next_multiple))
         except Exception as e:
             logger.error(f"Хатогӣ дар giveaway_loop: {e}")
