@@ -938,7 +938,7 @@ async def giveaway_loop(bot: Bot, interval_seconds: int = 60):
                     already = await db.get_setting("giveaway_near_miss_notified_multiple")
                     if already != str(last_multiple):
                         offset = last_multiple * every_n
-                        batch = await db.get_confirmed_batch_user_ids(offset, position)
+                        batch = await db.get_confirmed_batch_user_ids_recent(offset, position, hours=24)
                         for uid in set(batch):
                             try:
                                 await bot.send_message(

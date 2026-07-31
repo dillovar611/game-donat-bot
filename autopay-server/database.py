@@ -508,6 +508,25 @@ async def get_confirmed_batch_user_ids(offset: int, limit: int) -> list:
             return [r[0] for r in await cur.fetchall()]
 
 
+async def get_confirmed_batch_user_ids_recent(offset: int, limit: int, hours: int = 24) -> list:
+    """
+    Мисли get_confirmed_batch_user_ids, вале танҳо онҳое, ки фармоишашон дар
+    N соати охир будааст — барои огоҳии "наздикӣ", то ба мизоҷони кайҳо
+    харидакарда (шояд фаромӯш карда) нафиристем, балки танҳо ба онҳое, ки
+    ҳанӯз фаъоланд.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT user_id FROM ("
+                "    SELECT user_id, created_at FROM orders WHERE status='confirmed' "
+                "    ORDER BY id ASC LIMIT %s OFFSET %s"
+                ") t WHERE created_at >= NOW() - INTERVAL %s HOUR",
+                (limit, offset, hours)
+            )
+            return [r[0] for r in await cur.fetchall()]
+
+
 async def get_last_giveaway_winner() -> dict | None:
     """Мизоҷи охирине, ки тӯҳфаи ройгон бурдааст (барои намоиши иҷтимоӣ)."""
     async with pool.acquire() as conn:
