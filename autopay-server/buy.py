@@ -310,6 +310,12 @@ async def combo_pick(call: CallbackQuery, state: FSMContext):
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
         )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
+        )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="combo_list")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await _safe_edit(
@@ -521,6 +527,12 @@ async def cart_done(call: CallbackQuery, state: FSMContext):
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
         )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
+        )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="cart_start")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await _safe_edit(
@@ -559,6 +571,12 @@ async def _show_payment_method_choice(call: CallbackQuery, state: FSMContext):
         kb_rows.append([InlineKeyboardButton(
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
+        )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
         )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="id_ok")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -641,6 +659,12 @@ async def terms_reject(call: CallbackQuery, state: FSMContext):
         kb_rows.append([InlineKeyboardButton(
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
+        )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
         )])
     back_cb = "combo_list" if is_combo else ("cart_start" if is_cart else "id_ok")
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back_cb)])
@@ -1269,6 +1293,12 @@ async def ffid_choose_payment(call: CallbackQuery, state: FSMContext):
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
         )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
+        )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="ffid_id_ok")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await _safe_edit(
@@ -1318,6 +1348,12 @@ async def ffid_terms_reject(call: CallbackQuery, state: FSMContext):
         kb_rows.append([InlineKeyboardButton(
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
+        )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
         )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="ffid_id_ok")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -1583,6 +1619,12 @@ async def pubg_choose_payment(call: CallbackQuery, state: FSMContext):
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
         )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
+        )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="pubg_id_ok")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await _safe_edit(
@@ -1629,6 +1671,12 @@ async def pubg_terms_reject(call: CallbackQuery, state: FSMContext):
         kb_rows.append([InlineKeyboardButton(
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
+        )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
         )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="pubg_id_ok")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -1887,6 +1935,12 @@ async def stars_choose_payment(call: CallbackQuery, state: FSMContext):
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
         )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
+        )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="stars_id_ok")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await _safe_edit(
@@ -1932,6 +1986,12 @@ async def stars_terms_reject(call: CallbackQuery, state: FSMContext):
         kb_rows.append([InlineKeyboardButton(
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
+        )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
         )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="stars_id_ok")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -2167,6 +2227,12 @@ async def premium_choose_payment(call: CallbackQuery, state: FSMContext):
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
         )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
+        )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="premium_id_ok")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await _safe_edit(
@@ -2212,6 +2278,12 @@ async def premium_terms_reject(call: CallbackQuery, state: FSMContext):
         kb_rows.append([InlineKeyboardButton(
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
+        )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
         )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="premium_id_ok")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
@@ -2502,9 +2574,6 @@ PRESET_TOPUP_AMOUNTS = [20, 50, 100, 200, 500]
 
 @router.callback_query(F.data == "topup_balance")
 async def topup_start(call: CallbackQuery, state: FSMContext):
-    if call.from_user.id not in config.ADMIN_IDS:
-        await call.answer("⚠️ Ин функсия ҳоло дар марҳилаи озмоишист.", show_alert=True)
-        return
     await state.clear()
     max_amount = await db.get_max_balance_topup()
     preset_buttons = [
@@ -2527,8 +2596,6 @@ async def topup_start(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("topup_preset_"), TopupState.enter_amount)
 async def topup_preset_pick(call: CallbackQuery, state: FSMContext):
-    if call.from_user.id not in config.ADMIN_IDS:
-        return
     amount = float(call.data.replace("topup_preset_", ""))
     await state.update_data(topup_amount=amount)
     kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -2577,6 +2644,43 @@ async def topup_enter_amount(message: Message, state: FSMContext):
         f"💵 Маблағ: <b>{amount:.2f} сомонӣ</b>\n\n"
         f"Тариқи пардохтро интихоб кунед:",
         reply_markup=kb, parse_mode="HTML"
+    )
+    await state.set_state(TopupState.choose_method)
+
+
+@router.callback_query(F.data.startswith("topup_shortfall_"))
+async def topup_shortfall_pick(call: CallbackQuery, state: FSMContext):
+    """
+    Тугмаи "маблағ норасост" аз ягон экрани харид (FF/FFID/PUBG/Stars/
+    Premium/сабад) — мустақим ба марҳилаи интихоби усули пуркунӣ мегузарад,
+    бо маблағи норасо аллакай пур карда шуда. Ҳолати пешинаи харид тоза
+    мешавад (state.clear) — мизоҷ бояд баъд аз пуркунӣ хариди худро аз нав
+    оғоз кунад.
+    """
+    try:
+        amount = round(float(call.data.replace("topup_shortfall_", "")), 2)
+    except ValueError:
+        await call.answer("❌ Хатогӣ!", show_alert=True)
+        return
+    if amount <= 0:
+        await call.answer("❌ Хатогӣ!", show_alert=True)
+        return
+    max_amount = await db.get_max_balance_topup()
+    if amount > max_amount:
+        amount = max_amount
+    await state.clear()
+    await state.update_data(topup_amount=amount)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="topup_pay_dc")],
+        [InlineKeyboardButton(text="💳 Алиф",          callback_data="topup_pay_alif")],
+        [InlineKeyboardButton(text="🔙 Бекор",          callback_data="profile_menu")],
+    ])
+    await _safe_edit(
+        call,
+        f"💰 <b>Пур кардани баланс</b>\n\n"
+        f"💵 Маблағ: <b>{amount:.2f} сомонӣ</b>\n\n"
+        f"Тариқи пардохтро интихоб кунед:",
+        kb
     )
     await state.set_state(TopupState.choose_method)
 

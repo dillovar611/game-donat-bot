@@ -715,7 +715,7 @@ async def order_group_reject(call: CallbackQuery):
     for order in pending:
         await db.update_order_status(order["id"], "rejected")
         if order.get("payment_method") == "referral_balance":
-            await db.add_referral_earning(order["user_id"], float(order["price"]))
+            await db.add_referral_earning(order["user_id"], float(order["price"]), order["id"])
 
     try:
         refund_note = (
@@ -1064,7 +1064,7 @@ async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, 
     await db.update_order_status(order_id, "rejected")
     await db.set_order_reject_reason(order_id, reason_clean or "")
     if order.get("payment_method") == "referral_balance":
-        await db.add_referral_earning(order["user_id"], float(order["price"]))
+        await db.add_referral_earning(order["user_id"], float(order["price"]), order_id)
 
     try:
         refund_note = (

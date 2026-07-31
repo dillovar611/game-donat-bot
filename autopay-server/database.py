@@ -106,6 +106,19 @@ async def init_db():
                     value TEXT
                 )
             """)
+            # ---- Таърихи баланс (ҳар пуркунӣ/харид/мукофот/баргардонӣ) ----
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS balance_transactions (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    user_id BIGINT NOT NULL,
+                    amount DECIMAL(10,2) NOT NULL,
+                    tx_type VARCHAR(30) NOT NULL,
+                    order_id INT DEFAULT NULL,
+                    balance_after DECIMAL(10,2) NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX (user_id, created_at)
+                )
+            """)
             # ---- Комбоҳо (бандли якчанд маҳсулот бо нархи ягона) ----
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS combos (
@@ -298,6 +311,19 @@ async def get_referral_balance(user_id: int) -> float:
             return float(row[0]) if row and row[0] else 0.0
 
 
+async def get_balance_transactions(user_id: int, limit: int = 15) -> list:
+    """Таърихи охирини тағйири баланси корбар (пуркунӣ/харид/мукофот/баргардонӣ)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT amount, tx_type, order_id, balance_after, created_at "
+                "FROM balance_transactions WHERE user_id=%s "
+                "ORDER BY created_at DESC, id DESC LIMIT %s",
+                (user_id, limit)
+            )
+            return await cur.fetchall()
+
+
 async def get_referral_count(user_id: int) -> int:
     """Шумораи корбароне, ки тариқи ин референдат ба бот пайваст шудаанд."""
     async with pool.acquire() as conn:
@@ -336,14 +362,36 @@ async def get_referral_subusers(referrer_id: int):
             return subusers
 
 
-async def add_referral_earning(referrer_id: int, amount: float):
-    """Ба балансаи реферралии корбар маблаг илова мекунад."""
+async def _log_balance_tx(cur, user_id: int, amount: float, tx_type: str, order_id: int = None):
+    """
+    Як сатр ба таърихи баланс сабт мекунад — ҳамеша дар ҲАМОН cursor/пайвасте,
+    ки худи тағйири баланс аллакай дар он иҷро шудааст, то balance_after
+    ҳамеша дуруст бошад (бе равзанаи race бо навсозии дигар).
+    """
+    await cur.execute("SELECT referral_balance FROM users WHERE id=%s", (user_id,))
+    row = await cur.fetchone()
+    if row is None:
+        balance_after = 0.0
+    elif isinstance(row, dict):
+        balance_after = float(row["referral_balance"])
+    else:
+        balance_after = float(row[0])
+    await cur.execute(
+        "INSERT INTO balance_transactions (user_id, amount, tx_type, order_id, balance_after) "
+        "VALUES (%s,%s,%s,%s,%s)",
+        (user_id, amount, tx_type, order_id, balance_after)
+    )
+
+
+async def add_referral_earning(referrer_id: int, amount: float, order_id: int = None):
+    """Ба балансаи реферралии корбар маблаг илова мекунад (баргардонии фармоиши радшуда)."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
                 "UPDATE users SET referral_balance = referral_balance + %s WHERE id=%s",
                 (amount, referrer_id)
             )
+            await _log_balance_tx(cur, referrer_id, amount, "refund", order_id)
 
 
 async def credit_balance_topup(order_id: int, user_id: int, amount: float) -> bool:
@@ -365,6 +413,7 @@ async def credit_balance_topup(order_id: int, user_id: int, amount: float) -> bo
                 "UPDATE users SET referral_balance = referral_balance + %s WHERE id=%s",
                 (amount, user_id)
             )
+            await _log_balance_tx(cur, user_id, amount, "topup", order_id)
             return True
 
 
@@ -380,7 +429,10 @@ async def deduct_referral_balance(user_id: int, amount: float) -> bool:
                 "WHERE id=%s AND referral_balance >= %s",
                 (amount, user_id, amount)
             )
-            return cur.rowcount > 0
+            if cur.rowcount == 0:
+                return False
+            await _log_balance_tx(cur, user_id, -amount, "purchase")
+            return True
 
 
 async def credit_referral_for_order(order_id: int, percent: float = None):
@@ -417,6 +469,7 @@ async def credit_referral_for_order(order_id: int, percent: float = None):
             await cur.execute(
                 "UPDATE orders SET referral_credited=1 WHERE id=%s", (order_id,)
             )
+            await _log_balance_tx(cur, referrer_id, reward, "referral_reward", order_id)
             return reward, referrer_id
 
 

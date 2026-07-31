@@ -246,10 +246,9 @@ def profile_menu(user_id: int | None = None) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📋 Фармоишҳоям",  callback_data="my_orders")],
         [InlineKeyboardButton(text="🏆 Топ харидорон", callback_data="top_buyers")],
         [InlineKeyboardButton(text="🏅 Топ рефералдорон", callback_data="top_referrers")],
+        [InlineKeyboardButton(text="💰 Пур кардани баланс", callback_data="topup_balance")],
+        [InlineKeyboardButton(text="📜 Таърихи баланс", callback_data="balance_history")],
     ]
-    # Марҳилаи озмоишӣ: пуркунии баланс танҳо барои админ (то соҳиб пурра санҷад)
-    if user_id in config.ADMIN_IDS:
-        rows.append([InlineKeyboardButton(text="💰 Пур кардани баланс", callback_data="topup_balance")])
     rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="back_main")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -301,6 +300,7 @@ async def show_games_menu(call: CallbackQuery):
 async def show_profile_menu(call: CallbackQuery):
     stats = await db.get_user_stats(call.from_user.id)
     total_spent = stats["total_spent"]
+    balance = await db.get_referral_balance(call.from_user.id)
 
     text = (
         f"👤 <b>Профили шумо</b>\n\n"
@@ -309,11 +309,49 @@ async def show_profile_menu(call: CallbackQuery):
         f"📱 Username: {f'@{call.from_user.username}' if call.from_user.username else '—'}\n\n"
         f"📊 <b>Омори харид:</b>\n"
         f"✅ Харидҳои муваффақ: <b>{stats['total_orders']}</b>\n"
-        f"💰 Маблағи умумии харид: <b>{total_spent:.2f} сомонӣ</b>\n\n"
+        f"💰 Маблағи умумии харид: <b>{total_spent:.2f} сомонӣ</b>\n"
+        f"👛 Баланси шумо: <b>{balance:.2f} сомонӣ</b>\n\n"
         f"Аз меню интихоб кунед:"
     )
 
     await _safe_edit(call, text, profile_menu(call.from_user.id))
+
+
+_TX_TYPE_LABELS = {
+    "topup": "💰 Пуркунӣ",
+    "purchase": "🛒 Харид аз баланс",
+    "referral_reward": "🤝 Мукофоти реферралӣ",
+    "refund": "↩️ Баргардонӣ",
+}
+
+
+@dp.callback_query(F.data == "balance_history")
+async def show_balance_history(call: CallbackQuery):
+    txs = await db.get_balance_transactions(call.from_user.id, limit=15)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="profile_menu")]
+    ])
+    if not txs:
+        await _safe_edit(
+            call,
+            "📜 <b>Таърихи баланс</b>\n\nҲоло ҳељ амале нест.",
+            kb
+        )
+        return
+
+    lines = []
+    for tx in txs:
+        amount = float(tx["amount"])
+        sign = "+" if amount >= 0 else ""
+        label = _TX_TYPE_LABELS.get(tx["tx_type"], tx["tx_type"])
+        dt = tx["created_at"].strftime("%d.%m %H:%M") if tx.get("created_at") else "—"
+        order_part = f" (#{tx['order_id']})" if tx.get("order_id") else ""
+        lines.append(
+            f"{label}{order_part}: {sign}{amount:.2f} сом → {float(tx['balance_after']):.2f} сом\n"
+            f"   🕒 {dt}"
+        )
+    text = "📜 <b>Таърихи баланс</b> (охирин 15)\n\n" + "\n\n".join(lines)
+    await _safe_edit(call, text, kb)
 
 
 # ==================== РЕФЕРАЛ ====================
