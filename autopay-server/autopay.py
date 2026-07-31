@@ -1010,6 +1010,56 @@ async def _credit_balance_topup(bot: Bot, order: dict):
         except Exception as e:
             logger.error(f"Огоҳии пуркунии баланс ба админ {admin_id} нарасид: {e}")
 
+    # Агар ин пуркунӣ аз "норасогӣ"-и харид оғоз шуда буд — ҳамон харидро
+    # ҲОЗИР худкор анҷом медиҳем (мизоҷ дигар ҳељ коре накунад)
+    try:
+        pending = await db.get_pending_purchase_for_topup(order_id)
+        if pending:
+            await db.mark_pending_purchase_fulfilled(pending["id"])
+            await _complete_pending_purchase(bot, user_id, pending)
+    except Exception as e:
+        logger.error(f"Хатогӣ дар анҷоми хариди интизорӣ барои #{order_id}: {e}")
+
+
+async def _complete_pending_purchase(bot: Bot, user_id: int, pending: dict):
+    """
+    Хариди интизориро (ки мизоҷ барояш баланс пур карда буд) худкор анҷом
+    медиҳад: маблағро аз баланс кам мекунад, фармоиш месозад ва донат мекунад.
+    Агар баланс кофӣ набошад (ҳолати нодир) — бесадо мегузарад, мизоҷ баланси
+    пуршударо худаш истифода бурда метавонад.
+    """
+    price = float(pending["price"])
+    ok = await db.deduct_referral_balance(user_id, price)
+    if not ok:
+        logger.warning(
+            f"Хариди интизорӣ барои {user_id}: баланс кофӣ нест ({price} сом) — гузаронида шуд"
+        )
+        return
+    order_id = await db.create_order(
+        user_id=user_id,
+        game_id=pending["game_id"],
+        nickname=pending.get("nickname", "") or "",
+        amount=pending.get("amount", 0) or 0,
+        price=price,
+        label=pending["label"],
+        offer_id=pending.get("offer_id", "") or "",
+        payment_method="referral_balance",
+    )
+    await db.mark_order_paid_with_balance(order_id)
+    order = await db.get_order(order_id)
+    try:
+        await bot.send_message(
+            user_id,
+            f"🛍 <b>Хариди шумо худкор оғоз шуд!</b>\n\n"
+            f"🆔 Фармоиш: #{order_id}\n"
+            f"🎁 {esc(pending['label'])}\n\n"
+            f"🚀 Донат ҳозир иҷро мешавад...",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Паёми оғози хариди интизорӣ ба {user_id} нарасид: {e}")
+    await run_donate_from_balance(bot, order)
+
 
 async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
     """Ба барандаи тасодуфӣ маҳсулоти тӯҳфаро худкор донат мекунад ва огоҳ мекунад."""

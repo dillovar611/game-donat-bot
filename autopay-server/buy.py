@@ -2572,6 +2572,44 @@ class TopupState(StatesGroup):
 PRESET_TOPUP_AMOUNTS = [20, 50, 100, 200, 500]
 
 
+def _purchase_intent_from_state(current_state: str | None, data: dict) -> dict | None:
+    """
+    Аз ҳолати FSM-и харид (пеш аз пур кардани баланс аз "норасогӣ") маълумоти
+    заруриро мебарорад, то баъди пуркунӣ ин харид худкор анҷом дода шавад.
+    Комбоҳо ва ҳолатҳои нопурра истисно мешаванд (None) — барои онҳо тартиби
+    кӯҳна (мизоҷ худаш аз нав фармоиш медиҳад) мемонад.
+    """
+    if not current_state or data.get("combo_id") or not data.get("price") or not data.get("label"):
+        return None
+    if current_state.startswith("FFIDBuyState"):
+        game_id = f"FFID:{data.get('player_id', '')}"
+        nickname = data.get("nickname", "")
+    elif current_state.startswith("PUBGBuyState"):
+        game_id = f"PUBG:{data.get('player_id', '')}"
+        nickname = ""
+    elif current_state.startswith("StarsBuyState"):
+        game_id = f"STARS:{data.get('tg_username', '')}"
+        nickname = ""
+    elif current_state.startswith("PremiumBuyState"):
+        game_id = f"PREMIUM:{data.get('tg_username', '')}"
+        nickname = ""
+    elif current_state.startswith("BuyState"):
+        game_id = data.get("player_id", "")
+        nickname = data.get("nickname", "")
+    else:
+        return None
+    if not game_id:
+        return None
+    return {
+        "game_id": game_id,
+        "nickname": nickname,
+        "amount": data.get("amount", 0),
+        "price": data["price"],
+        "label": data["label"],
+        "offer_id": data.get("offer_id", ""),
+    }
+
+
 @router.callback_query(F.data == "topup_balance")
 async def topup_start(call: CallbackQuery, state: FSMContext):
     await state.clear()
@@ -2665,20 +2703,31 @@ async def topup_shortfall_pick(call: CallbackQuery, state: FSMContext):
     if amount <= 0:
         await call.answer("❌ Хатогӣ!", show_alert=True)
         return
+    # Ниятҳои хариди ҷориро ПЕШ аз тоза кардани state мегирем — то баъди
+    # пуркунӣ ин харид худкор анҷом дода шавад (мизоҷ дигар кор накунад)
+    current = await state.get_state()
+    data = await state.get_data()
+    pending = _purchase_intent_from_state(current, data)
     max_amount = await db.get_max_balance_topup()
     if amount > max_amount:
         amount = max_amount
     await state.clear()
-    await state.update_data(topup_amount=amount)
+    await state.update_data(topup_amount=amount, pending_purchase=pending)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="topup_pay_dc")],
         [InlineKeyboardButton(text="💳 Алиф",          callback_data="topup_pay_alif")],
         [InlineKeyboardButton(text="🔙 Бекор",          callback_data="profile_menu")],
     ])
+    pending_line = (
+        "\n🛍 Баъди пуркунӣ, хариди шумо ХУДКОР анҷом дода мешавад — "
+        "дигар кор лозим нест!\n"
+        if pending else ""
+    )
     await _safe_edit(
         call,
         f"💰 <b>Пур кардани баланс</b>\n\n"
-        f"💵 Маблағ: <b>{amount:.2f} сомонӣ</b>\n\n"
+        f"💵 Маблағ: <b>{amount:.2f} сомонӣ</b>\n"
+        f"{pending_line}\n"
         f"Тариқи пардохтро интихоб кунед:",
         kb
     )
@@ -2710,6 +2759,21 @@ async def topup_choose_method(call: CallbackQuery, state: FSMContext):
     )
     await state.update_data(autopay_order_id=awaiting_order_id)
 
+    # Агар ин пуркунӣ аз "норасогӣ"-и харид оғоз шуда бошад — ниятҳои
+    # харидро дар база ба ин фармоиши пуркунӣ мебандем, то баъди тасдиқ
+    # худкор анҷом дода шавад
+    pending = data.get("pending_purchase")
+    if pending:
+        await db.create_pending_purchase(
+            awaiting_order_id, call.from_user.id,
+            game_id=pending["game_id"],
+            nickname=pending.get("nickname", ""),
+            amount=pending.get("amount", 0),
+            price=float(pending["price"]),
+            label=pending["label"],
+            offer_id=pending.get("offer_id", ""),
+        )
+
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
         dc_card = await db.get_dc_card_number()
@@ -2722,12 +2786,17 @@ async def topup_choose_method(call: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="💳 Пардохт", url=pay_url)],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="profile_menu")],
     ])
+    pending_line = (
+        f"🛍 Баъди тасдиқ, «{esc(pending['label'])}» ХУДКОР харида мешавад!\n\n"
+        if pending else ""
+    )
     await _safe_edit(
         call,
         f"💳 <b>{method_name}</b>\n\n"
         f"💰 Пуркунии баланс\n"
         f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n"
-        f"🆔 Фармоиш: #{awaiting_order_id}\n\n"
+        f"🆔 Фармоиш: #{awaiting_order_id}\n"
+        f"{pending_line}\n"
         f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
         f"2️⃣ Маблағи <b>дақиқ {price:.2f} сом</b>-ро пардохт кунед "
         f"(на кам, на зиёд — тин ба тин!)\n"

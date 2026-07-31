@@ -119,6 +119,24 @@ async def init_db():
                     INDEX (user_id, created_at)
                 )
             """)
+            # ---- Хариди интизорӣ (агар мизоҷ бо "норасогӣ" пур карда бошад —
+            # баъди пуркунӣ ин харид худкор анҷом дода мешавад) ----
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS pending_purchases (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    topup_order_id INT NOT NULL,
+                    user_id BIGINT NOT NULL,
+                    game_id VARCHAR(255) NOT NULL,
+                    nickname VARCHAR(255) DEFAULT '',
+                    amount INT DEFAULT 0,
+                    price DECIMAL(10,2) NOT NULL,
+                    label VARCHAR(255) NOT NULL,
+                    offer_id VARCHAR(255) DEFAULT '',
+                    fulfilled TINYINT DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    INDEX (topup_order_id)
+                )
+            """)
             # ---- Комбоҳо (бандли якчанд маҳсулот бо нархи ягона) ----
             await cur.execute("""
                 CREATE TABLE IF NOT EXISTS combos (
@@ -322,6 +340,40 @@ async def get_balance_transactions(user_id: int, limit: int = 15) -> list:
                 (user_id, limit)
             )
             return await cur.fetchall()
+
+
+async def create_pending_purchase(topup_order_id: int, user_id: int, game_id: str,
+                                   nickname: str, amount, price: float, label: str,
+                                   offer_id: str) -> int:
+    """Ниятҳои хариди мизоҷро сабт мекунад — то баъди пуркунии баланс худкор анҷом дода шавад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO pending_purchases "
+                "(topup_order_id, user_id, game_id, nickname, amount, price, label, offer_id) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                (topup_order_id, user_id, game_id, nickname, amount, price, label, offer_id)
+            )
+            return cur.lastrowid
+
+
+async def get_pending_purchase_for_topup(topup_order_id: int):
+    """Хариди интизорие, ки ба ин фармоиши пуркунӣ вобаста аст (агар ҳанӯз иҷро нашуда бошад)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM pending_purchases WHERE topup_order_id=%s AND fulfilled=0 LIMIT 1",
+                (topup_order_id,)
+            )
+            return await cur.fetchone()
+
+
+async def mark_pending_purchase_fulfilled(pending_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE pending_purchases SET fulfilled=1 WHERE id=%s", (pending_id,)
+            )
 
 
 async def get_referral_count(user_id: int) -> int:
