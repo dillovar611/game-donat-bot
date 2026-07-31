@@ -144,7 +144,26 @@ def main_menu() -> InlineKeyboardMarkup:
          InlineKeyboardButton(text="🆘 Поддержка",   url=config.SUPPORT_URL)],
         [InlineKeyboardButton(text="❓ Саволҳои маъмул", callback_data="faq"),
          InlineKeyboardButton(text="ℹ️ Маълумот",    callback_data="about")],
+        [InlineKeyboardButton(text="🎁 Тӯҳфаи ройгон", callback_data="giveaway_info")],
     ])
+
+
+@dp.callback_query(F.data == "giveaway_info")
+async def giveaway_info(call: CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="back_main")]
+    ])
+    await _safe_edit(
+        call,
+        "🎁 <b>Тӯҳфаи ройгон!</b>\n\n"
+        "Ҳар як фармоиши шумо шуморо худкор ба қуръакашии тӯҳфаи "
+        "ройгон дохил мекунад! 🍀\n\n"
+        "Аз байни харидорони охирин, як нафар тасодуфан интихоб "
+        "мешавад ва тӯҳфаро <b>БЕПУЛ</b> мегирад — ҳеҷ амали иловагӣ "
+        "лозим нест, фақат харид кунед!\n\n"
+        "🛒 Ҳар чи бештар харид кунед, эҳтимоли бурдан бештар мешавад!",
+        kb
+    )
 
 
 # ==================== FAQ ====================
