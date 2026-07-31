@@ -436,55 +436,78 @@ async def _log_balance_tx(cur, user_id: int, amount: float, tx_type: str, order_
 
 
 async def add_referral_earning(referrer_id: int, amount: float, order_id: int = None):
-    """Ба балансаи реферралии корбар маблаг илова мекунад (баргардонии фармоиши радшуда)."""
+    """Ба балансаи реферралии корбар маблаг илова мекунад (баргардонии фармоиши радшуда).
+    Дар як транзаксия — то навсозии баланс ва сабти таърих якҷоя commit шаванд."""
     async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE users SET referral_balance = referral_balance + %s WHERE id=%s",
-                (amount, referrer_id)
-            )
-            await _log_balance_tx(cur, referrer_id, amount, "refund", order_id)
+        await conn.begin()
+        try:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "UPDATE users SET referral_balance = referral_balance + %s WHERE id=%s",
+                    (amount, referrer_id)
+                )
+                await _log_balance_tx(cur, referrer_id, amount, "refund", order_id)
+            await conn.commit()
+        except Exception:
+            await conn.rollback()
+            raise
 
 
 async def credit_balance_topup(order_id: int, user_id: int, amount: float) -> bool:
     """
-    Атомикӣ: фармоиши пуркунии баланс (is_balance_topup=1)-ро ба 'confirmed'
-    мегузаронад ва маблағро ба баланси корбар илова мекунад — ФАҚАТ агар
-    ҳанӯз коркард нашуда бошад (зидди дукаратшавӣ, мисли claim_order_for_donate).
+    Атомикӣ (ЯК транзаксия): фармоиши пуркунии баланс (is_balance_topup=1)-ро
+    ба 'confirmed' мегузаронад ва маблағро ба баланси корбар илова мекунад —
+    ФАҚАТ агар ҳанӯз коркард нашуда бошад (зидди дукаратшавӣ). Ҳарду навсозӣ
+    ва сабти таърих дар ЯК commit — то агар байнашон сервер қатъ шавад, ё
+    ҳарду шаванд ё ҳељкадом (баланс нопурра намемонад).
     """
     async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE orders SET status='confirmed', confirmed_at=NOW() "
-                "WHERE id=%s AND status != 'confirmed'",
-                (order_id,)
-            )
-            if cur.rowcount == 0:
-                return False
-            await cur.execute(
-                "UPDATE users SET referral_balance = referral_balance + %s WHERE id=%s",
-                (amount, user_id)
-            )
-            await _log_balance_tx(cur, user_id, amount, "topup", order_id)
+        await conn.begin()
+        try:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "UPDATE orders SET status='confirmed', confirmed_at=NOW() "
+                    "WHERE id=%s AND status != 'confirmed'",
+                    (order_id,)
+                )
+                if cur.rowcount == 0:
+                    await conn.rollback()
+                    return False
+                await cur.execute(
+                    "UPDATE users SET referral_balance = referral_balance + %s WHERE id=%s",
+                    (amount, user_id)
+                )
+                await _log_balance_tx(cur, user_id, amount, "topup", order_id)
+            await conn.commit()
             return True
+        except Exception:
+            await conn.rollback()
+            raise
 
 
 async def deduct_referral_balance(user_id: int, amount: float) -> bool:
     """
     Аз баланси корбар маблаг кам мекунад, ФАҦАТ агар баланс кофӣ бошад.
-    True агар муваффақ шуд, False агар баланс кам бошад.
+    True агар муваффақ шуд, False агар баланс кам бошад. Дар ЯК транзаксия.
     """
     async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "UPDATE users SET referral_balance = referral_balance - %s "
-                "WHERE id=%s AND referral_balance >= %s",
-                (amount, user_id, amount)
-            )
-            if cur.rowcount == 0:
-                return False
-            await _log_balance_tx(cur, user_id, -amount, "purchase")
+        await conn.begin()
+        try:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "UPDATE users SET referral_balance = referral_balance - %s "
+                    "WHERE id=%s AND referral_balance >= %s",
+                    (amount, user_id, amount)
+                )
+                if cur.rowcount == 0:
+                    await conn.rollback()
+                    return False
+                await _log_balance_tx(cur, user_id, -amount, "purchase")
+            await conn.commit()
             return True
+        except Exception:
+            await conn.rollback()
+            raise
 
 
 async def credit_referral_for_order(order_id: int, percent: float = None):
@@ -498,31 +521,43 @@ async def credit_referral_for_order(order_id: int, percent: float = None):
     if percent is None:
         percent = config.REFERRAL_PERCENT
     async with pool.acquire() as conn:
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute(
-                "SELECT user_id, price, referral_credited FROM orders WHERE id=%s",
-                (order_id,)
-            )
-            order = await cur.fetchone()
-            if not order or order["referral_credited"]:
-                return 0.0, None
-            await cur.execute(
-                "SELECT referrer_id FROM users WHERE id=%s", (order["user_id"],)
-            )
-            urow = await cur.fetchone()
-            referrer_id = urow["referrer_id"] if urow else None
-            if not referrer_id:
-                return 0.0, None
-            reward = float(order["price"]) * percent / 100
-            await cur.execute(
-                "UPDATE users SET referral_balance = referral_balance + %s WHERE id=%s",
-                (reward, referrer_id)
-            )
-            await cur.execute(
-                "UPDATE orders SET referral_credited=1 WHERE id=%s", (order_id,)
-            )
-            await _log_balance_tx(cur, referrer_id, reward, "referral_reward", order_id)
+        await conn.begin()
+        try:
+            async with conn.cursor(aiomysql.DictCursor) as cur:
+                # Атомикӣ ҳуқуқи кредитро мегирем — фақат ЯК даъват метавонад
+                # referral_credited-ро аз 0 ба 1 гузаронад (зидди дукаратшавӣ
+                # ҳангоми ду даъвати ҳамзамон)
+                await cur.execute(
+                    "UPDATE orders SET referral_credited=1 WHERE id=%s AND referral_credited=0",
+                    (order_id,)
+                )
+                if cur.rowcount == 0:
+                    await conn.rollback()
+                    return 0.0, None
+                await cur.execute(
+                    "SELECT user_id, price FROM orders WHERE id=%s", (order_id,)
+                )
+                order = await cur.fetchone()
+                await cur.execute(
+                    "SELECT referrer_id FROM users WHERE id=%s", (order["user_id"],)
+                )
+                urow = await cur.fetchone()
+                referrer_id = urow["referrer_id"] if urow else None
+                if not referrer_id:
+                    # Referrer нест — кредит лозим нест, флагро бармегардонем
+                    await conn.rollback()
+                    return 0.0, None
+                reward = float(order["price"]) * percent / 100
+                await cur.execute(
+                    "UPDATE users SET referral_balance = referral_balance + %s WHERE id=%s",
+                    (reward, referrer_id)
+                )
+                await _log_balance_tx(cur, referrer_id, reward, "referral_reward", order_id)
+            await conn.commit()
             return reward, referrer_id
+        except Exception:
+            await conn.rollback()
+            raise
 
 
 # ==================== МАҲСУЛОТҲО ====================
@@ -2120,6 +2155,20 @@ async def claim_order_for_donate(order_id: int) -> bool:
             await cur.execute(
                 "UPDATE orders SET status='paid' WHERE id=%s "
                 "AND status IN ('awaiting_autopay','autopay_search','expired')",
+                (order_id,)
+            )
+            return cur.rowcount > 0
+
+
+async def claim_order_for_reject(order_id: int) -> bool:
+    """Атомикӣ: фармоишро ба 'rejected' мегузаронад, ФАҚАТ агар он ҳанӯз
+    ниҳоӣ ё дар ҳоли донат набошад. False = аллакай коркард шудааст (масалан
+    ду админ ҳамзамон рад карданд) — то БАРГАРДОНИДАНИ БАЛАНС ду бор нашавад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET status='rejected' WHERE id=%s "
+                "AND status NOT IN ('confirmed','rejected','donating')",
                 (order_id,)
             )
             return cur.rowcount > 0

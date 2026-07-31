@@ -712,10 +712,18 @@ async def order_group_reject(call: CallbackQuery):
         await call.answer("ℹ️ Ин гурӯҳ аллакай коркард шудааст!", show_alert=True)
         return
 
+    # Банди АТОМИКӢ барои ҳар фармоиш — то агар ду админ ҳамзамон рад кунанд,
+    # баргардонидани баланс ду бор нашавад (танҳо якумин рад мегузарад)
+    rejected_any = False
     for order in pending:
-        await db.update_order_status(order["id"], "rejected")
+        if not await db.claim_order_for_reject(order["id"]):
+            continue
+        rejected_any = True
         if order.get("payment_method") == "referral_balance":
             await db.add_referral_earning(order["user_id"], float(order["price"]), order["id"])
+    if not rejected_any:
+        await call.answer("ℹ️ Ин гурӯҳ аллакай коркард шудааст!", show_alert=True)
+        return
 
     try:
         refund_note = (
@@ -1054,14 +1062,14 @@ async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, 
     """Фармоишро рад мекунад: статус, баргардониди балансаи реферралӣ (агар лозим),
     хабар ба мизоҷ ва навсозии паёми фармоиш дар панели админ."""
     order = await db.get_order(order_id)
-    # 'donating' низ манъ аст — фармоиш ҳамин лаҳза дар ҳоли донати худкор
-    # аст; агар рад кунем ва баъд донат муваффақ шавад, статус бебозгашт
-    # ба 'confirmed' иваз мешавад ва радди мо бесадо нест мешавад (ва агар
-    # пардохт аз баланс буд — пул ҲАМ баргардонида шуда, ҲАМ маҳсулот расад)
-    if not order or order["status"] in ("confirmed", "rejected", "donating"):
+    if not order:
+        return False
+    # Банди АТОМИКӢ ба 'rejected' — 'donating' низ манъ аст (донати худкор
+    # дар ҷараён). Агар False барорад, аллакай коркард шудааст (масалан ду
+    # админ ҳамзамон рад карданд) — то БАРГАРДОНИДАНИ БАЛАНС ду бор нашавад.
+    if not await db.claim_order_for_reject(order_id):
         return False
 
-    await db.update_order_status(order_id, "rejected")
     await db.set_order_reject_reason(order_id, reason_clean or "")
     if order.get("payment_method") == "referral_balance":
         await db.add_referral_earning(order["user_id"], float(order["price"]), order_id)

@@ -420,8 +420,22 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
     full_name = user.get("full_name") if user else "—"
     username = f"@{user['username']}" if user and user.get("username") else "—"
     api_line = f"🆔 ID FazerCards: <code>{api_order_id}</code>\n" if api_order_id else ""
+    # Тугмаи "Дубора донат" бояд ба ҳандлери ДУРУСТИ хидмат равад (на ҳамеша
+    # ba FF СНГ) — вагарна харидҳои FFID/PUBG/Stars/Premium-и аз баланс ба
+    # API-и нодуруст мераванд ва боз ноком мешаванд
+    _gid = order.get("game_id") or ""
+    if _gid.startswith("FFID:"):
+        retry_cb = f"okffid_{order['id']}"
+    elif _gid.startswith("PUBG:"):
+        retry_cb = f"okpubg_{order['id']}"
+    elif _gid.startswith("STARS:"):
+        retry_cb = f"okstars_{order['id']}"
+    elif _gid.startswith("PREMIUM:"):
+        retry_cb = f"okpremium_{order['id']}"
+    else:
+        retry_cb = f"ok_{order['id']}"
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔄 Дубора донат", callback_data=f"ok_{order['id']}")],
+        [InlineKeyboardButton(text="🔄 Дубора донат", callback_data=retry_cb)],
         [InlineKeyboardButton(text="✅ Дастӣ тасдиқ кардам", callback_data=f"manual_{order['id']}")],
         [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order['id']}")],
     ])
@@ -770,33 +784,40 @@ async def run_donate_from_balance(bot: Bot, order: dict):
         # Ҳар хизмат API-и худро дорад (game_id бо префикс фарқ мекунад —
         # мисли admin.py-и order_confirm_ffid/_pubg/_stars/_premium аллакай
         # мекунанд). FFID/PUBG 2-tuple бармегардонанд (uncertain/cost_usd надоранд).
-        if game_id.startswith("FFID:"):
-            player_id = game_id.replace("FFID:", "")
-            success, api_order_id = await ff_api.auto_donate_ffid(
-                player_id, order["offer_id"], order.get("api_order_id") or "", order_id
-            )
-            uncertain, cost_usd = False, None
-        elif game_id.startswith("PUBG:"):
-            player_id = game_id.replace("PUBG:", "")
-            success, api_order_id = await ff_api.auto_donate_pubg(
-                player_id, order["offer_id"], order.get("api_order_id") or "", order_id
-            )
-            uncertain, cost_usd = False, None
-        elif game_id.startswith("STARS:"):
-            tg_username = game_id.replace("STARS:", "")
-            success, api_order_id, uncertain, cost_usd = await ff_api.buy_telegram_stars(
-                tg_username, order["amount"], order_id
-            )
-        elif game_id.startswith("PREMIUM:"):
-            tg_username = game_id.replace("PREMIUM:", "")
-            success, api_order_id, uncertain, cost_usd = await ff_api.buy_telegram_premium(
-                tg_username, order["amount"], order_id
-            )
-        else:
-            success, api_order_id, uncertain, cost_usd = await ff_api.auto_donate(
-                game_id, order["offer_id"], order.get("api_order_id") or "",
-                order_id
-            )
+        # Даъвати API дар try — то агар exception партояд, фармоиш дар 'donating'
+        # гир намонад (баланс аллакай кам шудааст) — онро ҳамчун ноком коркард
+        # мекунем ва админ огоҳ мешавад (мисли уncertain).
+        try:
+            if game_id.startswith("FFID:"):
+                player_id = game_id.replace("FFID:", "")
+                success, api_order_id = await ff_api.auto_donate_ffid(
+                    player_id, order["offer_id"], order.get("api_order_id") or "", order_id
+                )
+                uncertain, cost_usd = False, None
+            elif game_id.startswith("PUBG:"):
+                player_id = game_id.replace("PUBG:", "")
+                success, api_order_id = await ff_api.auto_donate_pubg(
+                    player_id, order["offer_id"], order.get("api_order_id") or "", order_id
+                )
+                uncertain, cost_usd = False, None
+            elif game_id.startswith("STARS:"):
+                tg_username = game_id.replace("STARS:", "")
+                success, api_order_id, uncertain, cost_usd = await ff_api.buy_telegram_stars(
+                    tg_username, order["amount"], order_id
+                )
+            elif game_id.startswith("PREMIUM:"):
+                tg_username = game_id.replace("PREMIUM:", "")
+                success, api_order_id, uncertain, cost_usd = await ff_api.buy_telegram_premium(
+                    tg_username, order["amount"], order_id
+                )
+            else:
+                success, api_order_id, uncertain, cost_usd = await ff_api.auto_donate(
+                    game_id, order["offer_id"], order.get("api_order_id") or "",
+                    order_id
+                )
+        except Exception as e:
+            logger.error(f"run_donate_from_balance: ff_api хато барои #{order_id}: {e}")
+            success, api_order_id, uncertain, cost_usd = False, "", True, None
         logger.info(f"[COST-DEBUG] run_donate_from_balance: order={order_id} success={success} cost_usd={cost_usd!r}")
         if api_order_id:
             await db.set_order_api_id(order_id, api_order_id)
@@ -1050,18 +1071,50 @@ async def _complete_pending_purchase(bot: Bot, user_id: int, pending: dict):
             f"Хариди интизорӣ барои {user_id}: баланс кофӣ нест ({price} сом) — гузаронида шуд"
         )
         return
-    order_id = await db.create_order(
-        user_id=user_id,
-        game_id=pending["game_id"],
-        nickname=pending.get("nickname", "") or "",
-        amount=pending.get("amount", 0) or 0,
-        price=price,
-        label=pending["label"],
-        offer_id=pending.get("offer_id", "") or "",
-        payment_method="referral_balance",
-    )
-    await db.mark_order_paid_with_balance(order_id)
-    order = await db.get_order(order_id)
+    # Агар байни кам шудани баланс ва сохтани фармоиш хатои база шавад —
+    # маблағро БАРМЕГАРДОНЕМ ва админро огоҳ мекунем (то пул бесадо гум нашавад)
+    try:
+        order_id = await db.create_order(
+            user_id=user_id,
+            game_id=pending["game_id"],
+            nickname=pending.get("nickname", "") or "",
+            amount=pending.get("amount", 0) or 0,
+            price=price,
+            label=pending["label"],
+            offer_id=pending.get("offer_id", "") or "",
+            payment_method="referral_balance",
+        )
+        await db.mark_order_paid_with_balance(order_id)
+        order = await db.get_order(order_id)
+    except Exception as e:
+        logger.error(f"Хариди интизорӣ: сохтани фармоиш нашуд, баланс баргардонида мешавад ({user_id}, {price}): {e}")
+        try:
+            await db.add_referral_earning(user_id, price)
+        except Exception as e2:
+            logger.error(f"Хариди интизорӣ: БАРГАРДОНИДАНИ БАЛАНС ҲАМ НАШУД ({user_id}, {price}): {e2}")
+        try:
+            await bot.send_message(
+                user_id,
+                "⚠️ <b>Хатои система рӯй дод.</b>\n\n"
+                "Маблағ ба балансатон баргардонида шуд — метавонед дубора харид кунед.",
+                parse_mode="HTML"
+            )
+        except Exception:
+            pass
+        for admin_id in config.ADMIN_IDS:
+            try:
+                await bot.send_message(
+                    admin_id,
+                    f"⚠️ <b>Хатои хариди интизорӣ (аз баланс)!</b>\n\n"
+                    f"👤 ID: <code>{user_id}</code>\n"
+                    f"💵 {price:.2f} сом кам шуда буд — БАРГАРДОНИДА шуд.\n"
+                    f"🎁 {esc(pending.get('label', '—'))}\n"
+                    f"Хато: {esc(str(e))[:200]}",
+                    parse_mode="HTML"
+                )
+            except Exception:
+                pass
+        return
     try:
         await bot.send_message(
             user_id,

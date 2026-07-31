@@ -2428,6 +2428,11 @@ async def premium_wrong_check(message: Message, state: FSMContext):
 
 
 # ==================== ПАРДОХТ АЗ БАЛАНСИ РЕФЕРРАЛӢ ====================
+# Муҳофизат аз ду бор пахши тези "Истифода аз баланс" (то ду фармоиши
+# такрорӣ ва ду донати воқеӣ насозад) — калид: user_id
+_balance_pay_in_flight: set = set()
+
+
 @router.callback_query(F.data == "pay_balance")
 async def pay_with_balance(call: CallbackQuery, state: FSMContext):
     """
@@ -2436,132 +2441,172 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
     аз баланси корбар маблаг кам мекунад ва ба админ бо тугмаи дурусти
     тасдиқ мефиристад (бе чек/расм).
     """
-    current = await state.get_state()
-    data = await state.get_data()
-    price = data.get("price")
-    if current is None or price is None:
-        await call.answer("❌ State тамом шуд, аз нав сар кунед!", show_alert=True)
+    uid = call.from_user.id
+    # Санҷиш + банд кардан БЕ ягон await дар байн — то ду пахши ҳамзамон
+    # ҳарду аз санҷиш нагузаранд (як-риштагии asyncio инро атомикӣ мекунад)
+    if uid in _balance_pay_in_flight:
+        await call.answer("⏳ Фармоиши қаблиатон дар кор аст — лутфан як лаҳза интизор шавед.", show_alert=True)
         return
+    _balance_pay_in_flight.add(uid)
+    try:
+        current = await state.get_state()
+        data = await state.get_data()
+        price = data.get("price")
+        if current is None or price is None:
+            await call.answer("❌ State тамом шуд, аз нав сар кунед!", show_alert=True)
+            return
 
-    balance = await db.get_referral_balance(call.from_user.id)
-    if balance < price:
-        await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
-        return
+        balance = await db.get_referral_balance(uid)
+        if balance < price:
+            await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
+            return
 
-    # Аввал маблаГро аз баланс кам мекунем (атомикӣ — танҳо агар кофӣ бошад)
-    ok = await db.deduct_referral_balance(call.from_user.id, price)
-    if not ok:
-        await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
-        return
+        # Аввал маблаГро аз баланс кам мекунем (атомикӣ — танҳо агар кофӣ бошад)
+        ok = await db.deduct_referral_balance(uid, price)
+        if not ok:
+            await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
+            return
 
-    await state.clear()
+        await state.clear()
 
-    # Муайян кардани хидмат аз номи state
-    if current.startswith("FFIDBuyState"):
-        game_id = f"FFID:{data['player_id']}"
-        confirm_prefix = "okffid"
-        service_title = "🔥 Free Fire Indonesia"
-        nickname = data.get("nickname", "")
-        extra_line = f"🆔 ID: <code>{data['player_id']}</code>\n👤 Ном: <b>{nickname or '—'}</b>\n"
-    elif current.startswith("PUBGBuyState"):
-        game_id = f"PUBG:{data['player_id']}"
-        confirm_prefix = "okpubg"
-        service_title = "🎮 PUBG Mobile"
-        nickname = ""
-        extra_line = f"🆔 ID: <code>{data['player_id']}</code>\n"
-    elif current.startswith("StarsBuyState"):
-        game_id = f"STARS:{data['tg_username']}"
-        confirm_prefix = "okstars"
-        service_title = "⭐ Telegram Stars"
-        nickname = ""
-        extra_line = f"📱 Username: <code>@{data['tg_username']}</code>\n"
-    elif current.startswith("PremiumBuyState"):
-        game_id = f"PREMIUM:{data['tg_username']}"
-        confirm_prefix = "okpremium"
-        service_title = "💎 Telegram Premium"
-        nickname = ""
-        extra_line = f"📱 Username: <code>@{data['tg_username']}</code>\n"
-    else:  # BuyState — Free Fire СНГ
-        game_id = data["player_id"]
-        confirm_prefix = "ok"
-        service_title = "🔥 Free Fire"
-        nickname = data.get("nickname", "")
-        extra_line = f"🆔 ID: <code>{data['player_id']}</code>\n👤 Ном: <b>{nickname or '—'}</b>\n"
+        # Муайян кардани хидмат аз номи state
+        if current.startswith("FFIDBuyState"):
+            game_id = f"FFID:{data['player_id']}"
+            confirm_prefix = "okffid"
+            service_title = "🔥 Free Fire Indonesia"
+            nickname = data.get("nickname", "")
+            extra_line = f"🆔 ID: <code>{data['player_id']}</code>\n👤 Ном: <b>{nickname or '—'}</b>\n"
+        elif current.startswith("PUBGBuyState"):
+            game_id = f"PUBG:{data['player_id']}"
+            confirm_prefix = "okpubg"
+            service_title = "🎮 PUBG Mobile"
+            nickname = ""
+            extra_line = f"🆔 ID: <code>{data['player_id']}</code>\n"
+        elif current.startswith("StarsBuyState"):
+            game_id = f"STARS:{data['tg_username']}"
+            confirm_prefix = "okstars"
+            service_title = "⭐ Telegram Stars"
+            nickname = ""
+            extra_line = f"📱 Username: <code>@{data['tg_username']}</code>\n"
+        elif current.startswith("PremiumBuyState"):
+            game_id = f"PREMIUM:{data['tg_username']}"
+            confirm_prefix = "okpremium"
+            service_title = "💎 Telegram Premium"
+            nickname = ""
+            extra_line = f"📱 Username: <code>@{data['tg_username']}</code>\n"
+        else:  # BuyState — Free Fire СНГ
+            game_id = data["player_id"]
+            confirm_prefix = "ok"
+            service_title = "🔥 Free Fire"
+            nickname = data.get("nickname", "")
+            extra_line = f"🆔 ID: <code>{data['player_id']}</code>\n👤 Ном: <b>{nickname or '—'}</b>\n"
 
-    order_id = await db.create_order(
-        user_id=call.from_user.id,
-        game_id=game_id,
-        nickname=nickname,
-        amount=data.get("amount", 0),
-        price=price,
-        label=data["label"],
-        offer_id=data.get("offer_id", ""),
-        payment_method="referral_balance",
-        combo_id=data.get("combo_id"),
-    )
-    await db.mark_order_paid_with_balance(order_id)
-    combo_breakdown = await _combo_breakdown_text(data.get("combo_id"))
-    new_balance = balance - price
+        # Агар байни кам шудани баланс ва сохтани фармоиш хатои база шавад —
+        # маблағро БАРМЕГАРДОНЕМ ва админро огоҳ мекунем (то пул бесадо гум нашавад)
+        try:
+            order_id = await db.create_order(
+                user_id=uid,
+                game_id=game_id,
+                nickname=nickname,
+                amount=data.get("amount", 0),
+                price=price,
+                label=data["label"],
+                offer_id=data.get("offer_id", ""),
+                payment_method="referral_balance",
+                combo_id=data.get("combo_id"),
+            )
+            await db.mark_order_paid_with_balance(order_id)
+        except Exception as e:
+            logger.error(f"pay_with_balance: сохтани фармоиш нашуд, баланс баргардонида мешавад ({uid}, {price}): {e}")
+            try:
+                await db.add_referral_earning(uid, price)
+            except Exception as e2:
+                logger.error(f"pay_with_balance: БАРГАРДОНИДАНИ БАЛАНС ҲАМ НАШУД ({uid}, {price}): {e2}")
+            await _safe_edit(
+                call,
+                "⚠️ <b>Хатои система рӯй дод.</b>\n\n"
+                "Маблағ ба балансатон баргардонида шуд — дубора кӯшиш кунед.",
+                None
+            )
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await call.bot.send_message(
+                        admin_id,
+                        f"⚠️ <b>Хатои харид аз баланс!</b>\n\n"
+                        f"👤 ID: <code>{uid}</code>\n"
+                        f"💵 {price:.2f} сом кам шуда буд — БАРГАРДОНИДА шуд.\n"
+                        f"🎁 {esc(data.get('label', '—'))}\n"
+                        f"Хато: {esc(str(e))[:200]}",
+                        parse_mode="HTML"
+                    )
+                except Exception:
+                    pass
+            return
 
-    if data.get("combo_id"):
-        # Комбо — донати худкор НЕСТ (метавонад ашёи дастӣ дошта бошад),
-        # пас тартиби дастии қаблӣ бетағйир мемонад
+        combo_breakdown = await _combo_breakdown_text(data.get("combo_id"))
+        new_balance = balance - price
+
+        if data.get("combo_id"):
+            # Комбо — донати худкор НЕСТ (метавонад ашёи дастӣ дошта бошад),
+            # пас тартиби дастии қаблӣ бетағйир мемонад
+            await _safe_edit(
+                call,
+                f"✅ <b>Пардохт аз баланс қабул шуд!</b>\n\n"
+                f"🆔 Фармоиш: #{order_id}\n"
+                f"💰 {balance:.2f} сом баланс буд → баъди фармоиш "
+                f"<b>{new_balance:.2f} сом</b> шуд (-{price:.2f} сом)\n\n"
+                f"🔄 Фармоиши шумо ба админ фиристода шуд, натиҷа ба зудӣ маълум мешавад.",
+                None
+            )
+
+            username_val = call.from_user.username
+            username = f"@{username_val}" if username_val else "—"
+            caption = (
+                f"💰 <b>Фармоиши нав — пардохт аз баланс!</b>\n\n"
+                f"🆔 Фармоиш: <b>#{order_id}</b>\n"
+                f"👤 Корбар: {esc(call.from_user.full_name)} (<code>{call.from_user.id}</code>)\n"
+                f"📱 Username: {username}\n"
+                f"🎮 {service_title}\n"
+                f"{extra_line}"
+                f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
+                f"💵 Маблағ: <b>{price:.2f} сомонӣ</b> (аз баланс)"
+                f"{combo_breakdown}"
+            )
+            admin_kb_rows = [
+                [InlineKeyboardButton(text="✅ Тасдиқ — дастӣ иҷро кунед", callback_data=f"{confirm_prefix}_{order_id}")],
+                [InlineKeyboardButton(text="❌ Рад кардан",          callback_data=f"no_{order_id}")],
+            ]
+            if username_val:
+                admin_kb_rows.append(
+                    [InlineKeyboardButton(text="💬 ЛС ба клент", url=f"https://t.me/{username_val}")]
+                )
+            admin_kb = InlineKeyboardMarkup(inline_keyboard=admin_kb_rows)
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await call.bot.send_message(admin_id, caption, reply_markup=admin_kb, parse_mode="HTML")
+                except Exception as e:
+                    logger.error(f"Ба админ {admin_id} фиристода нашуд: {e}")
+            return
+
+        # Маҳсулоти оддӣ — донат ФАВРАН худкор, бе интизории тасдиқи админ
         await _safe_edit(
             call,
             f"✅ <b>Пардохт аз баланс қабул шуд!</b>\n\n"
             f"🆔 Фармоиш: #{order_id}\n"
             f"💰 {balance:.2f} сом баланс буд → баъди фармоиш "
             f"<b>{new_balance:.2f} сом</b> шуд (-{price:.2f} сом)\n\n"
-            f"🔄 Фармоиши шумо ба админ фиристода шуд, натиҷа ба зудӣ маълум мешавад.",
+            f"🚀 Донат ҳозир иҷро мешавад...",
             None
         )
-
-        username_val = call.from_user.username
-        username = f"@{username_val}" if username_val else "—"
-        caption = (
-            f"💰 <b>Фармоиши нав — пардохт аз баланс!</b>\n\n"
-            f"🆔 Фармоиш: <b>#{order_id}</b>\n"
-            f"👤 Корбар: {esc(call.from_user.full_name)} (<code>{call.from_user.id}</code>)\n"
-            f"📱 Username: {username}\n"
-            f"🎮 {service_title}\n"
-            f"{extra_line}"
-            f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
-            f"💵 Маблағ: <b>{price:.2f} сомонӣ</b> (аз баланс)"
-            f"{combo_breakdown}"
-        )
-        admin_kb_rows = [
-            [InlineKeyboardButton(text="✅ Тасдиқ — дастӣ иҷро кунед", callback_data=f"{confirm_prefix}_{order_id}")],
-            [InlineKeyboardButton(text="❌ Рад кардан",          callback_data=f"no_{order_id}")],
-        ]
-        if username_val:
-            admin_kb_rows.append(
-                [InlineKeyboardButton(text="💬 ЛС ба клент", url=f"https://t.me/{username_val}")]
-            )
-        admin_kb = InlineKeyboardMarkup(inline_keyboard=admin_kb_rows)
-        for admin_id in config.ADMIN_IDS:
-            try:
-                await call.bot.send_message(admin_id, caption, reply_markup=admin_kb, parse_mode="HTML")
-            except Exception as e:
-                logger.error(f"Ба админ {admin_id} фиристода нашуд: {e}")
-        return
-
-    # Маҳсулоти оддӣ — донат ФАВРАН худкор, бе интизории тасдиқи админ
-    await _safe_edit(
-        call,
-        f"✅ <b>Пардохт аз баланс қабул шуд!</b>\n\n"
-        f"🆔 Фармоиш: #{order_id}\n"
-        f"💰 {balance:.2f} сом баланс буд → баъди фармоиш "
-        f"<b>{new_balance:.2f} сом</b> шуд (-{price:.2f} сом)\n\n"
-        f"🚀 Донат ҳозир иҷро мешавад...",
-        None
-    )
-    import autopay
-    order = await db.get_order(order_id)
-    asyncio.create_task(autopay.run_donate_from_balance(call.bot, order))
+        import autopay
+        order = await db.get_order(order_id)
+        asyncio.create_task(autopay.run_donate_from_balance(call.bot, order))
+    finally:
+        _balance_pay_in_flight.discard(uid)
 
 
 # ════════════════════════════════════════════════════════
-#         ПУРКУНИИ БАЛАНС (ҳозира танҳо барои админ)
+#         ПУРКУНИИ БАЛАНС (барои ҳамаи мизоҷон)
 # ════════════════════════════════════════════════════════
 class TopupState(StatesGroup):
     enter_amount  = State()  # интизори маблағ
