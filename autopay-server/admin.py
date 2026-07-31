@@ -1102,6 +1102,7 @@ async def a_stats(call: CallbackQuery):
     stats = await db.get_stats()
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🌙 Гузориши шабона", callback_data="a_daily_report")],
+        [InlineKeyboardButton(text="📅 Гузориши ҳафтаина", callback_data="a_weekly_report")],
         [InlineKeyboardButton(text="🔁 Омори баргардонидан", callback_data="a_reengagement_stats")],
         [InlineKeyboardButton(text="🏆 Топ харидорон", callback_data="a_leaderboard_menu")],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")]
@@ -1294,6 +1295,58 @@ async def a_daily_report(call: CallbackQuery):
         f"🔄 <b>Пардохти дерина наҷотёфта (имрӯз):</b> <b>{stats['late_recovered_today']}</b>\n"
         f"😴 <b>Мизоҷони хомӯшшуда (14+ рӯз бе харид):</b> <b>{stats['dormant_customers']}</b>\n"
         f"💵 <b>Фоидаи холис имрӯз:</b> <b>~{stats['profit_today']:.2f} сом</b>{coverage}{margin_line}"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")]
+    ])
+    await _safe_edit(call, text, kb)
+
+
+@router.callback_query(F.data == "a_weekly_report")
+async def a_weekly_report(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    stats = await db.get_weekly_report()
+
+    def _fmt_change(pct):
+        if pct > 0:
+            return f"📈 +{pct:.1f}%"
+        elif pct < 0:
+            return f"📉 {pct:.1f}%"
+        return "➖ 0%"
+
+    change_str = _fmt_change(stats["change_pct"])
+    top_products_lines = "\n".join(
+        f"   {i + 1}. {esc(p['label'])} — {p['count']} фармоиш, {p['revenue']:.2f} сом"
+        + (f" (фоида {p['margin_percent']:.1f}%)" if p.get("margin_percent") is not None else "")
+        for i, p in enumerate(stats.get("top_products", []))
+    ) or "   —"
+
+    with_cost = stats.get("orders_with_cost_week", 0)
+    confirmed = stats["confirmed_week"]
+    coverage = f" (аз {with_cost}/{confirmed} фармоиш)" if confirmed else ""
+    margin_pct = stats.get("profit_margin_percent")
+    margin_line = f" — <b>{margin_pct:.1f}%</b> аз арзиши харид" if margin_pct is not None else ""
+
+    week_start = stats["week_start"].strftime("%d.%m")
+    week_end = stats["week_end"].strftime("%d.%m")
+
+    text = (
+        f"📅 <b>Гузориши ҳафтаина</b> ({week_start} – {week_end})\n\n"
+        f"💰 <b>Савдо:</b>\n"
+        f"   Ин ҳафта: <b>{stats['sales_week']:.2f} сом</b>\n"
+        f"   Ҳафтаи гузашта: <b>{stats['sales_prev_week']:.2f} сом</b>\n"
+        f"   Тағйир: {change_str}\n\n"
+        f"📦 <b>Фармоишҳо:</b>\n"
+        f"   ✅ Тасдиқшуда: <b>{stats['confirmed_week']}</b>\n"
+        f"   ❌ Радшуда: <b>{stats['rejected_week']}</b>\n"
+        f"   💵 Миёнаи арзиши фармоиш: <b>{stats['avg_order_value']:.2f} сом</b>\n\n"
+        f"👥 <b>Мизоҷони нав ин ҳафта:</b> <b>{stats['new_customers_week']}</b>\n"
+        f"📅 <b>Рӯзи беҳтарини ҳафта:</b> <b>{stats['best_weekday']}</b> "
+        f"({stats['best_weekday_sales']:.2f} сом)\n\n"
+        f"🏆 <b>Топ-5 маҳсулот:</b>\n"
+        f"{top_products_lines}\n\n"
+        f"💵 <b>Фоидаи холис ин ҳафта:</b> <b>~{stats['profit_week']:.2f} сом</b>{coverage}{margin_line}"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")]

@@ -799,6 +799,49 @@ def _format_daily_report(stats: dict) -> str:
     )
 
 
+def _format_weekly_report(stats: dict) -> str:
+    def _fmt_change(pct):
+        if pct > 0:
+            return f"📈 +{pct:.1f}%"
+        elif pct < 0:
+            return f"📉 {pct:.1f}%"
+        return "➖ 0%"
+
+    change_str = _fmt_change(stats["change_pct"])
+    top_products_lines = "\n".join(
+        f"   {i + 1}. {esc(p['label'])} — {p['count']} фармоиш, {p['revenue']:.2f} сом"
+        + (f" (фоида {p['margin_percent']:.1f}%)" if p.get("margin_percent") is not None else "")
+        for i, p in enumerate(stats.get("top_products", []))
+    ) or "   —"
+
+    with_cost = stats.get("orders_with_cost_week", 0)
+    confirmed = stats["confirmed_week"]
+    coverage = f" (аз {with_cost}/{confirmed} фармоиш)" if confirmed else ""
+    margin_pct = stats.get("profit_margin_percent")
+    margin_line = f" — <b>{margin_pct:.1f}%</b> аз арзиши харид" if margin_pct is not None else ""
+
+    week_start = stats["week_start"].strftime("%d.%m")
+    week_end = stats["week_end"].strftime("%d.%m")
+
+    return (
+        f"📅 <b>Гузориши ҳафтаина</b> ({week_start} – {week_end})\n\n"
+        f"💰 <b>Савдо:</b>\n"
+        f"   Ин ҳафта: <b>{stats['sales_week']:.2f} сом</b>\n"
+        f"   Ҳафтаи гузашта: <b>{stats['sales_prev_week']:.2f} сом</b>\n"
+        f"   Тағйир: {change_str}\n\n"
+        f"📦 <b>Фармоишҳо:</b>\n"
+        f"   ✅ Тасдиқшуда: <b>{stats['confirmed_week']}</b>\n"
+        f"   ❌ Радшуда: <b>{stats['rejected_week']}</b>\n"
+        f"   💵 Миёнаи арзиши фармоиш: <b>{stats['avg_order_value']:.2f} сом</b>\n\n"
+        f"👥 <b>Мизоҷони нав ин ҳафта:</b> <b>{stats['new_customers_week']}</b>\n"
+        f"📅 <b>Рӯзи беҳтарини ҳафта:</b> <b>{stats['best_weekday']}</b> "
+        f"({stats['best_weekday_sales']:.2f} сом)\n\n"
+        f"🏆 <b>Топ-5 маҳсулот:</b>\n"
+        f"{top_products_lines}\n\n"
+        f"💵 <b>Фоидаи холис ин ҳафта:</b> <b>~{stats['profit_week']:.2f} сом</b>{coverage}{margin_line}"
+    )
+
+
 TJ_TZ = ZoneInfo("Asia/Dushanbe")
 
 
@@ -827,6 +870,30 @@ async def _daily_report_loop(bot: Bot):
                     logger.error(f"Гузориши шабона ба админ {admin_id} нарасид: {e}")
         except Exception as e:
             logger.error(f"Хатогӣ дар сохтани гузориши шабона: {e}")
+
+
+async def _weekly_report_loop(bot: Bot):
+    """Ҳар якшанбе дар соати 23:59 (вақти Тоҷикистон) гузориши ҳафтаинаро мефиристад."""
+    while True:
+        now = datetime.now(TJ_TZ)
+        target = now.replace(hour=23, minute=59, second=0, microsecond=0)
+        days_until_sunday = (6 - target.weekday()) % 7
+        target += timedelta(days=days_until_sunday)
+        if target <= now:
+            target += timedelta(days=7)
+        wait_seconds = (target - now).total_seconds()
+        await asyncio.sleep(wait_seconds)
+
+        try:
+            stats = await db.get_weekly_report()
+            text = _format_weekly_report(stats)
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await bot.send_message(admin_id, text, parse_mode="HTML")
+                except Exception as e:
+                    logger.error(f"Гузориши ҳафтаина ба админ {admin_id} нарасид: {e}")
+        except Exception as e:
+            logger.error(f"Хатогӣ дар сохтани гузориши ҳафтаина: {e}")
 
 
 # ==================== BACKUP-И ШАБОНАИ БАЗА ====================
@@ -1038,6 +1105,8 @@ async def main():
     await bot.delete_webhook(drop_pending_updates=True)
     # Гузориши шабона дар соати 00:00 — дар background, бе халал ба polling
     asyncio.create_task(_daily_report_loop(bot))
+    # Гузориши ҳафтаина — ҳар якшанбе соати 23:59
+    asyncio.create_task(_weekly_report_loop(bot))
     # Ёдоварии баргардонидани мизоҷ — ҳар 15 дақиқа
     asyncio.create_task(_reengagement_loop(bot))
     # Автопардохт — бастани фармоишҳои мӯҳлаташон гузашта

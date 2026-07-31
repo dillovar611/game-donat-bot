@@ -1418,6 +1418,119 @@ async def get_daily_report() -> dict:
             }
 
 
+async def get_weekly_report() -> dict:
+    """
+    Гузориши ҳафтаина (7 рӯзи охир, шомили имрӯз) — барои дидани тамоюли
+    калонтар нисбат ба гузориши рӯзона. Муқоиса бо 7 рӯзи пешина низ дорад.
+    """
+    today_tj = datetime.now(TJ_TZ).date()
+    week_start = today_tj - timedelta(days=6)
+    prev_week_start = week_start - timedelta(days=7)
+
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT COALESCE(SUM(price),0) AS s, COUNT(*) AS c FROM orders "
+                "WHERE status='confirmed' AND created_at >= %s",
+                (week_start,)
+            )
+            row = await cur.fetchone()
+            sales_week = float(row["s"])
+            confirmed_week = row["c"]
+
+            await cur.execute(
+                "SELECT COALESCE(SUM(price),0) AS s, COUNT(*) AS c FROM orders "
+                "WHERE status='confirmed' AND created_at >= %s AND created_at < %s",
+                (prev_week_start, week_start)
+            )
+            row = await cur.fetchone()
+            sales_prev_week = float(row["s"])
+            confirmed_prev_week = row["c"]
+
+            if sales_prev_week > 0:
+                change_pct = (sales_week - sales_prev_week) / sales_prev_week * 100
+            else:
+                change_pct = 100.0 if sales_week > 0 else 0.0
+
+            await cur.execute(
+                "SELECT COUNT(*) AS c FROM orders WHERE status='rejected' AND created_at >= %s",
+                (week_start,)
+            )
+            rejected_week = (await cur.fetchone())["c"]
+
+            await cur.execute(
+                "SELECT COUNT(*) AS c FROM users WHERE created_at >= %s",
+                (week_start,)
+            )
+            new_customers_week = (await cur.fetchone())["c"]
+
+            avg_order_value = sales_week / confirmed_week if confirmed_week else 0.0
+
+            await cur.execute(
+                "SELECT COALESCE(SUM(price - cost_tjs),0) AS profit, "
+                "COALESCE(SUM(cost_tjs),0) AS total_cost, COUNT(*) AS with_cost FROM orders "
+                "WHERE status='confirmed' AND cost_tjs IS NOT NULL AND created_at >= %s",
+                (week_start,)
+            )
+            row = await cur.fetchone()
+            profit_week = float(row["profit"])
+            orders_with_cost_week = row["with_cost"]
+            total_cost_week = float(row["total_cost"])
+            margin_percent = round(profit_week / total_cost_week * 100, 1) if total_cost_week > 0 else None
+
+            await cur.execute(
+                "SELECT label, COUNT(*) AS cnt, COALESCE(SUM(price),0) AS rev, "
+                "COALESCE(SUM(cost_tjs),0) AS cost, "
+                "SUM(CASE WHEN cost_tjs IS NOT NULL THEN 1 ELSE 0 END) AS with_cost "
+                "FROM orders WHERE status='confirmed' AND created_at >= %s "
+                "GROUP BY label ORDER BY rev DESC LIMIT 5",
+                (week_start,)
+            )
+            top_products = []
+            for r in await cur.fetchall():
+                rev = float(r["rev"])
+                cost = float(r["cost"])
+                with_cost = r["with_cost"]
+                item_margin = round((rev - cost) / cost * 100, 1) if with_cost and cost > 0 else None
+                top_products.append({
+                    "label": r["label"] or "—", "count": r["cnt"], "revenue": rev, "margin_percent": item_margin,
+                })
+
+            await cur.execute(
+                "SELECT DAYNAME(created_at) AS dname, COALESCE(SUM(price),0) AS s FROM orders "
+                "WHERE status='confirmed' AND created_at >= %s GROUP BY dname ORDER BY s DESC LIMIT 1",
+                (week_start,)
+            )
+            best_day_row = await cur.fetchone()
+            best_weekday_en = best_day_row["dname"] if best_day_row else None
+            best_weekday_sales = float(best_day_row["s"]) if best_day_row else 0.0
+            weekday_tj = {
+                "Monday": "Душанбе", "Tuesday": "Сешанбе", "Wednesday": "Чоршанбе",
+                "Thursday": "Панҷшанбе", "Friday": "Ҷумъа",
+                "Saturday": "Шанбе", "Sunday": "Якшанбе",
+            }
+            best_weekday = weekday_tj.get(best_weekday_en, best_weekday_en or "—")
+
+            return {
+                "week_start": week_start,
+                "week_end": today_tj,
+                "sales_week": sales_week,
+                "confirmed_week": confirmed_week,
+                "sales_prev_week": sales_prev_week,
+                "confirmed_prev_week": confirmed_prev_week,
+                "change_pct": change_pct,
+                "rejected_week": rejected_week,
+                "new_customers_week": new_customers_week,
+                "avg_order_value": avg_order_value,
+                "profit_week": profit_week,
+                "orders_with_cost_week": orders_with_cost_week,
+                "profit_margin_percent": margin_percent,
+                "top_products": top_products,
+                "best_weekday": best_weekday,
+                "best_weekday_sales": best_weekday_sales,
+            }
+
+
 async def set_confirmed_at(order_id: int):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
