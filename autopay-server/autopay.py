@@ -996,12 +996,16 @@ async def _credit_balance_topup(bot: Bot, order: dict):
         admin_kb = InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🧾 Дидани чек", callback_data=f"topupcheck_{order_id}")]
         ])
+    user = await db.get_user(user_id)
+    full_name = user.get("full_name") if user else "—"
+    username = f"@{user['username']}" if user and user.get("username") else "—"
     for admin_id in config.ADMIN_IDS:
         try:
             await bot.send_message(
                 admin_id,
                 f"💰 <b>Баланси мизоҷ пур шуд</b>\n\n"
-                f"👤 ID: <code>{user_id}</code>\n"
+                f"👤 Харидор: {esc(full_name)} ({esc(username)})\n"
+                f"🆔 ID: <code>{user_id}</code>\n"
                 f"💰 {old_balance:.2f} сом буд → {new_balance:.2f} сом шуд (+{amount:.2f} сом)\n"
                 f"🆔 Фармоиш: #{order_id}",
                 reply_markup=admin_kb,

@@ -1991,10 +1991,13 @@ async def a_order_check(call: CallbackQuery):
 
     file_id = order.get("check_file_id")
     if not file_id:
-        await call.answer(
-            "❌ Чек нест — ин фармоиш нопурра мондааст (корбар чек нафиристодааст).",
-            show_alert=True
-        )
+        if order.get("payment_method") == "referral_balance":
+            msg = "ℹ️ Ин фармоиш АЗ БАЛАНС пардохт шудааст — чеки расм надорад (пул аллакай дар балансаш буд)."
+        elif order.get("status") == "confirmed":
+            msg = "ℹ️ Ин фармоиш тавассути автопардохт тасдиқ шуд — чеки расм захира нашудааст."
+        else:
+            msg = "❌ Чек нест — ин фармоиш нопурра мондааст (корбар чек нафиристодааст)."
+        await call.answer(msg, show_alert=True)
         return
 
     try:
