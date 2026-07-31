@@ -858,35 +858,38 @@ def esc_err(e) -> str:
     return html.escape(str(e)[:300])
 
 
-async def _notify_admins_reengagement(bot: Bot, action: str, user: dict):
-    """Ба ADMIN_IDS хабар медиҳад, ки кадом амали баргардонидани мизоҷ иҷро шуд."""
-    display = f"@{user['username']}" if user.get("username") else esc(user.get("full_name") or f"ID {user['id']}")
-    text = (
-        f"🔔 <b>Баргардонидани мизоҷ</b>\n\n"
-        f"👤 {display}\n"
-        f"🆔 <code>{user['id']}</code>\n"
-        f"📌 Амал: {action}"
-    )
+async def _notify_admins_summary(bot: Bot, text: str):
+    """Ба ADMIN_IDS ЯК хабари хулосавӣ мефиристад (на алоҳида барои ҳар мизоҷ — то флуд нашавад)."""
     for admin_id in config.ADMIN_IDS:
         try:
-            await bot.send_message(admin_id, text, parse_mode="HTML")
+            await bot.send_message(admin_id, f"🔔 {text}", parse_mode="HTML")
         except Exception as e:
-            logger.error(f"Хабари баргардонидан ба админ {admin_id} нарасид: {e}")
+            logger.error(f"Хабари хулосавӣ ба админ {admin_id} нарасид: {e}")
+
+
+# Ҳар давра (15 дақ) аз ҳар гурӯҳ на бештар аз ин миқдор коркард мешавад —
+# то агар лупа муддате қатъ буда бошад (масалан хостинг афтод) ва
+# бекфони калон ҷамъ шуда бошад, ҳама якбора нашаванд (флуди огоҳиҳо ба
+# садҳо мизоҷ якбора), балки дар якчанд давра паҳн шаванд.
+REENGAGEMENT_BATCH_LIMIT = 15
 
 
 async def _reengagement_loop(bot: Bot):
     """
     Ҳар 15 дақиқа корбаронеро санҷад, ки бот тарк кардаанд (ё харидро
     тамом накардаанд), ва ёдоварии мувофиқ мефиристад. Ҳар намуди
-    ёдоварӣ барои ҲАР корбар фақат 1 БОР фиристода мешавад. Ба админ
-    низ ҲАР амал хабар дода мешавад.
+    ёдоварӣ барои ҲАР корбар фақат 1 БОР фиристода мешавад. Ба админ як
+    ХУЛОСАИ ягона барои ҳар давра фиристода мешавад (на паёми алоҳида
+    барои ҳар мизоҷ — то флуд нашавад).
     """
     while True:
         await asyncio.sleep(15 * 60)  # 15 дақиқа
 
         # ---- Гурӯҳи 1: /start зад, 1 соат ҲЕЧ order ----
         try:
-            for u in await db.get_users_no_order_1h():
+            users = (await db.get_users_no_order_1h())[:REENGAGEMENT_BATCH_LIMIT]
+            sent = 0
+            for u in users:
                 try:
                     await db.mark_reminder_noorder_sent(u["id"])
                     await bot.send_message(
@@ -901,15 +904,19 @@ async def _reengagement_loop(bot: Bot):
                         "ҳалли мушкилот кумак расонем.",
                         parse_mode="HTML"
                     )
-                    await _notify_admins_reengagement(bot, "Ёдоварии бе-фармоиш фиристода шуд", u)
+                    sent += 1
                 except Exception as e:
                     logger.error(f"Ёдоварии бе-order ба {u['id']} нарасид: {e}")
+            if sent:
+                await _notify_admins_summary(bot, f"👋 Ёдоварии бе-фармоиш ба {sent} мизоҷ фиристода шуд")
         except Exception as e:
             logger.error(f"Хатогӣ дар санҷиши гурӯҳи бе-order: {e}")
 
         # ---- Гурӯҳи 2: мизоҷони хомӯшшуда (14+ рӯз бе харид) — тахфифи баргардонӣ -3% ----
         try:
-            for u in await db.get_dormant_customers_for_winback():
+            users = (await db.get_dormant_customers_for_winback())[:REENGAGEMENT_BATCH_LIMIT]
+            sent = 0
+            for u in users:
                 try:
                     await db.mark_winback_sent(u["id"])
                     await bot.send_message(
@@ -923,9 +930,11 @@ async def _reengagement_loop(bot: Bot):
                         "худаш дар нархи пардохт ҳисоб мешавад.",
                         parse_mode="HTML"
                     )
-                    await _notify_admins_reengagement(bot, "Тахфифи баргардонии -3% фиристода шуд", u)
+                    sent += 1
                 except Exception as e:
                     logger.error(f"Паёми баргардонӣ ба {u['id']} нарасид: {e}")
+            if sent:
+                await _notify_admins_summary(bot, f"🎁 Тахфифи баргардонии -3% ба {sent} мизоҷи хомӯшшуда фиристода шуд")
         except Exception as e:
             logger.error(f"Хатогӣ дар санҷиши гурӯҳи мизоҷони хомӯшшуда: {e}")
 
