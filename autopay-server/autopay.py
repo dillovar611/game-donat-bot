@@ -723,6 +723,86 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
         _in_flight_orders.discard(order_id)
 
 
+async def run_donate_from_balance(bot: Bot, order: dict):
+    """
+    Фармоише, ки МИЗОҶ АЗ БАЛАНСИ ХУД пардохт кардааст (баланс аллакай
+    атомикӣ кам шудааст дар buy.py) — донат ФАВРАН оғоз мешавад, бе
+    интизории тасдиқи дастии админ (бо тугмаҳо). Комбоҳо ба ин ФУНКСИЯ
+    ҳељ гоҳ намерасанд — онҳо дастӣ мемонанд (buy.py филтр мекунад).
+
+    Бар хилофи run_donate/run_donate_for_escalated, ин ҷо claim-и атомикӣ
+    лозим нест — фармоиши пардохтшуда аз баланс ҳељ рақиби дигар надорад
+    (на DCSCAN, на DCNOTIF метавонанд ба ин фармоиш бархӯранд).
+    """
+    order_id = order["id"]
+    user_id = order["user_id"]
+
+    await db.update_order_status(order_id, "donating")
+
+    async with _donate_semaphore:
+        success, api_order_id, uncertain, cost_usd = await ff_api.auto_donate(
+            order["game_id"], order["offer_id"], order.get("api_order_id") or "",
+            order_id
+        )
+        logger.info(f"[COST-DEBUG] run_donate_from_balance: order={order_id} success={success} cost_usd={cost_usd!r}")
+        if api_order_id:
+            await db.set_order_api_id(order_id, api_order_id)
+
+    if success:
+        await db.update_order_status(order_id, "confirmed")
+        await db.set_confirmed_at(order_id)
+        if cost_usd:
+            await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
+
+        try:
+            reward, referrer_id = await db.credit_referral_for_order(order_id)
+            if reward and referrer_id:
+                await bot.send_message(
+                    referrer_id,
+                    f"🤝 <b>Мукофоти реферралӣ!</b>\n\n"
+                    f"💰 Дусти шумо фармоиш дод ва шумо <b>{reward:.2f} сом</b> "
+                    f"ба балансатон гирифтед!",
+                    parse_mode="HTML"
+                )
+        except Exception as e:
+            logger.error(f"credit_referral хато барои #{order_id}: {e}")
+
+        try:
+            await bot.send_message(
+                user_id,
+                f"🎉 <b>Донат анҷом ёфт! Алмазҳо фиристода шуданд!</b>\n\n"
+                f"🆔 Фармоиш: #{order_id}\n"
+                f"{order['label']} → <code>{order['game_id']}</code>\n\n"
+                f"🙏 Ташаккур барои харид!\n\n"
+                f"⭐ Лутфан отзив гузоред:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🧾 Чеки муваффақ", callback_data=f"receipt_{order_id}")],
+                    [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
+                ]),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Паёми анҷом (аз баланс) ба {user_id} нарасид: {e}")
+
+        await _admin_report_success(bot, order, "", api_order_id)
+    else:
+        await db.update_order_status(order_id, "failed")
+        try:
+            await bot.send_message(
+                user_id,
+                f"⚠️ <b>Пардохти шумо қабул шуд, вале донат каме ба таъхир афтод.</b>\n\n"
+                f"🆔 Фармоиш: #{order_id}\n\n"
+                f"Хавотир нашавед — админ огоҳ карда шуд ва ба зудӣ "
+                f"дастӣ ҳал мекунад. Пулатон бехатар аст. 🙏",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Паёми таъхир (аз баланс) ба {user_id} нарасид: {e}")
+        if uncertain:
+            await db.flag_order_uncertain(order_id)
+        await _admin_report_failure(bot, order, "", api_order_id, uncertain)
+
+
 async def expiry_loop(bot: Bot, interval_seconds: int = 60):
     """
     Ҳар дақиқа:
@@ -859,6 +939,11 @@ async def _credit_balance_topup(bot: Bot, order: dict):
     except Exception as e:
         logger.error(f"Паёми пуркунии баланс ба {user_id} нарасид: {e}")
 
+    admin_kb = None
+    if order.get("check_file_id"):
+        admin_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🧾 Дидани чек", callback_data=f"topupcheck_{order_id}")]
+        ])
     for admin_id in config.ADMIN_IDS:
         try:
             await bot.send_message(
@@ -867,6 +952,7 @@ async def _credit_balance_topup(bot: Bot, order: dict):
                 f"👤 ID: <code>{user_id}</code>\n"
                 f"💰 {old_balance:.2f} сом буд → {new_balance:.2f} сом шуд (+{amount:.2f} сом)\n"
                 f"🆔 Фармоиш: #{order_id}",
+                reply_markup=admin_kb,
                 parse_mode="HTML"
             )
         except Exception as e:

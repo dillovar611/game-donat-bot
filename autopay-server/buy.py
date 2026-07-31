@@ -2414,47 +2414,63 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
     )
     await db.mark_order_paid_with_balance(order_id)
     combo_breakdown = await _combo_breakdown_text(data.get("combo_id"))
-
     new_balance = balance - price
+
+    if data.get("combo_id"):
+        # Комбо — донати худкор НЕСТ (метавонад ашёи дастӣ дошта бошад),
+        # пас тартиби дастии қаблӣ бетағйир мемонад
+        await _safe_edit(
+            call,
+            f"✅ <b>Пардохт аз баланс қабул шуд!</b>\n\n"
+            f"🆔 Фармоиш: #{order_id}\n"
+            f"💰 {balance:.2f} сом баланс буд → баъди фармоиш "
+            f"<b>{new_balance:.2f} сом</b> шуд (-{price:.2f} сом)\n\n"
+            f"🔄 Фармоиши шумо ба админ фиристода шуд, натиҷа ба зудӣ маълум мешавад.",
+            None
+        )
+
+        username_val = call.from_user.username
+        username = f"@{username_val}" if username_val else "—"
+        caption = (
+            f"💰 <b>Фармоиши нав — пардохт аз баланс!</b>\n\n"
+            f"🆔 Фармоиш: <b>#{order_id}</b>\n"
+            f"👤 Корбар: {esc(call.from_user.full_name)} (<code>{call.from_user.id}</code>)\n"
+            f"📱 Username: {username}\n"
+            f"🎮 {service_title}\n"
+            f"{extra_line}"
+            f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
+            f"💵 Маблағ: <b>{price:.2f} сомонӣ</b> (аз баланс)"
+            f"{combo_breakdown}"
+        )
+        admin_kb_rows = [
+            [InlineKeyboardButton(text="✅ Тасдиқ — дастӣ иҷро кунед", callback_data=f"{confirm_prefix}_{order_id}")],
+            [InlineKeyboardButton(text="❌ Рад кардан",          callback_data=f"no_{order_id}")],
+        ]
+        if username_val:
+            admin_kb_rows.append(
+                [InlineKeyboardButton(text="💬 ЛС ба клент", url=f"https://t.me/{username_val}")]
+            )
+        admin_kb = InlineKeyboardMarkup(inline_keyboard=admin_kb_rows)
+        for admin_id in config.ADMIN_IDS:
+            try:
+                await call.bot.send_message(admin_id, caption, reply_markup=admin_kb, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"Ба админ {admin_id} фиристода нашуд: {e}")
+        return
+
+    # Маҳсулоти оддӣ — донат ФАВРАН худкор, бе интизории тасдиқи админ
     await _safe_edit(
         call,
-        f"✅ <b>Пардохт аз баланси реферралӣ қабул шуд!</b>\n\n"
+        f"✅ <b>Пардохт аз баланс қабул шуд!</b>\n\n"
         f"🆔 Фармоиш: #{order_id}\n"
         f"💰 {balance:.2f} сом баланс буд → баъди фармоиш "
         f"<b>{new_balance:.2f} сом</b> шуд (-{price:.2f} сом)\n\n"
-        f"🔄 Фармоиши шумо ба админ фиристода шуд, натиҷа ба зудӣ маълум мешавад.",
+        f"🚀 Донат ҳозир иҷро мешавад...",
         None
     )
-
-    # Ба ҳамаи админҳо — БЕ расм (чун чек нест)
-    username_val = call.from_user.username
-    username = f"@{username_val}" if username_val else "—"
-    caption = (
-        f"💰 <b>Фармоиши нав — пардохт аз баланси реферралӣ!</b>\n\n"
-        f"🆔 Фармоиш: <b>#{order_id}</b>\n"
-        f"👤 Корбар: {esc(call.from_user.full_name)} (<code>{call.from_user.id}</code>)\n"
-        f"📱 Username: {username}\n"
-        f"🎮 {service_title}\n"
-        f"{extra_line}"
-        f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
-        f"💵 Маблағ: <b>{price:.2f} сомонӣ</b> (аз баланси реферралӣ)"
-        f"{combo_breakdown}"
-    )
-    confirm_text = "✅ Тасдиқ — дастӣ иҷро кунед" if data.get("combo_id") else "✅ Тасдиқ — донат кун"
-    admin_kb_rows = [
-        [InlineKeyboardButton(text=confirm_text, callback_data=f"{confirm_prefix}_{order_id}")],
-        [InlineKeyboardButton(text="❌ Рад кардан",          callback_data=f"no_{order_id}")],
-    ]
-    if username_val:
-        admin_kb_rows.append(
-            [InlineKeyboardButton(text="💬 ЛС ба клент", url=f"https://t.me/{username_val}")]
-        )
-    admin_kb = InlineKeyboardMarkup(inline_keyboard=admin_kb_rows)
-    for admin_id in config.ADMIN_IDS:
-        try:
-            await call.bot.send_message(admin_id, caption, reply_markup=admin_kb, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Ба админ {admin_id} фиристода нашуд: {e}")
+    import autopay
+    order = await db.get_order(order_id)
+    asyncio.create_task(autopay.run_donate_from_balance(call.bot, order))
 
 
 # ════════════════════════════════════════════════════════

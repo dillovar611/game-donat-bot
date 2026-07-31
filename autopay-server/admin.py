@@ -705,7 +705,7 @@ async def order_group_reject(call: CallbackQuery):
 
     try:
         refund_note = (
-            "\n💰 Маблаг ба балансаи реферралии шумо баргардонида шуд."
+            "\n💰 Маблаг ба балансатон баргардонида шуд."
             if pending[0].get("payment_method") == "referral_balance" else ""
         )
         await call.bot.send_message(
@@ -821,8 +821,34 @@ _PM_LABELS = {
     "dushanbe_city": "🏙 Душанбе Сити",
     "alif": "💳 Алиф",
     "eskhata": "🏦 Эсхата",
-    "referral_balance": "💰 Баланси рефералӣ",
+    "referral_balance": "💰 Аз баланс",
 }
+
+
+@router.callback_query(F.data.startswith("topupcheck_"))
+async def topup_view_check(call: CallbackQuery):
+    """Ба админ расми чеки пуркунии баланс (агар мизоҷ фиристода бошад)-ро нишон медиҳад."""
+    if not is_admin(call.from_user.id):
+        await call.answer("❌ Иҷозат нест!", show_alert=True)
+        return
+    try:
+        order_id = int(call.data.split("_", 1)[1])
+    except (IndexError, ValueError):
+        await call.answer("❌ Хатои ID фармоиш!", show_alert=True)
+        return
+    order = await db.get_order(order_id)
+    if not order or not order.get("check_file_id"):
+        await call.answer("⚠️ Чек ёфт нашуд.", show_alert=True)
+        return
+    try:
+        await call.bot.send_photo(
+            call.from_user.id, order["check_file_id"],
+            caption=f"🧾 Чеки пуркунии баланс — фармоиш #{order_id}"
+        )
+        await call.answer()
+    except Exception as e:
+        logger.error(f"Фиристодани чеки пуркунӣ #{order_id} нашуд: {e}")
+        await call.answer("❌ Хатогӣ дар фиристодани чек.", show_alert=True)
 
 
 @router.callback_query(F.data.startswith("receipt_"))
@@ -1024,7 +1050,7 @@ async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, 
 
     try:
         refund_note = (
-            "\n💰 Маблаг ба балансаи реферралии шумо баргардонида шуд."
+            "\n💰 Маблаг ба балансатон баргардонида шуд."
             if order.get("payment_method") == "referral_balance" else ""
         )
         reason_line = f"\n📝 Сабаб: {esc(reason_clean)}\n" if reason_clean else ""
@@ -1801,7 +1827,7 @@ async def a_user_info_show(message: Message, state: FSMContext):
         f"💰 Умумӣ: {stats['total_spent']:.2f} сом\n\n"
         f"🤝 <b>Реферал:</b>\n"
         f"👥 Зердастон: {ref_count} нафар\n"
-        f"💰 Баланси рефералӣ: {ref_balance:.2f} сомонӣ\n\n"
+        f"💰 Баланс: {ref_balance:.2f} сомонӣ\n\n"
     )
 
     if stats['orders']:
@@ -1909,7 +1935,7 @@ async def a_order_search_show(message: Message, state: FSMContext):
         "dushanbe_city": "🏙 Душанбе Сити",
         "alif": "💳 Алиф",
         "eskhata": "🏦 Эсхата",
-        "referral_balance": "💰 Баланси рефералӣ",
+        "referral_balance": "💰 Аз баланс",
     }
     pm_text = pm_labels.get(order.get("payment_method"), order.get("payment_method") or "—")
 
