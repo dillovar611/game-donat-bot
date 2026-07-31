@@ -896,7 +896,10 @@ async def receive_check(message: Message, state: FSMContext):
                 parse_mode="HTML"
             )
             return
-        if not await db.set_autopay_check(autopay_order_id, file_id):
+        # Изи ангушти чекро низ сабт мекунем — то абзори админии
+        # «Ҷустуҷӯи чек» ин фармоишро баъдан ёфта тавонад
+        autopay_hash = await _hash_photo(message)
+        if not await db.set_autopay_check(autopay_order_id, file_id, autopay_hash or None):
             await message.answer(
                 "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол аллакай коркард шудааст).\n"
                 f"Агар пардохт карда бошед: {config.SUPPORT_USERNAME}",
@@ -2872,7 +2875,9 @@ async def topup_receive_check(message: Message, state: FSMContext):
             parse_mode="HTML"
         )
         return
-    if not await db.set_autopay_check(autopay_order_id, file_id):
+    # Изи ангушти чек — то абзори админии «Ҷустуҷӯи чек» инро ёфта тавонад
+    topup_hash = await _hash_photo(message)
+    if not await db.set_autopay_check(autopay_order_id, file_id, topup_hash or None):
         await message.answer(
             "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол аллакай коркард шудааст).\n"
             f"Агар пардохт карда бошед: {config.SUPPORT_USERNAME}",
