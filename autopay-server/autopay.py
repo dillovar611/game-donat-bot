@@ -978,7 +978,41 @@ async def _credit_balance_topup(bot: Bot, order: dict):
         logger.warning(f"Balance topup: фармоиши #{order_id} аллакай коркард шудааст — такрор нашуд")
         return
 
-    new_balance = await db.get_referral_balance(user_id)
+    # ---- ОГОҲИИ АДМИН ФАВРАН (пеш аз ҳама) ----
+    # Ин бояд ҲАТМАН ба админ расад — то соҳиб бидонад КӢ чанд сум пур кард
+    # ва чеки ДС-ро бинад. Ҳамаи ҳисобкуниҳо мудофиавӣ (try/except) карда
+    # шуданд, то ягон хатои фаръӣ (масалан хондани ном аз база) ин огоҳиро
+    # НАБАНДАД (пештар агар байни кредит ва огоҳӣ хатое мешуд, огоҳӣ гум мешуд).
+    try:
+        new_balance = await db.get_referral_balance(user_id)
+    except Exception:
+        new_balance = old_balance + amount
+    try:
+        user = await db.get_user(user_id)
+    except Exception:
+        user = None
+    full_name = user.get("full_name") if user else "—"
+    username = f"@{user['username']}" if user and user.get("username") else "—"
+    admin_text = (
+        f"💰 <b>Баланси мизоҷ пур шуд</b>\n\n"
+        f"👤 Харидор: {esc(full_name)} ({esc(username)})\n"
+        f"🆔 ID: <code>{user_id}</code>\n"
+        f"💰 {old_balance:.2f} сом буд → {new_balance:.2f} сом шуд (+{amount:.2f} сом)\n"
+        f"🆔 Фармоиш: #{order_id}"
+    )
+    check_file_id = order.get("check_file_id")
+    for admin_id in config.ADMIN_IDS:
+        try:
+            # Агар чек бошад — расми чекро МУСТАҚИМ мефиристем (соҳиб фавран
+            # пардохти воқеии ДС-ро мебинад, на танҳо матн)
+            if check_file_id:
+                await bot.send_photo(admin_id, check_file_id, caption=admin_text, parse_mode="HTML")
+            else:
+                await bot.send_message(admin_id, admin_text, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Огоҳии пуркунии баланс ба админ {admin_id} нарасид: {e}")
+
+    # ---- Паём ба мизоҷ ----
     try:
         await bot.send_message(
             user_id,
@@ -990,29 +1024,6 @@ async def _credit_balance_topup(bot: Bot, order: dict):
         )
     except Exception as e:
         logger.error(f"Паёми пуркунии баланс ба {user_id} нарасид: {e}")
-
-    admin_kb = None
-    if order.get("check_file_id"):
-        admin_kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🧾 Дидани чек", callback_data=f"topupcheck_{order_id}")]
-        ])
-    user = await db.get_user(user_id)
-    full_name = user.get("full_name") if user else "—"
-    username = f"@{user['username']}" if user and user.get("username") else "—"
-    for admin_id in config.ADMIN_IDS:
-        try:
-            await bot.send_message(
-                admin_id,
-                f"💰 <b>Баланси мизоҷ пур шуд</b>\n\n"
-                f"👤 Харидор: {esc(full_name)} ({esc(username)})\n"
-                f"🆔 ID: <code>{user_id}</code>\n"
-                f"💰 {old_balance:.2f} сом буд → {new_balance:.2f} сом шуд (+{amount:.2f} сом)\n"
-                f"🆔 Фармоиш: #{order_id}",
-                reply_markup=admin_kb,
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.error(f"Огоҳии пуркунии баланс ба админ {admin_id} нарасид: {e}")
 
     # Агар ин пуркунӣ аз "норасогӣ"-и харид оғоз шуда буд — ҳамон харидро
     # ҲОЗИР худкор анҷом медиҳем (мизоҷ дигар ҳељ коре накунад)
