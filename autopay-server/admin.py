@@ -2134,11 +2134,11 @@ async def a_ref_subusers(call: CallbackQuery):
     if not subusers:
         await _safe_edit(
             call,
-            f"👥 <b>Рефералхои корбари</b> <code>{user_id}</code>\n\nҲеч реферал нест.",
+            f"👥 <b>Рефералҳои корбари</b> <code>{user_id}</code>\n\nҲеч реферал нест.",
             kb
         )
         return
-    lines = [f"👥 <b>Рефералхои корбари</b> <code>{user_id}</code>\n"]
+    lines = [f"👥 <b>Рефералҳои корбари</b> <code>{user_id}</code>\n"]
     total = 0.0
     for i, u in enumerate(subusers, 1):
         name = u.get("full_name") or "—"

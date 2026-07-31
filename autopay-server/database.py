@@ -499,12 +499,15 @@ async def get_referral_subusers(referrer_id: int):
                 return []
             percent = config.REFERRAL_PERCENT
             for u in subusers:
+                # DictCursor натиҷаро ҳамчун луғат бармегардонад — барои ҳамин
+                # алиас (AS s) лозим аст, вагарна [0] хатои KeyError медиҳад
                 await cur.execute(
-                    "SELECT COALESCE(SUM(price), 0) FROM orders "
+                    "SELECT COALESCE(SUM(price), 0) AS s FROM orders "
                     "WHERE user_id=%s AND referral_credited=1",
                     (u["id"],)
                 )
-                order_sum = (await cur.fetchone())[0]
+                row = await cur.fetchone()
+                order_sum = (row["s"] if row else 0) or 0
                 u["earned"] = round(float(order_sum) * percent / 100, 2)
             return subusers
 
