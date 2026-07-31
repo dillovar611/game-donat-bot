@@ -2415,11 +2415,13 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
     await db.mark_order_paid_with_balance(order_id)
     combo_breakdown = await _combo_breakdown_text(data.get("combo_id"))
 
+    new_balance = balance - price
     await _safe_edit(
         call,
         f"✅ <b>Пардохт аз баланси реферралӣ қабул шуд!</b>\n\n"
         f"🆔 Фармоиш: #{order_id}\n"
-        f"💰 {price:.2f} сом аз балансатон кам шуд.\n\n"
+        f"💰 {balance:.2f} сом баланс буд → баъди фармоиш "
+        f"<b>{new_balance:.2f} сом</b> шуд (-{price:.2f} сом)\n\n"
         f"🔄 Фармоиши шумо ба админ фиристода шуд, натиҷа ба зудӣ маълум мешавад.",
         None
     )

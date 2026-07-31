@@ -840,6 +840,7 @@ async def _credit_balance_topup(bot: Bot, order: dict):
     user_id = order["user_id"]
     amount = float(order["price"])
 
+    old_balance = await db.get_referral_balance(user_id)
     ok = await db.credit_balance_topup(order_id, user_id, amount)
     if not ok:
         logger.warning(f"Balance topup: фармоиши #{order_id} аллакай коркард шудааст — такрор нашуд")
@@ -850,8 +851,8 @@ async def _credit_balance_topup(bot: Bot, order: dict):
         await bot.send_message(
             user_id,
             f"✅ <b>Баланси шумо пур шуд!</b>\n\n"
-            f"💵 Илова шуд: <b>+{amount:.2f} сом</b>\n"
-            f"💰 Баланси ҳозира: <b>{new_balance:.2f} сом</b>\n\n"
+            f"💰 {old_balance:.2f} сом баланс дошт → баъди пуркунӣ "
+            f"<b>{new_balance:.2f} сом</b> шуд (+{amount:.2f} сом)\n\n"
             f"Акнун метавонед аз баланс харид кунед.",
             parse_mode="HTML"
         )
@@ -864,8 +865,7 @@ async def _credit_balance_topup(bot: Bot, order: dict):
                 admin_id,
                 f"💰 <b>Баланси мизоҷ пур шуд</b>\n\n"
                 f"👤 ID: <code>{user_id}</code>\n"
-                f"💵 Маблағ: {amount:.2f} сом\n"
-                f"💰 Баланси нав: {new_balance:.2f} сом\n"
+                f"💰 {old_balance:.2f} сом буд → {new_balance:.2f} сом шуд (+{amount:.2f} сом)\n"
                 f"🆔 Фармоиш: #{order_id}",
                 parse_mode="HTML"
             )
