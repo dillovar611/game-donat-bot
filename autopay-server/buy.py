@@ -11,6 +11,7 @@
 import logging
 import asyncio
 import hashlib
+import math
 import random
 import re
 import uuid
@@ -301,7 +302,7 @@ async def combo_pick(call: CallbackQuery, state: FSMContext):
     kb_rows = [
         [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="pay_dc")],
         [InlineKeyboardButton(text="💳 Алиф",          callback_data="pay_alif")],
-        [InlineKeyboardButton(text="🏦 Эсхата",        callback_data="pay_eskhata")],
+        # Эсхата барои комбо нест — комбо линки ягонаи пардохт надорад
     ]
     balance = await db.get_referral_balance(call.from_user.id)
     if balance >= data["price"]:
@@ -627,21 +628,22 @@ async def terms_reject(call: CallbackQuery, state: FSMContext):
     nick_line = f"👤 Ном: <b>{esc(nickname)}</b>\n" if nickname else ""
     vip_note = "\n💎 <b>Нархи шахсии шумо!</b>\n" if data.get("is_custom_price") else ""
     is_cart = bool(data.get("cart_items"))
+    is_combo = bool(data.get("combo_id"))
     product_word = "Маҳсулотҳо" if is_cart else "Маҳсулот"
     kb_rows = [
         [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="pay_dc")],
         [InlineKeyboardButton(text="💳 Алиф",          callback_data="pay_alif")],
-        [InlineKeyboardButton(text="🏦 Эсхата",        callback_data="pay_eskhata")],
     ]
+    if not is_combo:
+        kb_rows.append([InlineKeyboardButton(text="🏦 Эсхата", callback_data="pay_eskhata")])
     balance = await db.get_referral_balance(call.from_user.id)
     if balance >= data["price"]:
         kb_rows.append([InlineKeyboardButton(
             text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
             callback_data="pay_balance"
         )])
-    kb_rows.append([InlineKeyboardButton(
-        text="🔙 Бозгашт", callback_data="cart_start" if is_cart else "id_ok"
-    )])
+    back_cb = "combo_list" if is_combo else ("cart_start" if is_cart else "id_ok")
+    kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back_cb)])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await _safe_edit(
         call,
@@ -763,7 +765,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
         pay_url = data.get("eskhata_link") or ""
         eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
         if not pay_url:
-            await call.answer("⚠️ Барои ин маҷсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
+            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
             return
     else:
         method_name = "💳 Алиф"
@@ -1212,7 +1214,7 @@ async def ffid_enter_id(message: Message, state: FSMContext):
 async def ffid_show_products(call: CallbackQuery, state: FSMContext):
     products = await db.get_ffid_products()
     if not products:
-        await call.answer("❌ Ҳозир маҷсулот нест. Баъдтар кӯшиш кунед.", show_alert=True)
+        await call.answer("❌ Ҳозир маҳсулот нест. Баъдтар кӯшиш кунед.", show_alert=True)
         return
 
     buttons = []
@@ -1353,7 +1355,7 @@ async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
         pay_url = data.get("eskhata_link") or ""
         eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
         if not pay_url:
-            await call.answer("⚠️ Барои ин маҷсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
+            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
             return
     else:
         method_name = "💳 Алиф"
@@ -1528,7 +1530,7 @@ async def pubg_enter_id(message: Message, state: FSMContext):
 async def pubg_show_products(call: CallbackQuery, state: FSMContext):
     products = await db.get_pubg_products()
     if not products:
-        await call.answer("❌ Ҳозир маҷсулот нест. Баъдтар кӯшиш кунед.", show_alert=True)
+        await call.answer("❌ Ҳозир маҳсулот нест. Баъдтар кӯшиш кунед.", show_alert=True)
         return
 
     buttons = []
@@ -1663,7 +1665,7 @@ async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
         pay_url = data.get("eskhata_link") or ""
         eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
         if not pay_url:
-            await call.answer("⚠️ Барои ин маҷсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
+            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
             return
     else:
         method_name = "💳 Алиф"
@@ -1839,7 +1841,7 @@ async def stars_enter_username(message: Message, state: FSMContext):
 async def stars_show_products(call: CallbackQuery, state: FSMContext):
     products = await db.get_stars_products()
     if not products:
-        await call.answer("❌ Ҳозир маҷсулот нест.", show_alert=True)
+        await call.answer("❌ Ҳозир маҳсулот нест.", show_alert=True)
         return
     buttons = []
     for p in products:
@@ -1965,7 +1967,7 @@ async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
         pay_url = data.get("eskhata_link") or ""
         eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
         if not pay_url:
-            await call.answer("⚠️ Барои ин маҷсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
+            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
             return
     else:
         method_name = "💳 Алиф"
@@ -2118,7 +2120,7 @@ async def premium_enter_username(message: Message, state: FSMContext):
 async def premium_show_products(call: CallbackQuery, state: FSMContext):
     products = await db.get_premium_products()
     if not products:
-        await call.answer("❌ Ҳозир маҷсулот нест.", show_alert=True)
+        await call.answer("❌ Ҳозир маҳсулот нест.", show_alert=True)
         return
     buttons = []
     for p in products:
@@ -2245,7 +2247,7 @@ async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
         pay_url = data.get("eskhata_link") or ""
         eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
         if not pay_url:
-            await call.answer("⚠️ Барои ин маҷсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
+            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
             return
     else:
         method_name = "💳 Алиф"
@@ -2523,7 +2525,7 @@ async def topup_enter_amount(message: Message, state: FSMContext):
     except ValueError:
         await message.answer("⚠️ Лутфан рақами дуруст нависед (масалан: 50).")
         return
-    if amount <= 0:
+    if not math.isfinite(amount) or amount <= 0:
         await message.answer("⚠️ Маблағ бояд аз сифр зиёд бошад.")
         return
     max_amount = await db.get_max_balance_topup()

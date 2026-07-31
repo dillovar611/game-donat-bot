@@ -1,6 +1,6 @@
 """
 API-и Free Fire:
-  1. get_nickname()  — номи аккаунтро аз ID мегирад (RapidAPI + FazerCards)
+  1. get_nickname()  — номи аккаунтро аз ID мегирад (FazerCards)
   2. auto_donate()   — донати худкор тавассути FazerCards, бо fallback ба
                         MooGold агар FazerCards ноком шавад
 """
@@ -44,40 +44,6 @@ async def get_nickname(player_id: str) -> str:
     ки метавонад бо сервери СНГ фарқ кунад.
     """
     return await _nickname_fazer(player_id)
-
-
-async def _nickname_rapidapi(player_id: str) -> str:
-    """Аз RapidAPI id-game-checker номро мегирад."""
-    if not config.RAPIDAPI_KEYS:
-        return ""
-    url = f"https://id-game-checker.p.rapidapi.com/ff-global/{player_id}"
-    for key in config.RAPIDAPI_KEYS:
-        try:
-            headers = {
-                "x-rapidapi-key": key,
-                "x-rapidapi-host": "id-game-checker.p.rapidapi.com",
-            }
-            async with aiohttp.ClientSession() as s:
-                async with s.get(
-                    url, headers=headers,
-                    timeout=aiohttp.ClientTimeout(total=12)
-                ) as r:
-                    data = await r.json(content_type=None)
-            if data.get("error"):
-                continue
-            block = data.get("data") or {}
-            nick = (
-                block.get("username")
-                or block.get("nickname")
-                or block.get("name")
-                or ""
-            )
-            if nick:
-                return str(nick).strip()
-        except Exception as e:
-            logger.warning(f"RapidAPI хато ({key[:6]}…): {e}")
-            continue
-    return ""
 
 
 async def _nickname_fazer(player_id: str) -> str:

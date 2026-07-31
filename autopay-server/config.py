@@ -3,6 +3,7 @@
 """
 import env  # noqa: F401
 import json
+import logging
 import os
 
 # ==================== TELEGRAM ====================
@@ -77,21 +78,13 @@ MOOGOLD_PARTNER_ID = os.getenv("MOOGOLD_PARTNER_ID", "")
 MOOGOLD_SECRET = os.getenv("MOOGOLD_SECRET", "")
 try:
     MOOGOLD_PRODUCT_MAP = json.loads(os.getenv("MOOGOLD_PRODUCT_MAP", "{}") or "{}")
-except Exception:
+except Exception as e:
+    logging.getLogger(__name__).error(f"MOOGOLD_PRODUCT_MAP JSON нодуруст аст — фаллбэк холӣ истифода мешавад: {e}")
     MOOGOLD_PRODUCT_MAP = {}
 
 # ==================== RapidAPI (номи аккаунти FF) ====================
 # Калидҳо бо вергул ҷудо мешаванд
 RAPIDAPI_KEYS = [k.strip() for k in os.getenv("RAPIDAPI_KEYS", "").split(",") if k.strip()]
-
-# ==================== РЕКВИЗИТҲОИ ПАРДОХТ ====================
-# Душанбе Сити
-DC_NUMBER = os.getenv("DC_NUMBER", "")   # рақами корт ё ҳамён
-DC_NAME = os.getenv("DC_NAME", "")       # номи соҳиб
-
-# Алиф
-ALIF_NUMBER = os.getenv("ALIF_NUMBER", "")
-ALIF_NAME = os.getenv("ALIF_NAME", "")
 
 # ==================== РЕФЕРРАЛ ====================
 REFERRAL_PERCENT = float(os.getenv("REFERRAL_PERCENT", "5.0"))

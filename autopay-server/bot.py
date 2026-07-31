@@ -60,8 +60,8 @@ class SubscriptionMiddleware(BaseMiddleware):
         if user_id:
             try:
                 await db.add_user(user_id, event.from_user.username or "", event.from_user.full_name or "")
-            except Exception:
-                pass
+            except Exception as e:
+                logger.error(f"add_user хато барои {user_id}: {e}")
 
         # Админҳо озод аз ҳама маҳдудиятҳо
         if user_id and user_id not in config.ADMIN_IDS:
@@ -79,7 +79,8 @@ class SubscriptionMiddleware(BaseMiddleware):
             # 2. Тафтиши бан
             try:
                 banned, reason = await db.is_banned(user_id)
-            except Exception:
+            except Exception as e:
+                logger.error(f"is_banned хато барои {user_id} (fail-open, банд ҳисоб нашуд): {e}")
                 banned, reason = False, ""
             if banned:
                 text = f"🚫 <b>Шумо банӣ шудаед!</b>\n\n📝 Сабаб: {reason or 'Сабаб нишон дода нашуд'}"
@@ -95,7 +96,8 @@ class SubscriptionMiddleware(BaseMiddleware):
                 try:
                     member = await bot.get_chat_member(config.CHANNEL_ID, user_id)
                     is_sub = member.status not in ("left", "kicked")
-                except Exception:
+                except Exception as e:
+                    logger.error(f"Санҷиши обуна барои {user_id} хато дод (fail-open): {e}")
                     is_sub = True
 
                 if not is_sub:
@@ -294,16 +296,6 @@ async def show_games_menu(call: CallbackQuery):
     )
 
 
-def _progress_bar(current: float, threshold: float, length: int = 10) -> str:
-    """Прогресс-бар мисли ███████░░░ 72%"""
-    if threshold <= 0:
-        pct = 100
-    else:
-        pct = min(100, int(current / threshold * 100))
-    filled = round(length * pct / 100)
-    return f"{'█' * filled}{'░' * (length - filled)} {pct}%"
-
-
 # ==================== ПРОФИЛ ====================
 @dp.callback_query(F.data == "profile_menu")
 async def show_profile_menu(call: CallbackQuery):
@@ -331,7 +323,7 @@ def referral_menu(user_id: int) -> InlineKeyboardMarkup:
     share_url = f"https://t.me/share/url?url={quote(link)}&text={quote(share_text)}"
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📤 Ба дӯстон фиристодан", url=share_url)],
-        [InlineKeyboardButton(text="👥 Рефералхои ман", callback_data="referral_subusers")],
+        [InlineKeyboardButton(text="👥 Рефералҳои ман", callback_data="referral_subusers")],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="back_main")],
     ])
 
@@ -365,14 +357,14 @@ async def show_referral_subusers(call: CallbackQuery):
     if not subusers:
         await _safe_edit(
             call,
-            "👥 <b>Рефералхои шумо</b>\n\n"
+            "👥 <b>Рефералҳои шумо</b>\n\n"
             "Шумо ҳанӯз ягон дустро даъват накардаед.\n\n"
             "🔗 Линки даъватро аз саҳифаи «Реферал» нусхабардорӣ карда ба "
             "дустони худ фиристед!",
             kb
         )
         return
-    lines = ["👥 <b>Рефералхои шумо</b>\n"]
+    lines = ["👥 <b>Рефералҳои шумо</b>\n"]
     total = 0.0
     for i, u in enumerate(subusers, 1):
         name = esc(u.get("full_name") or "—")
@@ -782,7 +774,7 @@ def _format_daily_report(stats: dict) -> str:
         f"🔁 <b>Харидорон имрӯз:</b>\n"
         f"   Такрорӣ: <b>{stats['repeat_customers_today']}</b>\n"
         f"   Нав: <b>{stats['new_customers_today']}</b>\n\n"
-        f"👤 <b>ГурӴҳбандии харидорон (ҳама вақт):</b>\n"
+        f"👤 <b>Гурӯҳбандии харидорон (ҳама вақт):</b>\n"
         f"   1 харид: <b>{stats['buyers_1']}</b> нафар\n"
         f"   2–5 харид: <b>{stats['buyers_2_5']}</b> нафар\n"
         f"   5+ харид (VIP): <b>{stats['buyers_5plus']}</b> нафар\n"

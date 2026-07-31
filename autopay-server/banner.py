@@ -10,11 +10,8 @@ banner.py — Банери хушомадгӯии бот (барои /start).
 вектор (полигон/хат) дастӣ кашида мешаванд — дар ҳар сервере кор мекунад.
 """
 import os
-import logging
 from io import BytesIO
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
-
-logger = logging.getLogger(__name__)
 
 _FONT_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 _FALLBACK_DIRS = [

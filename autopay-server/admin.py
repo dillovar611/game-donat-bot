@@ -8,6 +8,7 @@
 import asyncio
 import hashlib
 import logging
+import math
 import html
 import unicodedata
 from datetime import datetime
@@ -171,7 +172,7 @@ async def a_products_menu(call: CallbackQuery):
         [InlineKeyboardButton(text="🎁 Комбоҳо",       callback_data="a_combos")],
         [InlineKeyboardButton(text="🔙 Бозгашт",      callback_data="a_back")],
     ])
-    await _safe_edit(call, "💎 <b>Идоракунии маҷсулотҳо</b>\n\nХизматро интихоб кунед:", kb)
+    await _safe_edit(call, "💎 <b>Идоракунии маҳсулотҳо</b>\n\nХизматро интихоб кунед:", kb)
 
 
 # ==================== РАҚАМИ КОРТИ ДУШАНБЕ СИТИ ====================
@@ -242,7 +243,7 @@ async def a_max_topup_save(message: Message, state: FSMContext):
         return
     try:
         amount = round(float(message.text.strip().replace(",", ".")), 2)
-        if amount <= 0:
+        if not math.isfinite(amount) or amount <= 0:
             raise ValueError
     except ValueError:
         await message.answer("⚠️ Хато! Лутфан рақами дуруст нависед (масалан: 300).")
@@ -1210,7 +1211,7 @@ async def a_leaderboard_menu(call: CallbackQuery):
     info_line = (
         f"🕐 Охирин тоза кардан: <b>{reset_at}</b>\n\n"
         if reset_at else
-        "🕐 То ҳол ҲЕЧ гоҷ тоза карда нашудааст.\n\n"
+        "🕐 То ҳол ҲЕЧ гоҳ тоза карда нашудааст.\n\n"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Тоза кардани рейтинг", callback_data="a_leaderboard_reset_confirm")],
@@ -1220,7 +1221,7 @@ async def a_leaderboard_menu(call: CallbackQuery):
         call,
         "🏆 <b>Идоракунии 'Топ харидорон'</b>\n\n"
         f"{info_line}"
-        "ℹ️ Тоза кардан танҷо рейтингро аз нав мешуморад — "
+        "ℹ️ Тоза кардан танҳо рейтингро аз нав мешуморад — "
         "ягон фармоиш аз база нест карда намешавад.",
         kb
     )
@@ -1239,8 +1240,8 @@ async def a_leaderboard_reset_confirm(call: CallbackQuery):
     await _safe_edit(
         call,
         "⚠️ <b>Диққат!</b>\n\n"
-        "Шумо мехоҷед рейтинги 'Топ харидорон'-ро тоза кунед?\n"
-        "Баъд аз ин, фармоишҷои ПЕШИН дигар дар рейтинг ҷИсоб намешаванд "
+        "Шумо мехоҳед рейтинги 'Топ харидорон'-ро тоза кунед?\n"
+        "Баъд аз ин, фармоишҳои ПЕШИН дигар дар рейтинг ҳисоб намешаванд "
         "(ягон чиз аз база нест карда намешавад, фақат рейтинг аз нав сар мешавад).\n\n"
         "Ин амалро бекор кардан мумкин НЕСТ.",
         kb
@@ -1660,16 +1661,6 @@ async def _safe_edit(call: CallbackQuery, text: str, kb):
             )
         except Exception as e:
             logger.error(f"_safe_edit хато: {e}")
-
-
-async def _safe_edit_msg(msg: Message, text: str, kb):
-    try:
-        await msg.edit_text(text, reply_markup=kb, parse_mode="HTML")
-    except Exception:
-        try:
-            await msg.answer(text, reply_markup=kb, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"_safe_edit_msg хато: {e}")
 
 
 async def _safe_edit_caption(msg: Message, caption: str, kb):

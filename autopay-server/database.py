@@ -160,6 +160,7 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN late_recovered TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN combo_id INT DEFAULT NULL",
                 "ALTER TABLE orders ADD COLUMN is_balance_topup TINYINT DEFAULT 0",
+                "ALTER TABLE orders ADD COLUMN confirmed_at DATETIME DEFAULT NULL",
             ):
                 try:
                     await cur.execute(ddl)
@@ -479,14 +480,6 @@ async def delete_custom_price(user_id: int, product_id: int):
             )
 
 
-async def delete_all_custom_prices(user_id: int):
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "DELETE FROM custom_prices WHERE user_id=%s", (user_id,)
-            )
-
-
 async def get_all_products():
     """Ҳамаи маҳсулотҳо (барои админ)."""
     async with pool.acquire() as conn:
@@ -692,12 +685,6 @@ async def get_combo_items(combo_id: int) -> list:
                 (combo_id,)
             )
             return await cur.fetchall()
-
-
-async def delete_combo_item(item_id: int):
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute("DELETE FROM combo_items WHERE id=%s", (item_id,))
 
 
 # ==================== ФАРМОИШҲО ====================
@@ -928,102 +915,6 @@ async def mark_reminder_noorder_sent(user_id: int):
             await cur.execute(
                 "UPDATE users SET reminder_noorder_sent=1 WHERE id=%s", (user_id,)
             )
-
-
-async def get_users_for_discount3() -> list:
-    """
-    Корбароне, ки ҲАДДИ АҦАЛ як хариди тасдиқшуда доранд (новобаста аз
-    шумораашон), аммо аз хариди ОХИРИНИ онҳо 24 соат гузаштааст ва баъд
-    аз он ҲЕЧ хариди дигар накардаанд, ва ёдоварии тахфифи 3% ҲАНУЗ
-    фиристода нашудааст.
-    """
-    async with pool.acquire() as conn:
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute(
-                "SELECT u.id, u.username, u.full_name FROM users u "
-                "WHERE u.reminder_discount3_sent=0 "
-                "AND (SELECT COUNT(*) FROM orders WHERE orders.user_id=u.id AND status='confirmed' AND is_balance_topup=0) >= 1 "
-                "AND (SELECT MAX(created_at) FROM orders WHERE orders.user_id=u.id AND status='confirmed' AND is_balance_topup=0) "
-                "    <= NOW() - INTERVAL 24 HOUR"
-            )
-            return await cur.fetchall()
-
-
-async def get_users_for_discount5() -> list:
-    """
-    Корбароне, ки ҦАБЛАН ҲАМ ҲАРИД кардаанд (1 ё бештар), аммо 3 рӯз аст
-    ки ҲЕЧ хариди нав надоранд, ва ёдоварии тахфифи 5% ҲАНУЗ фиристода
-    нашудааст.
-    """
-    async with pool.acquire() as conn:
-        async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute(
-                "SELECT u.id, u.username, u.full_name FROM users u "
-                "WHERE u.reminder_discount5_sent=0 "
-                "AND (SELECT COUNT(*) FROM orders WHERE orders.user_id=u.id AND status='confirmed' AND is_balance_topup=0) >= 1 "
-                "AND (SELECT MAX(created_at) FROM orders WHERE orders.user_id=u.id AND status='confirmed' AND is_balance_topup=0) "
-                "    <= NOW() - INTERVAL 3 DAY"
-            )
-            return await cur.fetchall()
-
-
-async def set_discount(user_id: int, percent: float, mark_flag: str):
-    """
-    Тахфифи фаъолро ба корбар мегузорад ва нишонаи фиристодани
-    ёдовариро мегузорад (то такрор нашавад). mark_flag: 'discount3'
-    ё 'discount5'.
-    """
-    flag_col = (
-        "reminder_discount3_sent" if mark_flag == "discount3"
-        else "reminder_discount5_sent"
-    )
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                f"UPDATE users SET discount_percent=%s, {flag_col}=1 WHERE id=%s",
-                (percent, user_id)
-            )
-
-
-async def get_active_discount(user_id: int) -> float:
-    """Тахфифи фаъоли корбар (фоиз), 0 агар тахфиф набошад."""
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "SELECT discount_percent FROM users WHERE id=%s", (user_id,)
-            )
-            row = await cur.fetchone()
-            return float(row[0]) if row and row[0] else 0.0
-
-
-async def clear_discount(user_id: int):
-    """
-    Тахфифро бекор мекунад — баъд аз он ки корбар як бор истифода кард.
-    Низ сабт мекунад кадом тахфиф (3% ё 5%) истифода шуд, барои оморӣ дуруст.
-    """
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                "SELECT discount_percent FROM users WHERE id=%s", (user_id,)
-            )
-            row = await cur.fetchone()
-            current = float(row[0]) if row and row[0] else 0.0
-
-            used_col = None
-            if current == 3.0:
-                used_col = "discount3_used"
-            elif current == 5.0:
-                used_col = "discount5_used"
-
-            if used_col:
-                await cur.execute(
-                    f"UPDATE users SET discount_percent=0, {used_col}=1 WHERE id=%s",
-                    (user_id,)
-                )
-            else:
-                await cur.execute(
-                    "UPDATE users SET discount_percent=0 WHERE id=%s", (user_id,)
-                )
 
 
 # ==================== ТАХФИФИ БАРГАРДОНИИ МИЗОҶОНИ ХОМӮШШУДА ====================
