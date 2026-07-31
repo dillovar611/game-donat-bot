@@ -155,6 +155,7 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="💎 Нархи шахсии мизоҷ", callback_data="a_custom_price")],
         [InlineKeyboardButton(text="💳 Рақами корти ДС",     callback_data="a_dc_card")],
         [InlineKeyboardButton(text="🎁 Тӯҳфаи тасодуфӣ",      callback_data="a_giveaway")],
+        [InlineKeyboardButton(text="💰 Ҳадди пуркунии баланс", callback_data="a_max_topup")],
     ])
 
 
@@ -209,6 +210,47 @@ async def a_dc_card_save(message: Message, state: FSMContext):
     await message.answer(
         f"✅ Рақами корти ДС иваз шуд ба: <code>{card_number}</code>\n\n"
         f"Аз ҳозир ҳамаи линкҳои пардохти нав ҳамин рақамро истифода мебаранд.",
+        parse_mode="HTML"
+    )
+
+
+# ==================== ҲАДДИ ПУРКУНИИ БАЛАНС ====================
+class MaxTopupState(StatesGroup):
+    change = State()
+
+
+@router.callback_query(F.data == "a_max_topup")
+async def a_max_topup(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    current = await db.get_max_balance_topup()
+    await _safe_edit(
+        call,
+        f"💰 <b>Ҳадди максималии пуркунии баланс</b>\n\n"
+        f"Ҳозира: <b>{current:.2f} сомонӣ</b>\n\n"
+        f"Маблағи нави ҳаддро нависед (сомонӣ):",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_back")]
+        ])
+    )
+    await state.set_state(MaxTopupState.change)
+
+
+@router.message(MaxTopupState.change)
+async def a_max_topup_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        amount = round(float(message.text.strip().replace(",", ".")), 2)
+        if amount <= 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("⚠️ Хато! Лутфан рақами дуруст нависед (масалан: 300).")
+        return
+    await db.set_max_balance_topup(amount)
+    await state.clear()
+    await message.answer(
+        f"✅ Ҳадди пуркунии баланс иваз шуд ба: <b>{amount:.2f} сомонӣ</b>",
         parse_mode="HTML"
     )
 

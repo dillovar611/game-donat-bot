@@ -453,6 +453,10 @@ async def run_donate(bot: Bot, order: dict, kod: str):
         if not await db.claim_order_for_donate(order_id):
             logger.info(f"Autopay: фармоиши #{order_id} аллакай дар кор аст — такрор нашуд")
             return
+        if order.get("is_balance_topup"):
+            # Пуркунии баланс — ДОНАТ НЕСТ, танҳо ба баланси мизоҷ илова мешавад
+            await _credit_balance_topup(bot, order)
+            return
         await run_donate_inner(bot, order, kod)
     finally:
         _in_flight_orders.discard(order_id)
@@ -625,6 +629,11 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
             return
 
         await db.mark_kod_matched(kod, order_id)
+
+        if order.get("is_balance_topup"):
+            # Пуркунии баланс — ДОНАТ НЕСТ, танҳо ба баланси мизоҷ илова мешавад
+            await _credit_balance_topup(bot, order)
+            return
 
         try:
             await bot.send_message(
@@ -819,6 +828,49 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
 
 GIVEAWAY_DEFAULT_EVERY_N = 25
 GIVEAWAY_NEAR_MISS_THRESHOLD = 3  # чанд фармоиш монда огоҳии "наздикӣ" фиристода шавад
+
+
+async def _credit_balance_topup(bot: Bot, order: dict):
+    """
+    Пардохти пуркунии баланс ёфта шуд — БЕ донат, БЕ мукофоти реферралӣ
+    (топуп худаш харид нест; мукофот вақти харид АЗ баланс дода мешавад).
+    Танҳо фармоишро 'confirmed' карда, маблағро ба балансаи мизоҷ илова мекунад.
+    """
+    order_id = order["id"]
+    user_id = order["user_id"]
+    amount = float(order["price"])
+
+    ok = await db.credit_balance_topup(order_id, user_id, amount)
+    if not ok:
+        logger.warning(f"Balance topup: фармоиши #{order_id} аллакай коркард шудааст — такрор нашуд")
+        return
+
+    new_balance = await db.get_referral_balance(user_id)
+    try:
+        await bot.send_message(
+            user_id,
+            f"✅ <b>Баланси шумо пур шуд!</b>\n\n"
+            f"💵 Илова шуд: <b>+{amount:.2f} сом</b>\n"
+            f"💰 Баланси ҳозира: <b>{new_balance:.2f} сом</b>\n\n"
+            f"Акнун метавонед аз баланс харид кунед.",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Паёми пуркунии баланс ба {user_id} нарасид: {e}")
+
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(
+                admin_id,
+                f"💰 <b>Баланси мизоҷ пур шуд</b>\n\n"
+                f"👤 ID: <code>{user_id}</code>\n"
+                f"💵 Маблағ: {amount:.2f} сом\n"
+                f"💰 Баланси нав: {new_balance:.2f} сом\n"
+                f"🆔 Фармоиш: #{order_id}",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Огоҳии пуркунии баланс ба админ {admin_id} нарасид: {e}")
 
 
 async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):

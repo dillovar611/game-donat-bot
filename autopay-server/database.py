@@ -159,6 +159,7 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN expiry_warned TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN late_recovered TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN combo_id INT DEFAULT NULL",
+                "ALTER TABLE orders ADD COLUMN is_balance_topup TINYINT DEFAULT 0",
             ):
                 try:
                     await cur.execute(ddl)
@@ -344,6 +345,28 @@ async def add_referral_earning(referrer_id: int, amount: float):
             )
 
 
+async def credit_balance_topup(order_id: int, user_id: int, amount: float) -> bool:
+    """
+    Атомикӣ: фармоиши пуркунии баланс (is_balance_topup=1)-ро ба 'confirmed'
+    мегузаронад ва маблағро ба баланси корбар илова мекунад — ФАҚАТ агар
+    ҳанӯз коркард нашуда бошад (зидди дукаратшавӣ, мисли claim_order_for_donate).
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET status='confirmed', confirmed_at=NOW() "
+                "WHERE id=%s AND status != 'confirmed'",
+                (order_id,)
+            )
+            if cur.rowcount == 0:
+                return False
+            await cur.execute(
+                "UPDATE users SET referral_balance = referral_balance + %s WHERE id=%s",
+                (amount, user_id)
+            )
+            return True
+
+
 async def deduct_referral_balance(user_id: int, amount: float) -> bool:
     """
     Аз баланси корбар маблаг кам мекунад, ФАҦАТ агар баланс кофӣ бошад.
@@ -492,7 +515,7 @@ async def add_product(amount: int, price: float, label: str, offer_id: str):
 async def count_confirmed_orders() -> int:
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
-            await cur.execute("SELECT COUNT(*) FROM orders WHERE status='confirmed'")
+            await cur.execute("SELECT COUNT(*) FROM orders WHERE status='confirmed' AND is_balance_topup=0")
             row = await cur.fetchone()
             return row[0] if row else 0
 
@@ -502,7 +525,8 @@ async def get_confirmed_batch_user_ids(offset: int, limit: int) -> list:
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT user_id FROM orders WHERE status='confirmed' ORDER BY id ASC LIMIT %s OFFSET %s",
+                "SELECT user_id FROM orders WHERE status='confirmed' AND is_balance_topup=0 "
+                "ORDER BY id ASC LIMIT %s OFFSET %s",
                 (limit, offset)
             )
             return [r[0] for r in await cur.fetchall()]
@@ -519,7 +543,7 @@ async def get_confirmed_batch_user_ids_recent(offset: int, limit: int, hours: in
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT user_id FROM ("
-                "    SELECT user_id, created_at FROM orders WHERE status='confirmed' "
+                "    SELECT user_id, created_at FROM orders WHERE status='confirmed' AND is_balance_topup=0 "
                 "    ORDER BY id ASC LIMIT %s OFFSET %s"
                 ") t WHERE created_at >= NOW() - INTERVAL %s HOUR",
                 (limit, offset, hours)
@@ -918,8 +942,8 @@ async def get_users_for_discount3() -> list:
             await cur.execute(
                 "SELECT u.id, u.username, u.full_name FROM users u "
                 "WHERE u.reminder_discount3_sent=0 "
-                "AND (SELECT COUNT(*) FROM orders WHERE orders.user_id=u.id AND status='confirmed') >= 1 "
-                "AND (SELECT MAX(created_at) FROM orders WHERE orders.user_id=u.id AND status='confirmed') "
+                "AND (SELECT COUNT(*) FROM orders WHERE orders.user_id=u.id AND status='confirmed' AND is_balance_topup=0) >= 1 "
+                "AND (SELECT MAX(created_at) FROM orders WHERE orders.user_id=u.id AND status='confirmed' AND is_balance_topup=0) "
                 "    <= NOW() - INTERVAL 24 HOUR"
             )
             return await cur.fetchall()
@@ -936,8 +960,8 @@ async def get_users_for_discount5() -> list:
             await cur.execute(
                 "SELECT u.id, u.username, u.full_name FROM users u "
                 "WHERE u.reminder_discount5_sent=0 "
-                "AND (SELECT COUNT(*) FROM orders WHERE orders.user_id=u.id AND status='confirmed') >= 1 "
-                "AND (SELECT MAX(created_at) FROM orders WHERE orders.user_id=u.id AND status='confirmed') "
+                "AND (SELECT COUNT(*) FROM orders WHERE orders.user_id=u.id AND status='confirmed' AND is_balance_topup=0) >= 1 "
+                "AND (SELECT MAX(created_at) FROM orders WHERE orders.user_id=u.id AND status='confirmed' AND is_balance_topup=0) "
                 "    <= NOW() - INTERVAL 3 DAY"
             )
             return await cur.fetchall()
@@ -1019,8 +1043,8 @@ async def get_dormant_customers_for_winback() -> list:
             await cur.execute(
                 "SELECT u.id, u.username, u.full_name FROM users u "
                 "WHERE u.winback_sent=0 "
-                "AND (SELECT COUNT(*) FROM orders WHERE orders.user_id=u.id AND status='confirmed') >= 1 "
-                "AND (SELECT MAX(created_at) FROM orders WHERE orders.user_id=u.id AND status='confirmed') "
+                "AND (SELECT COUNT(*) FROM orders WHERE orders.user_id=u.id AND status='confirmed' AND is_balance_topup=0) >= 1 "
+                "AND (SELECT MAX(created_at) FROM orders WHERE orders.user_id=u.id AND status='confirmed' AND is_balance_topup=0) "
                 "    <= NOW() - INTERVAL %s DAY",
                 (WINBACK_DORMANT_DAYS,)
             )
@@ -1087,9 +1111,9 @@ async def get_stats():
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute("SELECT COUNT(*) AS c FROM users")
             users = (await cur.fetchone())["c"]
-            await cur.execute("SELECT COUNT(*) AS c FROM orders WHERE status='confirmed'")
+            await cur.execute("SELECT COUNT(*) AS c FROM orders WHERE status='confirmed' AND is_balance_topup=0")
             orders = (await cur.fetchone())["c"]
-            await cur.execute("SELECT COALESCE(SUM(price),0) AS s FROM orders WHERE status='confirmed'")
+            await cur.execute("SELECT COALESCE(SUM(price),0) AS s FROM orders WHERE status='confirmed' AND is_balance_topup=0")
             total = (await cur.fetchone())["s"]
             return {"users": users, "orders": orders, "total": float(total)}
 
@@ -1134,17 +1158,17 @@ async def get_daily_report() -> dict:
             )
             new_30d = (await cur.fetchone())["c"]
 
-            # ---- Савдо (фармоишҳои тасдиқшуда) ----
+            # ---- Савдо (фармоишҳои тасдиқшуда, ба ғайр аз пуркунии баланс) ----
             await cur.execute(
                 "SELECT COALESCE(SUM(price),0) AS s FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s",
                 (today_tj,)
             )
             sales_today = float((await cur.fetchone())["s"])
 
             await cur.execute(
                 "SELECT COALESCE(SUM(price),0) AS s FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s AND created_at < %s",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s AND created_at < %s",
                 (today_tj - timedelta(days=1), today_tj)
             )
             sales_yesterday = float((await cur.fetchone())["s"])
@@ -1152,28 +1176,28 @@ async def get_daily_report() -> dict:
             # ---- Даромади 7 рӯз ва 30 рӯз (бо муқоиса ба давраи пешина) ----
             await cur.execute(
                 "SELECT COALESCE(SUM(price),0) AS s FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s",
                 (today_tj - timedelta(days=7),)
             )
             sales_7d = float((await cur.fetchone())["s"])
 
             await cur.execute(
                 "SELECT COALESCE(SUM(price),0) AS s FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s AND created_at < %s",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s AND created_at < %s",
                 (today_tj - timedelta(days=14), today_tj - timedelta(days=7))
             )
             sales_prev_7d = float((await cur.fetchone())["s"])
 
             await cur.execute(
                 "SELECT COALESCE(SUM(price),0) AS s FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s",
                 (today_tj - timedelta(days=30),)
             )
             sales_30d = float((await cur.fetchone())["s"])
 
             await cur.execute(
                 "SELECT COALESCE(SUM(price),0) AS s FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s AND created_at < %s",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s AND created_at < %s",
                 (today_tj - timedelta(days=60), today_tj - timedelta(days=30))
             )
             sales_prev_30d = float((await cur.fetchone())["s"])
@@ -1189,14 +1213,14 @@ async def get_daily_report() -> dict:
             # ---- Шумори фармоишҳо имрӯз: тасдиқшуда / радшуда ----
             await cur.execute(
                 "SELECT COUNT(*) AS c FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s",
                 (today_tj,)
             )
             confirmed_today = (await cur.fetchone())["c"]
 
             await cur.execute(
                 "SELECT COUNT(*) AS c FROM orders "
-                "WHERE status IN ('rejected','failed') AND created_at >= %s",
+                "WHERE status IN ('rejected','failed') AND is_balance_topup=0 AND created_at >= %s",
                 (today_tj,)
             )
             rejected_today = (await cur.fetchone())["c"]
@@ -1218,10 +1242,10 @@ async def get_daily_report() -> dict:
             # "Такрорӣ" = корбаре, ки фармоиши тасдиқшуда дошт ПЕШ аз имрӯз
             await cur.execute(
                 "SELECT COUNT(DISTINCT o1.user_id) AS c FROM orders o1 "
-                "WHERE o1.status='confirmed' AND o1.created_at >= %s "
+                "WHERE o1.status='confirmed' AND o1.is_balance_topup=0 AND o1.created_at >= %s "
                 "AND EXISTS ("
                 "    SELECT 1 FROM orders o2 "
-                "    WHERE o2.user_id = o1.user_id AND o2.status='confirmed' "
+                "    WHERE o2.user_id = o1.user_id AND o2.status='confirmed' AND o2.is_balance_topup=0 "
                 "    AND o2.created_at < %s"
                 ")",
                 (today_tj, today_tj)
@@ -1230,10 +1254,10 @@ async def get_daily_report() -> dict:
 
             await cur.execute(
                 "SELECT COUNT(DISTINCT o1.user_id) AS c FROM orders o1 "
-                "WHERE o1.status='confirmed' AND o1.created_at >= %s "
+                "WHERE o1.status='confirmed' AND o1.is_balance_topup=0 AND o1.created_at >= %s "
                 "AND NOT EXISTS ("
                 "    SELECT 1 FROM orders o2 "
-                "    WHERE o2.user_id = o1.user_id AND o2.status='confirmed' "
+                "    WHERE o2.user_id = o1.user_id AND o2.status='confirmed' AND o2.is_balance_topup=0 "
                 "    AND o2.created_at < %s"
                 ")",
                 (today_tj, today_tj)
@@ -1250,7 +1274,7 @@ async def get_daily_report() -> dict:
                            COUNT(*) AS order_count,
                            SUM(price) AS total_spent
                     FROM orders
-                    WHERE status='confirmed'
+                    WHERE status='confirmed' AND is_balance_topup=0
                     GROUP BY user_id
                 ) t
                 GROUP BY order_count
@@ -1278,7 +1302,7 @@ async def get_daily_report() -> dict:
             # ---- Соати "пик" (бар асоси 30 рӯзи охир) ----
             await cur.execute(
                 "SELECT HOUR(created_at) AS hr, COUNT(*) AS c FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s "
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s "
                 "GROUP BY hr ORDER BY c DESC LIMIT 1",
                 (today_tj - timedelta(days=30),)
             )
@@ -1290,7 +1314,7 @@ async def get_daily_report() -> dict:
             # DAYNAME медиҳад номи рӯз бо забони англисӣ — дар поён ба тоҷикӣ иваз мекунем
             await cur.execute(
                 "SELECT DAYNAME(created_at) AS dname, COALESCE(SUM(price),0) AS s FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s "
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s "
                 "GROUP BY dname ORDER BY s DESC LIMIT 1",
                 (today_tj - timedelta(days=30),)
             )
@@ -1310,7 +1334,7 @@ async def get_daily_report() -> dict:
                 "SELECT label, COUNT(*) AS cnt, COALESCE(SUM(price),0) AS rev, "
                 "COALESCE(SUM(cost_tjs),0) AS cost, "
                 "SUM(CASE WHEN cost_tjs IS NOT NULL THEN 1 ELSE 0 END) AS with_cost "
-                "FROM orders WHERE status='confirmed' AND created_at >= %s "
+                "FROM orders WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s "
                 "GROUP BY label ORDER BY rev DESC LIMIT 5",
                 (today_tj - timedelta(days=7),)
             )
@@ -1332,7 +1356,7 @@ async def get_daily_report() -> dict:
                 "SELECT payment_method, "
                 "SUM(CASE WHEN status='confirmed' THEN 1 ELSE 0 END) AS confirmed_c, "
                 "SUM(CASE WHEN status IN ('rejected','failed') THEN 1 ELSE 0 END) AS rejected_c "
-                "FROM orders WHERE created_at >= %s GROUP BY payment_method",
+                "FROM orders WHERE is_balance_topup=0 AND created_at >= %s GROUP BY payment_method",
                 (today_tj,)
             )
             payment_breakdown = [
@@ -1363,7 +1387,7 @@ async def get_daily_report() -> dict:
             await cur.execute(
                 "SELECT COUNT(*) AS c FROM ("
                 "    SELECT user_id, MAX(created_at) AS last_order FROM orders "
-                "    WHERE status='confirmed' GROUP BY user_id"
+                "    WHERE status='confirmed' AND is_balance_topup=0 GROUP BY user_id"
                 ") t WHERE last_order < %s",
                 (dormant_cutoff,)
             )
@@ -1373,7 +1397,7 @@ async def get_daily_report() -> dict:
             await cur.execute(
                 "SELECT COALESCE(SUM(price - cost_tjs),0) AS profit, "
                 "COALESCE(SUM(cost_tjs),0) AS total_cost, COUNT(*) AS with_cost FROM orders "
-                "WHERE status='confirmed' AND cost_tjs IS NOT NULL AND created_at >= %s",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND cost_tjs IS NOT NULL AND created_at >= %s",
                 (today_tj,)
             )
             profit_row = await cur.fetchone()
@@ -1388,7 +1412,7 @@ async def get_daily_report() -> dict:
             # ---- Фурӯши ҳар рӯзи 7 рӯзи охир (барои диаграммаи матнӣ) ----
             await cur.execute(
                 "SELECT DATE(created_at) AS d, COALESCE(SUM(price),0) AS s FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s GROUP BY DATE(created_at)",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s GROUP BY DATE(created_at)",
                 (today_tj - timedelta(days=6),)
             )
             by_day = {r["d"]: float(r["s"]) for r in await cur.fetchall()}
@@ -1450,7 +1474,7 @@ async def get_weekly_report() -> dict:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
                 "SELECT COALESCE(SUM(price),0) AS s, COUNT(*) AS c FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s",
                 (week_start,)
             )
             row = await cur.fetchone()
@@ -1459,7 +1483,7 @@ async def get_weekly_report() -> dict:
 
             await cur.execute(
                 "SELECT COALESCE(SUM(price),0) AS s, COUNT(*) AS c FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s AND created_at < %s",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s AND created_at < %s",
                 (prev_week_start, week_start)
             )
             row = await cur.fetchone()
@@ -1488,7 +1512,7 @@ async def get_weekly_report() -> dict:
             await cur.execute(
                 "SELECT COALESCE(SUM(price - cost_tjs),0) AS profit, "
                 "COALESCE(SUM(cost_tjs),0) AS total_cost, COUNT(*) AS with_cost FROM orders "
-                "WHERE status='confirmed' AND cost_tjs IS NOT NULL AND created_at >= %s",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND cost_tjs IS NOT NULL AND created_at >= %s",
                 (week_start,)
             )
             row = await cur.fetchone()
@@ -1501,7 +1525,7 @@ async def get_weekly_report() -> dict:
                 "SELECT label, COUNT(*) AS cnt, COALESCE(SUM(price),0) AS rev, "
                 "COALESCE(SUM(cost_tjs),0) AS cost, "
                 "SUM(CASE WHEN cost_tjs IS NOT NULL THEN 1 ELSE 0 END) AS with_cost "
-                "FROM orders WHERE status='confirmed' AND created_at >= %s "
+                "FROM orders WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s "
                 "GROUP BY label ORDER BY rev DESC LIMIT 5",
                 (week_start,)
             )
@@ -1517,7 +1541,7 @@ async def get_weekly_report() -> dict:
 
             await cur.execute(
                 "SELECT DAYNAME(created_at) AS dname, COALESCE(SUM(price),0) AS s FROM orders "
-                "WHERE status='confirmed' AND created_at >= %s GROUP BY dname ORDER BY s DESC LIMIT 1",
+                "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s GROUP BY dname ORDER BY s DESC LIMIT 1",
                 (week_start,)
             )
             best_day_row = await cur.fetchone()
@@ -1590,6 +1614,22 @@ async def set_dc_card_number(card_number: str):
     await set_setting("dc_card_number", card_number)
 
 
+DEFAULT_MAX_BALANCE_TOPUP = 300.0
+
+
+async def get_max_balance_topup() -> float:
+    """Ҳадди максималии пуркунии баланс дар як маротиба (сомонӣ)."""
+    value = await get_setting("max_balance_topup")
+    try:
+        return float(value) if value else DEFAULT_MAX_BALANCE_TOPUP
+    except ValueError:
+        return DEFAULT_MAX_BALANCE_TOPUP
+
+
+async def set_max_balance_topup(amount: float):
+    await set_setting("max_balance_topup", str(amount))
+
+
 async def increment_review_count() -> int:
     """
     Шумораи тартибии отзивҳои ба канал фиристодашударо +1 мекунад ва
@@ -1659,7 +1699,7 @@ async def get_user_stats(user_id: int) -> dict:
             # Умумӣ
             await cur.execute("""
                 SELECT COUNT(*) as total_orders, COALESCE(SUM(price), 0) as total_spent
-                FROM orders WHERE user_id=%s AND status='confirmed'
+                FROM orders WHERE user_id=%s AND status='confirmed' AND is_balance_topup=0
             """, (user_id,))
             stats = await cur.fetchone()
             # Ҳама фармоишҳо
@@ -1887,17 +1927,17 @@ async def get_active_awaiting_prices(payment_method: str) -> set:
 
 
 async def create_awaiting_order(user_id, game_id, nickname, amount, price, label,
-                                 offer_id, payment_method):
+                                 offer_id, payment_method, is_balance_topup=0):
     """Фармоиши 'дар интизории автопардохт' месозад (пеш аз пардохти мизоҷ)."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("""
                 INSERT INTO orders
                     (user_id, game_id, nickname, amount, price, label, offer_id,
-                     payment_method, status)
-                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,'awaiting_autopay')
+                     payment_method, is_balance_topup, status)
+                VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,'awaiting_autopay')
             """, (user_id, game_id, nickname, amount, price, label, offer_id,
-                  payment_method))
+                  payment_method, is_balance_topup))
             return cur.lastrowid
 
 

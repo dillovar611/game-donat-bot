@@ -239,13 +239,17 @@ async def show_faq(call: CallbackQuery):
     await _safe_edit(call, faq_text(), kb)
 
 
-def profile_menu() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
+def profile_menu(user_id: int | None = None) -> InlineKeyboardMarkup:
+    rows = [
         [InlineKeyboardButton(text="📋 Фармоишҳоям",  callback_data="my_orders")],
         [InlineKeyboardButton(text="🏆 Топ харидорон", callback_data="top_buyers")],
         [InlineKeyboardButton(text="🏅 Топ рефералдорон", callback_data="top_referrers")],
-        [InlineKeyboardButton(text="🔙 Бозгашт",       callback_data="back_main")],
-    ])
+    ]
+    # Марҳилаи озмоишӣ: пуркунии баланс танҳо барои админ (то соҳиб пурра санҷад)
+    if user_id in config.ADMIN_IDS:
+        rows.append([InlineKeyboardButton(text="💰 Пур кардани баланс", callback_data="topup_balance")])
+    rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="back_main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def telegram_menu() -> InlineKeyboardMarkup:
@@ -317,7 +321,7 @@ async def show_profile_menu(call: CallbackQuery):
         f"Аз меню интихоб кунед:"
     )
 
-    await _safe_edit(call, text, profile_menu())
+    await _safe_edit(call, text, profile_menu(call.from_user.id))
 
 
 # ==================== РЕФЕРАЛ ====================
@@ -593,7 +597,8 @@ async def top_buyers(call: CallbackQuery):
                        SUM(o.price) as total_spent
                 FROM orders o
                 LEFT JOIN users u ON u.id = o.user_id
-                WHERE o.status = 'confirmed' AND o.user_id NOT IN ({placeholders})
+                WHERE o.status = 'confirmed' AND o.is_balance_topup = 0
+                AND o.user_id NOT IN ({placeholders})
                 {date_filter}
                 GROUP BY o.user_id
                 ORDER BY total_spent DESC

@@ -2453,3 +2453,170 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
             await call.bot.send_message(admin_id, caption, reply_markup=admin_kb, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Ба админ {admin_id} фиристода нашуд: {e}")
+
+
+# ════════════════════════════════════════════════════════
+#         ПУРКУНИИ БАЛАНС (ҳозира танҳо барои админ)
+# ════════════════════════════════════════════════════════
+class TopupState(StatesGroup):
+    enter_amount  = State()  # интизори маблағ
+    choose_method = State()  # интизори интихоби тариқи пардохт
+    wait_check    = State()  # интизори расми чек
+
+
+@router.callback_query(F.data == "topup_balance")
+async def topup_start(call: CallbackQuery, state: FSMContext):
+    if call.from_user.id not in config.ADMIN_IDS:
+        await call.answer("⚠️ Ин функсия ҳоло дар марҳилаи озмоишист.", show_alert=True)
+        return
+    await state.clear()
+    max_amount = await db.get_max_balance_topup()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Бекор", callback_data="profile_menu")]
+    ])
+    await _safe_edit(
+        call,
+        f"💰 <b>Пур кардани баланс</b>\n\n"
+        f"Маблағеро, ки мехоҳед ба баланс илова кунед, нависед (сомонӣ).\n"
+        f"Ҳадди максималӣ: <b>{max_amount:.2f} сомонӣ</b>",
+        kb
+    )
+    await state.set_state(TopupState.enter_amount)
+
+
+@router.message(TopupState.enter_amount)
+async def topup_enter_amount(message: Message, state: FSMContext):
+    text = (message.text or "").strip().replace(",", ".")
+    try:
+        amount = round(float(text), 2)
+    except ValueError:
+        await message.answer("⚠️ Лутфан рақами дуруст нависед (масалан: 50).")
+        return
+    if amount <= 0:
+        await message.answer("⚠️ Маблағ бояд аз сифр зиёд бошад.")
+        return
+    max_amount = await db.get_max_balance_topup()
+    if amount > max_amount:
+        await message.answer(
+            f"⚠️ Маблағи максималӣ барои як пуркунӣ: <b>{max_amount:.2f} сомонӣ</b>.\n"
+            f"Лутфан маблағи камтар нависед.",
+            parse_mode="HTML"
+        )
+        return
+
+    await state.update_data(topup_amount=amount)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="topup_pay_dc")],
+        [InlineKeyboardButton(text="💳 Алиф",          callback_data="topup_pay_alif")],
+        [InlineKeyboardButton(text="🔙 Бекор",          callback_data="profile_menu")],
+    ])
+    await message.answer(
+        f"💰 <b>Пур кардани баланс</b>\n\n"
+        f"💵 Маблағ: <b>{amount:.2f} сомонӣ</b>\n\n"
+        f"Тариқи пардохтро интихоб кунед:",
+        reply_markup=kb, parse_mode="HTML"
+    )
+    await state.set_state(TopupState.choose_method)
+
+
+@router.callback_query(F.data.in_({"topup_pay_dc", "topup_pay_alif"}), TopupState.choose_method)
+async def topup_choose_method(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    amount = data.get("topup_amount")
+    if not amount:
+        await call.answer("⚠️ Хатогӣ — аз нав кӯшиш кунед.", show_alert=True)
+        await state.clear()
+        return
+
+    method = "dushanbe_city" if call.data == "topup_pay_dc" else "alif"
+    price = await _unique_autopay_price(amount)
+
+    awaiting_order_id = await db.create_awaiting_order(
+        user_id=call.from_user.id,
+        game_id="",
+        nickname="",
+        amount=0,
+        price=price,
+        label="💰 Пуркунии баланс",
+        offer_id="",
+        payment_method=method,
+        is_balance_topup=1,
+    )
+    await state.update_data(autopay_order_id=awaiting_order_id)
+
+    if method == "dushanbe_city":
+        method_name = "🏙 Душанбе Сити"
+        dc_card = await db.get_dc_card_number()
+        pay_url = f"http://pay.expresspay.tj/?A={dc_card}&s={price:g}&c=card_{awaiting_order_id}&f1=133"
+    else:
+        method_name = "💳 Алиф"
+        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Пардохт", url=pay_url)],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="profile_menu")],
+    ])
+    await _safe_edit(
+        call,
+        f"💳 <b>{method_name}</b>\n\n"
+        f"💰 Пуркунии баланс\n"
+        f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n"
+        f"🆔 Фармоиш: #{awaiting_order_id}\n\n"
+        f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
+        f"2️⃣ Маблағи <b>дақиқ {price:.2f} сом</b>-ро пардохт кунед "
+        f"(на кам, на зиёд — тин ба тин!)\n"
+        f"3️⃣ Расми чекро ба ҳамин чат фиристед\n\n"
+        f"⚡ Пас аз фиристодани чек, системаи мо пардохти шуморо "
+        f"<b>худкор</b> тафтиш мекунад ва баланс худкор пур мешавад — "
+        f"интизории админ лозим нест!\n\n"
+        f"⏳ Шумо <b>15 дақиқа</b> вақт доред.",
+        kb
+    )
+    await state.set_state(TopupState.wait_check)
+
+
+@router.message(TopupState.wait_check, F.photo)
+async def topup_receive_check(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await state.clear()
+
+    autopay_order_id = data.get("autopay_order_id")
+    if not autopay_order_id:
+        await message.answer("⚠️ Хатогӣ — аз нав кӯшиш кунед.")
+        return
+
+    file_id = message.photo[-1].file_id
+    import autopay
+    order = await db.get_order(autopay_order_id)
+    if not order or order["status"] not in ("awaiting_autopay", "expired"):
+        await message.answer(
+            "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол аллакай коркард шудааст).\n"
+            f"Агар пардохт карда бошед: {config.SUPPORT_USERNAME}",
+            parse_mode="HTML"
+        )
+        return
+    if not await db.set_autopay_check(autopay_order_id, file_id):
+        await message.answer(
+            "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол аллакай коркард шудааст).\n"
+            f"Агар пардохт карда бошед: {config.SUPPORT_USERNAME}",
+            parse_mode="HTML"
+        )
+        return
+    await message.answer(
+        f"✅ <b>Чек қабул шуд!</b>\n\n"
+        f"🆔 Фармоиш: #{autopay_order_id}\n\n"
+        f"🔍 Системаи мо ҳоло пардохти шуморо <b>худкор</b> ҷустуҷӯ "
+        f"мекунад — одатан 5-30 сония мегирад.\n"
+        f"Натиҷа ҳозир хабар дода мешавад...",
+        parse_mode="HTML"
+    )
+    kod = await db.find_kod_for_order(autopay_order_id) \
+        or await db.find_unmatched_kod(float(order["price"]), autopay.MAX_AGE_MINUTES)
+    if kod:
+        order = await db.get_order(autopay_order_id)
+        asyncio.create_task(autopay.run_donate(message.bot, order, kod))
+
+
+@router.message(TopupState.wait_check)
+async def topup_wrong_check(message: Message, state: FSMContext):
+    await message.answer("⚠️ Лутфан <b>расми</b> чекро фиристед (на матн).", parse_mode="HTML")
