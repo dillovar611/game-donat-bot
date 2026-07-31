@@ -850,9 +850,15 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
     if api_order_id:
         await db.set_order_api_id(order_id, api_order_id)
 
+    winner_user = await db.get_user(winner_id)
+    winner_name = esc(winner_user.get("full_name")) if winner_user and winner_user.get("full_name") else "—"
+    winner_username = f"@{winner_user['username']}" if winner_user and winner_user.get("username") else "—"
+
     if success:
         await db.update_order_status(order_id, "confirmed")
         await db.set_confirmed_at(order_id)
+        if cost_usd:
+            await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
         try:
             await bot.send_message(
                 winner_id,
@@ -865,28 +871,38 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
         except Exception as e:
             logger.error(f"Паёми тӯҳфа ба {winner_id} нарасид: {e}")
 
-        # Эълони ҷамъиятӣ дар канали асосӣ — БЕ ном/юзернейм (танҳо барои
-        # реклама, то обунашудагон бидонанд тӯҳфа воқеӣ дода мешавад)
+        total_wins = await db.count_giveaway_wins()
+
+        # Эълони ҷамъиятӣ дар канали асосӣ — бо НОМ, вале БЕ юзернейм
         try:
+            display_name = winner_name if winner_name != "—" else "Яке аз мизоҷони мо"
             await bot.send_message(
                 config.CHANNEL_ID,
                 f"🎉🎁 <b>Тӯҳфаи ройгон дода шуд!</b>\n\n"
-                f"Яке аз мизоҷони мо тасодуфан интихоб шуд ва <b>{label}</b>-ро "
+                f"{display_name} тасодуфан интихоб шуд ва <b>{label}</b>-ро "
                 f"БЕПУЛ гирифт! 🍀\n\n"
+                f"🏆 Ин <b>{total_wins}-умин</b> барандаи мо аст!\n"
                 f"Шумо низ метавонед барандаи навбатӣ бошед — фақат фармоиш диҳед! 💎",
                 parse_mode="HTML"
             )
         except Exception as e:
             logger.error(f"Эълони тӯҳфа ба канал нарасид: {e}")
 
+        cost_line = ""
+        if cost_usd:
+            cost_line = f"💵 Арзиши тӯҳфа: {cost_usd * config.USD_TO_TJS_RATE:.2f} сом\n"
+
         for admin_id in config.ADMIN_IDS:
             try:
                 await bot.send_message(
                     admin_id,
                     f"🎁 <b>Тӯҳфаи тасодуфӣ фиристода шуд!</b>\n\n"
-                    f"👤 Баранда: <code>{winner_id}</code>\n"
+                    f"👤 Баранда: {winner_name} ({winner_username})\n"
+                    f"🆔 ID Telegram: <code>{winner_id}</code>\n"
                     f"🎁 {label}\n"
-                    f"🆔 Фармоиш: #{order_id}",
+                    f"{cost_line}"
+                    f"🆔 Фармоиш: #{order_id}\n"
+                    f"🏆 Ин {total_wins}-умин тӯҳфаи додашуда аст",
                     parse_mode="HTML"
                 )
             except Exception as e:
@@ -898,7 +914,8 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
                 await bot.send_message(
                     admin_id,
                     f"⚠️ <b>Тӯҳфаи тасодуфӣ НАШУД!</b>\n\n"
-                    f"👤 Баранда: <code>{winner_id}</code>\n"
+                    f"👤 Баранда: {winner_name} ({winner_username})\n"
+                    f"🆔 ID Telegram: <code>{winner_id}</code>\n"
                     f"🎁 {label}\n"
                     f"🆔 Фармоиш: #{order_id}\n\n"
                     f"Лутфан дастӣ иҷро кунед.",
