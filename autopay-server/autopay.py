@@ -570,7 +570,8 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
                 f"🎉 <b>Донат анҷом ёфт! Алмазҳо фиристода шуданд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
-                f"🙏 Ташаккур барои харид!\n\n"
+                f"🙏 Ташаккур барои харид!\n"
+                f"🎁 Шумо ҳоло дар қуръакашии тӯҳфаи ройгон ҳастед — шояд навбати шумо расад! 🍀\n\n"
                 f"⭐ Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🧾 Чеки муваффақ", callback_data=f"receipt_{order_id}")],
