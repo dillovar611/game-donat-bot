@@ -12,6 +12,7 @@ import logging
 import asyncio
 import hashlib
 import random
+import re
 import uuid
 import html
 import unicodedata
@@ -31,6 +32,9 @@ import database as db
 import ff_api
 
 TJ_TZ = ZoneInfo("Asia/Dushanbe")
+
+# Қоидаи воқеии Telegram username: танҳо ҳарф/рақам/зерхат, 5-32 аломат
+_TG_USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{5,32}$")
 
 
 def esc(text) -> str:
@@ -492,6 +496,8 @@ async def cart_done(call: CallbackQuery, state: FSMContext):
         label=" + ".join(_summarize_cart_labels(cart, products_by_id)),
         is_custom_price=any(i["is_custom_price"] for i in items),
         combo_id=None,
+        product_id=None,
+        eskhata_link="",
     )
 
     data = await state.get_data()
@@ -1809,8 +1815,11 @@ async def stars_buy_start(call: CallbackQuery, state: FSMContext):
 @router.message(StarsBuyState.enter_username)
 async def stars_enter_username(message: Message, state: FSMContext):
     username = message.text.strip().lstrip("@")
-    if not username or " " in username:
-        await message.answer("⚠️ Username нодуруст! Дубора нависед (бе @, бе фосила):")
+    if not _TG_USERNAME_RE.match(username):
+        await message.answer(
+            "⚠️ Username нодуруст! Username-и Telegram бояд танҳо аз ҳарф, рақам ва "
+            "зерхат (_) иборат бошад, 5-32 аломат. Дубора нависед (бе @, бе фосила):"
+        )
         return
 
     await state.update_data(tg_username=username)
@@ -2085,8 +2094,11 @@ async def premium_buy_start(call: CallbackQuery, state: FSMContext):
 @router.message(PremiumBuyState.enter_username)
 async def premium_enter_username(message: Message, state: FSMContext):
     username = message.text.strip().lstrip("@")
-    if not username or " " in username:
-        await message.answer("⚠️ Username нодуруст! Дубора нависед (бе @, бе фосила):")
+    if not _TG_USERNAME_RE.match(username):
+        await message.answer(
+            "⚠️ Username нодуруст! Username-и Telegram бояд танҳо аз ҳарф, рақам ва "
+            "зерхат (_) иборат бошад, 5-32 аломат. Дубора нависед (бе @, бе фосила):"
+        )
         return
 
     await state.update_data(tg_username=username)

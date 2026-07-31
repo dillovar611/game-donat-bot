@@ -1496,7 +1496,8 @@ async def get_weekly_report() -> dict:
                 change_pct = 100.0 if sales_week > 0 else 0.0
 
             await cur.execute(
-                "SELECT COUNT(*) AS c FROM orders WHERE status='rejected' AND created_at >= %s",
+                "SELECT COUNT(*) AS c FROM orders WHERE status IN ('rejected','failed') "
+                "AND is_balance_topup=0 AND created_at >= %s",
                 (week_start,)
             )
             rejected_week = (await cur.fetchone())["c"]

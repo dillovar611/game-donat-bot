@@ -637,13 +637,13 @@ async def top_buyers(call: CallbackQuery):
                     FROM (
                         SELECT user_id, SUM(price) as total
                         FROM orders
-                        WHERE status='confirmed' AND user_id NOT IN ({placeholders})
+                        WHERE status='confirmed' AND is_balance_topup=0 AND user_id NOT IN ({placeholders})
                         {plain_date_filter}
                         GROUP BY user_id
                         HAVING total > (
                             SELECT COALESCE(SUM(price), 0)
                             FROM orders
-                            WHERE status='confirmed' AND user_id=%s
+                            WHERE status='confirmed' AND is_balance_topup=0 AND user_id=%s
                             {plain_date_filter}
                         )
                     ) t

@@ -1545,14 +1545,20 @@ async def a_product_add_save(message: Message, state: FSMContext):
         price = float(parts[1])
         label = parts[2] if len(parts) > 2 else f"💎 {amount}"
         offer_id = parts[3] if len(parts) > 3 else ""
-        await db.add_product(amount, price, label, offer_id)
-        await message.answer("✅ Маҳсулоти нав илова шуд!")
-        await state.clear()
     except Exception:
         await message.answer(
             "⚠️ Хато! Формат:\n<code>миқдор | нарх | ном | offer_id</code>",
             parse_mode="HTML"
         )
+        return
+    try:
+        await db.add_product(amount, price, label, offer_id)
+    except Exception as e:
+        logger.error(f"a_product_add_save: db.add_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Маҳсулоти нав илова шуд!")
+    await state.clear()
 
 
 @router.callback_query(F.data.startswith("pchange_"))
@@ -1585,15 +1591,21 @@ async def a_product_change_save(message: Message, state: FSMContext):
         price = float(parts[1])
         label = parts[2] if len(parts) > 2 else f"💎 {amount}"
         offer_id = parts[3] if len(parts) > 3 else ""
-        data = await state.get_data()
-        await db.update_product(data["edit_id"], amount, price, label, offer_id)
-        await message.answer("✅ Маҳсулот навсозӣ шуд!")
-        await state.clear()
     except Exception:
         await message.answer(
             "⚠️ Хато! Формат:\n<code>миқдор | нарх | ном | offer_id</code>",
             parse_mode="HTML"
         )
+        return
+    try:
+        data = await state.get_data()
+        await db.update_product(data["edit_id"], amount, price, label, offer_id)
+    except Exception as e:
+        logger.error(f"a_product_change_save: db.update_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Маҳсулот навсозӣ шуд!")
+    await state.clear()
 
 
 # ==================== ФИРИСТОДАНИ ХАБАР ====================
@@ -2678,14 +2690,20 @@ async def a_ffid_product_add_save(message: Message, state: FSMContext):
         price = float(parts[1])
         label = parts[2] if len(parts) > 2 else f"💎 {amount}"
         offer_id = parts[3] if len(parts) > 3 else ""
-        await db.add_ffid_product(amount, price, label, offer_id)
-        await message.answer("✅ Маҷсулоти нав илова шуд!")
-        await state.clear()
     except Exception:
         await message.answer(
             "⚠️ Хато! Формат:\n<code>миқдор | нарх | ном | offer_id</code>",
             parse_mode="HTML"
         )
+        return
+    try:
+        await db.add_ffid_product(amount, price, label, offer_id)
+    except Exception as e:
+        logger.error(f"a_ffid_product_add_save: db.add_ffid_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Маҳсулоти нав илова шуд!")
+    await state.clear()
 
 
 @router.callback_query(F.data.startswith("ffidchange_"))
@@ -2716,15 +2734,21 @@ async def a_ffid_product_change_save(message: Message, state: FSMContext):
         price = float(parts[1])
         label = parts[2] if len(parts) > 2 else f"💎 {amount}"
         offer_id = parts[3] if len(parts) > 3 else ""
-        data = await state.get_data()
-        await db.update_ffid_product(data["edit_id"], amount, price, label, offer_id)
-        await message.answer("✅ Маҷсулот навсозӣ шуд!")
-        await state.clear()
     except Exception:
         await message.answer(
             "⚠️ Хато! Формат:\n<code>миқдор | нарх | ном | offer_id</code>",
             parse_mode="HTML"
         )
+        return
+    try:
+        data = await state.get_data()
+        await db.update_ffid_product(data["edit_id"], amount, price, label, offer_id)
+    except Exception as e:
+        logger.error(f"a_ffid_product_change_save: db.update_ffid_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Маҳсулот навсозӣ шуд!")
+    await state.clear()
 
 
 # ==================== ТАСДИҲ PUBG ====================
@@ -2924,14 +2948,20 @@ async def a_pubg_product_add_save(message: Message, state: FSMContext):
         price = float(parts[1])
         label = parts[2] if len(parts) > 2 else f"{amount} UC"
         offer_id = parts[3] if len(parts) > 3 else ""
-        await db.add_pubg_product(amount, price, label, offer_id)
-        await message.answer("✅ Маҷсулоти нав илова шуд!")
-        await state.clear()
     except Exception:
         await message.answer(
             "⚠️ Хато! Формат:\n<code>миқдор | нарх | ном | offer_id</code>",
             parse_mode="HTML"
         )
+        return
+    try:
+        await db.add_pubg_product(amount, price, label, offer_id)
+    except Exception as e:
+        logger.error(f"a_pubg_product_add_save: db.add_pubg_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Маҳсулоти нав илова шуд!")
+    await state.clear()
 
 
 @router.callback_query(F.data.startswith("pubgchange_"))
@@ -2962,15 +2992,21 @@ async def a_pubg_product_change_save(message: Message, state: FSMContext):
         price = float(parts[1])
         label = parts[2] if len(parts) > 2 else f"{amount} UC"
         offer_id = parts[3] if len(parts) > 3 else ""
-        data = await state.get_data()
-        await db.update_pubg_product(data["edit_id"], amount, price, label, offer_id)
-        await message.answer("✅ Маҷсулот навсозӣ шуд!")
-        await state.clear()
     except Exception:
         await message.answer(
             "⚠️ Хато! Формат:\n<code>миқдор | нарх | ном | offer_id</code>",
             parse_mode="HTML"
         )
+        return
+    try:
+        data = await state.get_data()
+        await db.update_pubg_product(data["edit_id"], amount, price, label, offer_id)
+    except Exception as e:
+        logger.error(f"a_pubg_product_change_save: db.update_pubg_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Маҳсулот навсозӣ шуд!")
+    await state.clear()
 
 
 # ==================== ТАСДИҲ TELEGRAM STARS ====================
@@ -3257,11 +3293,17 @@ async def a_stars_product_add_save(message: Message, state: FSMContext):
         parts = [x.strip() for x in message.text.split("|")]
         amount = int(parts[0])
         price = float(parts[1])
-        await db.add_stars_product(amount, price)
-        await message.answer("✅ Илова шуд!")
-        await state.clear()
     except Exception:
         await message.answer("⚠️ Хато! Формат: <code>миқдор | нарх</code>", parse_mode="HTML")
+        return
+    try:
+        await db.add_stars_product(amount, price)
+    except Exception as e:
+        logger.error(f"a_stars_product_add_save: db.add_stars_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Илова шуд!")
+    await state.clear()
 
 
 @router.callback_query(F.data.startswith("starschange_"))
@@ -3286,12 +3328,18 @@ async def a_stars_product_change_save(message: Message, state: FSMContext):
         parts = [x.strip() for x in message.text.split("|")]
         amount = int(parts[0])
         price = float(parts[1])
-        data = await state.get_data()
-        await db.update_stars_product(data["edit_id"], amount, price)
-        await message.answer("✅ Навсозӣ шуд!")
-        await state.clear()
     except Exception:
         await message.answer("⚠️ Хато! Формат: <code>миқдор | нарх</code>", parse_mode="HTML")
+        return
+    try:
+        data = await state.get_data()
+        await db.update_stars_product(data["edit_id"], amount, price)
+    except Exception as e:
+        logger.error(f"a_stars_product_change_save: db.update_stars_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Навсозӣ шуд!")
+    await state.clear()
 
 
 # -------------------- PREMIUM ИДОРАКУНӢ --------------------
@@ -3368,11 +3416,17 @@ async def a_premium_product_add_save(message: Message, state: FSMContext):
         parts = [x.strip() for x in message.text.split("|")]
         months = int(parts[0])
         price = float(parts[1])
-        await db.add_premium_product(months, price)
-        await message.answer("✅ Илова шуд!")
-        await state.clear()
     except Exception:
         await message.answer("⚠️ Хато! Формат: <code>моҳ | нарх</code>", parse_mode="HTML")
+        return
+    try:
+        await db.add_premium_product(months, price)
+    except Exception as e:
+        logger.error(f"a_premium_product_add_save: db.add_premium_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Илова шуд!")
+    await state.clear()
 
 
 @router.callback_query(F.data.startswith("premiumchange_"))
@@ -3397,10 +3451,16 @@ async def a_premium_product_change_save(message: Message, state: FSMContext):
         parts = [x.strip() for x in message.text.split("|")]
         months = int(parts[0])
         price = float(parts[1])
-        data = await state.get_data()
-        await db.update_premium_product(data["edit_id"], months, price)
-        await message.answer("✅ Навсозӣ шуд!")
-        await state.clear()
     except Exception:
         await message.answer("⚠️ Хато! Формат: <code>моҳ | нарх</code>", parse_mode="HTML")
+        return
+    try:
+        data = await state.get_data()
+        await db.update_premium_product(data["edit_id"], months, price)
+    except Exception as e:
+        logger.error(f"a_premium_product_change_save: db.update_premium_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Навсозӣ шуд!")
+    await state.clear()
 
