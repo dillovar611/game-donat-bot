@@ -153,15 +153,20 @@ async def giveaway_info(call: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="back_main")]
     ])
+    every_n = int(await db.get_setting("giveaway_every_n") or "25")
+    total = await db.count_confirmed_orders()
+    position = total % every_n
+    remaining = every_n - position if position else every_n
     await _safe_edit(
         call,
         "🎁 <b>Тӯҳфаи ройгон!</b>\n\n"
-        "Ҳар як фармоиши шумо шуморо худкор ба қуръакашии тӯҳфаи "
-        "ройгон дохил мекунад! 🍀\n\n"
-        "Аз байни харидорони охирин, як нафар тасодуфан интихоб "
-        "мешавад ва тӯҳфаро <b>БЕПУЛ</b> мегирад — ҳеҷ амали иловагӣ "
-        "лозим нест, фақат харид кунед!\n\n"
-        "🛒 Ҳар чи бештар харид кунед, эҳтимоли бурдан бештар мешавад!",
+        "Тарзи корашро содда мегӯям:\n"
+        f"Ҳар <b>{every_n} нафар</b> харидор — БОТ якеро тасодуфан интихоб "
+        "мекунад ва ба ӯ як маҳсулот <b>РОЙГОН (бепул)</b> медиҳад! 🍀\n\n"
+        "Шумо ҳам агар ҳозир фармоиш диҳед, худкор дохили ин мешавед — "
+        "ҳеҷ кор кардан лозим нест, фақат харид кунед.\n\n"
+        f"📊 Ҳозир: <b>{position} аз {every_n}</b> фармоиш гузаштааст\n"
+        f"⏳ То тӯҳфаи навбатӣ: боз <b>{remaining} фармоиш</b> монд!",
         kb
     )
 
