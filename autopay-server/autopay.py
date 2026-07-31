@@ -818,6 +818,7 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
 
 
 GIVEAWAY_DEFAULT_EVERY_N = 25
+GIVEAWAY_NEAR_MISS_THRESHOLD = 3  # чанд фармоиш монда огоҳии "наздикӣ" фиристода шавад
 
 
 async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
@@ -863,6 +864,21 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
             )
         except Exception as e:
             logger.error(f"Паёми тӯҳфа ба {winner_id} нарасид: {e}")
+
+        # Эълони ҷамъиятӣ дар канали асосӣ — БЕ ном/юзернейм (танҳо барои
+        # реклама, то обунашудагон бидонанд тӯҳфа воқеӣ дода мешавад)
+        try:
+            await bot.send_message(
+                config.CHANNEL_ID,
+                f"🎉🎁 <b>Тӯҳфаи ройгон дода шуд!</b>\n\n"
+                f"Яке аз мизоҷони мо тасодуфан интихоб шуд ва <b>{label}</b>-ро "
+                f"БЕПУЛ гирифт! 🍀\n\n"
+                f"Шумо низ метавонед барандаи навбатӣ бошед — фақат фармоиш диҳед! 💎",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Эълони тӯҳфа ба канал нарасид: {e}")
+
         for admin_id in config.ADMIN_IDS:
             try:
                 await bot.send_message(
@@ -913,6 +929,28 @@ async def giveaway_loop(bot: Bot, interval_seconds: int = 60):
             current_multiple = total_confirmed // every_n
 
             if current_multiple <= last_multiple:
+                # Ҳанӯз ба каратаи нав нарасидааст — агар наздик бошем,
+                # ба харидорони ин давра огоҳии "наздикӣ" мефиристем (як
+                # бор дар як давра, то флуд нашавад)
+                position = total_confirmed % every_n
+                remaining = every_n - position if position else every_n
+                if position > 0 and remaining <= GIVEAWAY_NEAR_MISS_THRESHOLD:
+                    already = await db.get_setting("giveaway_near_miss_notified_multiple")
+                    if already != str(last_multiple):
+                        offset = last_multiple * every_n
+                        batch = await db.get_confirmed_batch_user_ids(offset, position)
+                        for uid in set(batch):
+                            try:
+                                await bot.send_message(
+                                    uid,
+                                    f"🔥 <b>Тӯҳфаи навбатӣ наздик аст!</b>\n\n"
+                                    f"Боз танҳо <b>{remaining} фармоиш</b> монд — шумо ҳам "
+                                    f"дар қуръа ҳастед! 🍀",
+                                    parse_mode="HTML"
+                                )
+                            except Exception as e:
+                                logger.error(f"Огоҳии наздикии тӯҳфа ба {uid} нарасид: {e}")
+                        await db.set_setting("giveaway_near_miss_notified_multiple", str(last_multiple))
                 continue
 
             # Ҳимояи иловагӣ: ҳатто агар шумораи каратаҳои гузашта хеле
