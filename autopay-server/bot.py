@@ -157,6 +157,26 @@ async def giveaway_info(call: CallbackQuery):
     total = await db.count_confirmed_orders()
     position = total % every_n
     remaining = every_n - position if position else every_n
+    pct = round(position / every_n * 100)
+    bar = autopay._progress_bar(pct)
+
+    product_line = ""
+    product_id_str = await db.get_setting("giveaway_product_id")
+    if product_id_str:
+        product = await db.get_product(int(product_id_str))
+        if product:
+            label = product.get("label") or f"💎 {product['amount']}"
+            product_line = f"🎁 Тӯҳфаи ҳозира: <b>{label}</b>\n\n"
+
+    winner_line = ""
+    winner = await db.get_last_giveaway_winner()
+    if winner:
+        display = f"@{winner['username']}" if winner.get("username") else esc(winner.get("full_name") or f"ID {winner['user_id']}")
+        winner_line = f"🏆 Барандаи охирин: <b>{display}</b>\n"
+
+    total_wins = await db.count_giveaway_wins()
+    wins_line = f"🎉 То ҳол <b>{total_wins}</b> нафар тӯҳфа бурдаанд!\n" if total_wins else ""
+
     await _safe_edit(
         call,
         "🎁 <b>Тӯҳфаи ройгон!</b>\n\n"
@@ -165,8 +185,11 @@ async def giveaway_info(call: CallbackQuery):
         "мекунад ва ба ӯ як маҳсулот <b>РОЙГОН (бепул)</b> медиҳад! 🍀\n\n"
         "Шумо ҳам агар ҳозир фармоиш диҳед, худкор дохили ин мешавед — "
         "ҳеҷ кор кардан лозим нест, фақат харид кунед.\n\n"
-        f"📊 Ҳозир: <b>{position} аз {every_n}</b> фармоиш гузаштааст\n"
-        f"⏳ То тӯҳфаи навбатӣ: боз <b>{remaining} фармоиш</b> монд!",
+        f"{product_line}"
+        f"📊 <code>{bar}</code>\n"
+        f"{position} аз {every_n} фармоиш гузаштааст — боз <b>{remaining} фармоиш</b> монд!\n\n"
+        f"{winner_line}"
+        f"{wins_line}",
         kb
     )
 

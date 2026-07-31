@@ -508,6 +508,29 @@ async def get_confirmed_batch_user_ids(offset: int, limit: int) -> list:
             return [r[0] for r in await cur.fetchall()]
 
 
+async def get_last_giveaway_winner() -> dict | None:
+    """Мизоҷи охирине, ки тӯҳфаи ройгон бурдааст (барои намоиши иҷтимоӣ)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT o.user_id, u.username, u.full_name FROM orders o "
+                "LEFT JOIN users u ON u.id = o.user_id "
+                "WHERE o.payment_method='giveaway' AND o.status='confirmed' "
+                "ORDER BY o.id DESC LIMIT 1"
+            )
+            return await cur.fetchone()
+
+
+async def count_giveaway_wins() -> int:
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT COUNT(*) FROM orders WHERE payment_method='giveaway' AND status='confirmed'"
+            )
+            row = await cur.fetchone()
+            return row[0] if row else 0
+
+
 async def update_product(product_id: int, amount: int, price: float, label: str, offer_id: str):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
