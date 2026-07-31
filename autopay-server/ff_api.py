@@ -411,7 +411,7 @@ async def get_nickname_ffid(player_id: str) -> str:
     return ""
 
 
-async def auto_donate_ffid(player_id: str, offer_id: str, existing_order_id: str = ""):
+async def auto_donate_ffid(player_id: str, offer_id: str, existing_order_id: str = "", order_id: int | str = ""):
     """Донати худкор барои Free Fire Indonesia."""
     # Агар фармоиши пешина мавҷуд бошад — аввал ҳолатро тафтиш кунем
     if existing_order_id:
@@ -431,7 +431,10 @@ async def auto_donate_ffid(player_id: str, offer_id: str, existing_order_id: str
     headers = {
         "X-API-Key": config.FAZER_KEY,
         "Content-Type": "application/json",
-        "Idempotency-Key": str(uuid.uuid4()),
+        # Калиди собит (аз order_id-и худамон), на тасодуфӣ — то агар
+        # даъвати такрорӣ шавад (масалан такроран пас аз таймаути шабака),
+        # FazerCards онро ҳамон дархост шиносад, на фармоиши дуюм насозад
+        "Idempotency-Key": f"ffid-{order_id}" if order_id else str(uuid.uuid4()),
     }
     payload = {
         "category_id": config.FFID_CATEGORY_ORDER,
@@ -475,7 +478,7 @@ async def auto_donate_ffid(player_id: str, offer_id: str, existing_order_id: str
 
 
 # ==================== PUBG MOBILE ====================
-async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str = ""):
+async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str = "", order_id: int | str = ""):
     """Донати худкор барои PUBG Mobile (category: pubg_mobile_auto)."""
     if existing_order_id:
         status_data = await _fazer_status(existing_order_id)
@@ -494,7 +497,8 @@ async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str
     headers = {
         "X-API-Key": config.FAZER_KEY,
         "Content-Type": "application/json",
-        "Idempotency-Key": str(uuid.uuid4()),
+        # Калиди собит — ниг. изоҳи auto_donate_ffid
+        "Idempotency-Key": f"pubg-{order_id}" if order_id else str(uuid.uuid4()),
     }
     payload = {
         "category_id": "pubg_mobile_auto",

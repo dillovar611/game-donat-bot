@@ -513,10 +513,15 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
             # истифода барем, на фармоиши комилан НАВ созем (зидди донати
             # дукарата — зарари молиявӣ).
             fresh_order = await db.get_order(order_id) or order
-            if fresh_order.get("status") not in ("paid",):
+            # Банди АТОМИКӢ (на танҳо хондан) — то агар дар ҳамин лаҳза
+            # админ низ "✅ Тасдиқ"-ро пахш карда бошад (order_confirm низ
+            # ҳамин claim-ро мекунад), танҳо ЯКЕ аз ду тараф донатро сар
+            # кунад (дигараш False мегирад ва бе амал бармегардад) — зидди
+            # ду бор донат шудани як фармоиш
+            if not await db.claim_paid_order_for_autodonate(order_id):
                 logger.warning(
-                    f"Autopay: фармоиши #{order_id} дигар 'paid' нест "
-                    f"(ҳозир: {fresh_order.get('status')}) — Марҳилаи 3 гузаронида шуд"
+                    f"Autopay: фармоиши #{order_id} аллакай аз тарафи дигар "
+                    f"(масалан админ) гирифта шудааст — Марҳилаи 3 гузаронида шуд"
                 )
                 return
 
@@ -736,14 +741,41 @@ async def run_donate_from_balance(bot: Bot, order: dict):
     """
     order_id = order["id"]
     user_id = order["user_id"]
+    game_id = order["game_id"] or ""
 
     await db.update_order_status(order_id, "donating")
 
     async with _donate_semaphore:
-        success, api_order_id, uncertain, cost_usd = await ff_api.auto_donate(
-            order["game_id"], order["offer_id"], order.get("api_order_id") or "",
-            order_id
-        )
+        # Ҳар хизмат API-и худро дорад (game_id бо префикс фарқ мекунад —
+        # мисли admin.py-и order_confirm_ffid/_pubg/_stars/_premium аллакай
+        # мекунанд). FFID/PUBG 2-tuple бармегардонанд (uncertain/cost_usd надоранд).
+        if game_id.startswith("FFID:"):
+            player_id = game_id.replace("FFID:", "")
+            success, api_order_id = await ff_api.auto_donate_ffid(
+                player_id, order["offer_id"], order.get("api_order_id") or "", order_id
+            )
+            uncertain, cost_usd = False, None
+        elif game_id.startswith("PUBG:"):
+            player_id = game_id.replace("PUBG:", "")
+            success, api_order_id = await ff_api.auto_donate_pubg(
+                player_id, order["offer_id"], order.get("api_order_id") or "", order_id
+            )
+            uncertain, cost_usd = False, None
+        elif game_id.startswith("STARS:"):
+            tg_username = game_id.replace("STARS:", "")
+            success, api_order_id, uncertain, cost_usd = await ff_api.buy_telegram_stars(
+                tg_username, order["amount"], order_id
+            )
+        elif game_id.startswith("PREMIUM:"):
+            tg_username = game_id.replace("PREMIUM:", "")
+            success, api_order_id, uncertain, cost_usd = await ff_api.buy_telegram_premium(
+                tg_username, order["amount"], order_id
+            )
+        else:
+            success, api_order_id, uncertain, cost_usd = await ff_api.auto_donate(
+                game_id, order["offer_id"], order.get("api_order_id") or "",
+                order_id
+            )
         logger.info(f"[COST-DEBUG] run_donate_from_balance: order={order_id} success={success} cost_usd={cost_usd!r}")
         if api_order_id:
             await db.set_order_api_id(order_id, api_order_id)
@@ -770,9 +802,8 @@ async def run_donate_from_balance(bot: Bot, order: dict):
         try:
             await bot.send_message(
                 user_id,
-                f"🎉 <b>Донат анҷом ёфт! Алмазҳо фиристода шуданд!</b>\n\n"
-                f"🆔 Фармоиш: #{order_id}\n"
-                f"{order['label']} → <code>{order['game_id']}</code>\n\n"
+                f"🎉 <b>Донат анҷом ёфт! {esc(order['label'])} фиристода шуд!</b>\n\n"
+                f"🆔 Фармоиш: #{order_id}\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
                 f"⭐ Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[

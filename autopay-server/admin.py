@@ -1053,7 +1053,11 @@ async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, 
     """Фармоишро рад мекунад: статус, баргардониди балансаи реферралӣ (агар лозим),
     хабар ба мизоҷ ва навсозии паёми фармоиш дар панели админ."""
     order = await db.get_order(order_id)
-    if not order or order["status"] in ("confirmed", "rejected"):
+    # 'donating' низ манъ аст — фармоиш ҳамин лаҳза дар ҳоли донати худкор
+    # аст; агар рад кунем ва баъд донат муваффақ шавад, статус бебозгашт
+    # ба 'confirmed' иваз мешавад ва радди мо бесадо нест мешавад (ва агар
+    # пардохт аз баланс буд — пул ҲАМ баргардонида шуда, ҲАМ маҳсулот расад)
+    if not order or order["status"] in ("confirmed", "rejected", "donating"):
         return False
 
     await db.update_order_status(order_id, "rejected")
@@ -2172,6 +2176,9 @@ async def order_confirm_ffid(call: CallbackQuery):
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
         return
+    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+        await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
+        return
 
     await call.answer("⏳ Донат оғоз шуд...", show_alert=False)
 
@@ -2199,7 +2206,7 @@ async def _do_donate_ffid(call: CallbackQuery, order: dict, player_id: str, wait
     )
     success, api_order_id = await _run_with_live_progress(
         wait_msg, header,
-        ff_api.auto_donate_ffid(player_id, order["offer_id"], order.get("api_order_id") or "")
+        ff_api.auto_donate_ffid(player_id, order["offer_id"], order.get("api_order_id") or "", order_id)
     )
 
     if api_order_id:
@@ -2735,6 +2742,9 @@ async def order_confirm_pubg(call: CallbackQuery):
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
         return
+    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+        await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
+        return
 
     await call.answer("⏳ Донат оғоз шуд...", show_alert=False)
 
@@ -2761,7 +2771,7 @@ async def _do_donate_pubg(call: CallbackQuery, order: dict, player_id: str, wait
     )
     success, api_order_id = await _run_with_live_progress(
         wait_msg, header,
-        ff_api.auto_donate_pubg(player_id, order["offer_id"], order.get("api_order_id") or "")
+        ff_api.auto_donate_pubg(player_id, order["offer_id"], order.get("api_order_id") or "", order_id)
     )
 
     if api_order_id:
@@ -2977,6 +2987,9 @@ async def order_confirm_stars(call: CallbackQuery):
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
         return
+    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+        await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
+        return
 
     await call.answer("⏳ Дар ҷараён...", show_alert=False)
 
@@ -3072,6 +3085,9 @@ async def order_confirm_premium(call: CallbackQuery):
         return
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+        return
+    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+        await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
         return
 
     await call.answer("⏳ Дар ҷараён...", show_alert=False)

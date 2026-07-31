@@ -2134,6 +2134,7 @@ async def premium_choose_payment(call: CallbackQuery, state: FSMContext):
     await state.update_data(
         product_id=product_id,
         months=product["months"],
+        amount=product["months"],
         price=float(product["price"]),
         label=f"💎 Premium {product['months']} моҳ",
         eskhata_link=product.get("eskhata_link") or "",
