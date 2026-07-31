@@ -352,7 +352,11 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
     balance_line = ""
     if payment_method == "referral_balance":
         current_balance = await db.get_referral_balance(order["user_id"])
-        balance_line = f"💰 Баланси ҳозираи мизоҷ: {current_balance:.2f} сом\n"
+        old_balance = current_balance + float(order["price"])
+        balance_line = (
+            f"👛 Баланси корбар буд: {old_balance:.2f} сомонӣ\n"
+            f"💰 Баланси ҳозираи мизоҷ: {current_balance:.2f} сом\n"
+        )
 
     text = (
         f"⚡ <b>АВТОТАСДИҚ — Донат муваффақ шуд!</b>\n\n"
