@@ -2502,7 +2502,8 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
             extra_line = f"🆔 ID: <code>{data['player_id']}</code>\n👤 Ном: <b>{nickname or '—'}</b>\n"
 
         # Агар байни кам шудани баланс ва сохтани фармоиш хатои база шавад —
-        # маблағро БАРМЕГАРДОНЕМ ва админро огоҳ мекунем (то пул бесадо гум нашавад)
+        # пул ба баланс ХУДКОР БАРНАМЕГАРДАД (қоидаи соҳиб). Ба ҷои он админ
+        # огоҳ мешавад, то ДАСТӢ ҳал кунад.
         try:
             order_id = await db.create_order(
                 user_id=uid,
@@ -2517,24 +2518,20 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
             )
             await db.mark_order_paid_with_balance(order_id)
         except Exception as e:
-            logger.error(f"pay_with_balance: сохтани фармоиш нашуд, баланс баргардонида мешавад ({uid}, {price}): {e}")
-            try:
-                await db.add_referral_earning(uid, price)
-            except Exception as e2:
-                logger.error(f"pay_with_balance: БАРГАРДОНИДАНИ БАЛАНС ҲАМ НАШУД ({uid}, {price}): {e2}")
+            logger.error(f"pay_with_balance: сохтани фармоиш нашуд ({uid}, {price}): {e}")
             await _safe_edit(
                 call,
                 "⚠️ <b>Хатои система рӯй дод.</b>\n\n"
-                "Маблағ ба балансатон баргардонида шуд — дубора кӯшиш кунед.",
+                f"Лутфан бо дастгирӣ тамос гиред: {config.SUPPORT_USERNAME}",
                 None
             )
             for admin_id in config.ADMIN_IDS:
                 try:
                     await call.bot.send_message(
                         admin_id,
-                        f"⚠️ <b>Хатои харид аз баланс!</b>\n\n"
+                        f"⚠️ <b>Хатои харид аз баланс — ДАСТӢ ҳал кунед!</b>\n\n"
                         f"👤 ID: <code>{uid}</code>\n"
-                        f"💵 {price:.2f} сом кам шуда буд — БАРГАРДОНИДА шуд.\n"
+                        f"💵 {price:.2f} сом аз баланс кам шуд, вале фармоиш сохта НАШУД.\n"
                         f"🎁 {esc(data.get('label', '—'))}\n"
                         f"Хато: {esc(str(e))[:200]}",
                         parse_mode="HTML"

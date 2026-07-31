@@ -1072,7 +1072,8 @@ async def _complete_pending_purchase(bot: Bot, user_id: int, pending: dict):
         )
         return
     # Агар байни кам шудани баланс ва сохтани фармоиш хатои база шавад —
-    # маблағро БАРМЕГАРДОНЕМ ва админро огоҳ мекунем (то пул бесадо гум нашавад)
+    # пул ба баланс ХУДКОР БАРНАМЕГАРДАД (қоидаи соҳиб). Ба ҷои он админ
+    # огоҳ мешавад, то ДАСТӢ ҳал кунад.
     try:
         order_id = await db.create_order(
             user_id=user_id,
@@ -1087,16 +1088,12 @@ async def _complete_pending_purchase(bot: Bot, user_id: int, pending: dict):
         await db.mark_order_paid_with_balance(order_id)
         order = await db.get_order(order_id)
     except Exception as e:
-        logger.error(f"Хариди интизорӣ: сохтани фармоиш нашуд, баланс баргардонида мешавад ({user_id}, {price}): {e}")
-        try:
-            await db.add_referral_earning(user_id, price)
-        except Exception as e2:
-            logger.error(f"Хариди интизорӣ: БАРГАРДОНИДАНИ БАЛАНС ҲАМ НАШУД ({user_id}, {price}): {e2}")
+        logger.error(f"Хариди интизорӣ: сохтани фармоиш нашуд ({user_id}, {price}): {e}")
         try:
             await bot.send_message(
                 user_id,
                 "⚠️ <b>Хатои система рӯй дод.</b>\n\n"
-                "Маблағ ба балансатон баргардонида шуд — метавонед дубора харид кунед.",
+                f"Лутфан бо дастгирӣ тамос гиред: {config.SUPPORT_USERNAME}",
                 parse_mode="HTML"
             )
         except Exception:
@@ -1105,9 +1102,9 @@ async def _complete_pending_purchase(bot: Bot, user_id: int, pending: dict):
             try:
                 await bot.send_message(
                     admin_id,
-                    f"⚠️ <b>Хатои хариди интизорӣ (аз баланс)!</b>\n\n"
+                    f"⚠️ <b>Хатои хариди интизорӣ (аз баланс) — ДАСТӢ ҳал кунед!</b>\n\n"
                     f"👤 ID: <code>{user_id}</code>\n"
-                    f"💵 {price:.2f} сом кам шуда буд — БАРГАРДОНИДА шуд.\n"
+                    f"💵 {price:.2f} сом аз баланс кам шуд, вале фармоиш сохта НАШУД.\n"
                     f"🎁 {esc(pending.get('label', '—'))}\n"
                     f"Хато: {esc(str(e))[:200]}",
                     parse_mode="HTML"

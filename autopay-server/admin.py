@@ -713,27 +713,21 @@ async def order_group_reject(call: CallbackQuery):
         return
 
     # Банди АТОМИКӢ барои ҳар фармоиш — то агар ду админ ҳамзамон рад кунанд,
-    # баргардонидани баланс ду бор нашавад (танҳо якумин рад мегузарад)
+    # такрор нашавад. ДИҚҚАТ: пул ба баланс ХУДКОР БАРГАРДОНИДА НАМЕШАВАД
+    # (қоидаи соҳиб) — агар лозим бошад, соҳиб дастӣ ҳал мекунад.
     rejected_any = False
     for order in pending:
         if not await db.claim_order_for_reject(order["id"]):
             continue
         rejected_any = True
-        if order.get("payment_method") == "referral_balance":
-            await db.add_referral_earning(order["user_id"], float(order["price"]), order["id"])
     if not rejected_any:
         await call.answer("ℹ️ Ин гурӯҳ аллакай коркард шудааст!", show_alert=True)
         return
 
     try:
-        refund_note = (
-            "\n💰 Маблаг ба балансатон баргардонида шуд."
-            if pending[0].get("payment_method") == "referral_balance" else ""
-        )
         await call.bot.send_message(
             pending[0]["user_id"],
             f"❌ <b>Пардохти шумо рад карда шуд.</b>\n\n"
-            f"{refund_note}\n\n"
             f"Агар хато бошад, бо дастгирӣ тамос гиред: {config.SUPPORT_USERNAME}",
             parse_mode="HTML"
         )
@@ -1059,33 +1053,26 @@ async def order_reject(call: CallbackQuery, state: FSMContext):
 
 
 async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, msg_id: int) -> bool:
-    """Фармоишро рад мекунад: статус, баргардониди балансаи реферралӣ (агар лозим),
-    хабар ба мизоҷ ва навсозии паёми фармоиш дар панели админ."""
+    """Фармоишро рад мекунад: статус, хабар ба мизоҷ ва навсозии паёми
+    фармоиш дар панели админ. ДИҚҚАТ: пул ба баланс ХУДКОР БАРГАРДОНИДА
+    НАМЕШАВАД (қоидаи соҳиб) — агар лозим бошад, соҳиб дастӣ ҳал мекунад."""
     order = await db.get_order(order_id)
     if not order:
         return False
     # Банди АТОМИКӢ ба 'rejected' — 'donating' низ манъ аст (донати худкор
-    # дар ҷараён). Агар False барорад, аллакай коркард шудааст (масалан ду
-    # админ ҳамзамон рад карданд) — то БАРГАРДОНИДАНИ БАЛАНС ду бор нашавад.
+    # дар ҷараён). Агар False барорад, аллакай коркард шудааст.
     if not await db.claim_order_for_reject(order_id):
         return False
 
     await db.set_order_reject_reason(order_id, reason_clean or "")
-    if order.get("payment_method") == "referral_balance":
-        await db.add_referral_earning(order["user_id"], float(order["price"]), order_id)
 
     try:
-        refund_note = (
-            "\n💰 Маблаг ба балансатон баргардонида шуд."
-            if order.get("payment_method") == "referral_balance" else ""
-        )
         reason_line = f"\n📝 Сабаб: {esc(reason_clean)}\n" if reason_clean else ""
         await bot.send_message(
             order["user_id"],
             f"❌ <b>Пардохти шумо рад карда шуд.</b>\n\n"
             f"🆔 Фармоиш: #{order_id}\n"
-            f"{reason_line}"
-            f"{refund_note}\n\n"
+            f"{reason_line}\n"
             f"Агар хато бошад, бо дастгирӣ тамос гиред: {config.SUPPORT_USERNAME}",
             parse_mode="HTML"
         )
