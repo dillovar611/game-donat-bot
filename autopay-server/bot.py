@@ -322,6 +322,7 @@ _TX_TYPE_LABELS = {
     "purchase": "🛒 Харид аз баланс",
     "referral_reward": "🤝 Мукофоти реферралӣ",
     "refund": "↩️ Баргардонӣ",
+    "admin_adjust": "🛠 Ивази админ",
 }
 
 

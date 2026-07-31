@@ -342,6 +342,101 @@ async def get_balance_transactions(user_id: int, limit: int = 15) -> list:
             return await cur.fetchall()
 
 
+async def admin_adjust_balance(user_id: int, amount: float, reason: str = "") -> tuple:
+    """
+    Дастӣ (аз тарафи админ) балансро иваз мекунад — мусбат = илова, манфӣ = кам.
+    Дар ЯК транзаксия бо сабти таърих. Агар кам кардан аз баланси мавҷуда зиёд
+    бошад, рад мекунад (баланс манфӣ намешавад).
+    Бармегардонад: (ok: bool, old_balance: float, new_balance: float)
+    """
+    async with pool.acquire() as conn:
+        await conn.begin()
+        try:
+            async with conn.cursor() as cur:
+                await cur.execute(
+                    "SELECT referral_balance FROM users WHERE id=%s FOR UPDATE", (user_id,)
+                )
+                row = await cur.fetchone()
+                if row is None:
+                    await conn.rollback()
+                    return False, 0.0, 0.0
+                old_balance = float(row[0] or 0)
+                new_balance = round(old_balance + amount, 2)
+                if new_balance < 0:
+                    await conn.rollback()
+                    return False, old_balance, old_balance
+                await cur.execute(
+                    "UPDATE users SET referral_balance=%s WHERE id=%s",
+                    (new_balance, user_id)
+                )
+                await _log_balance_tx(cur, user_id, amount, "admin_adjust")
+            await conn.commit()
+            return True, old_balance, new_balance
+        except Exception:
+            await conn.rollback()
+            raise
+
+
+async def get_balance_summary() -> dict:
+    """Ҳисоботи умумии балансҳо — қарзи умумӣ, шумораи дорандагон, ҳаракати имрӯз."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT COALESCE(SUM(referral_balance),0) AS total, "
+                "COUNT(*) AS holders FROM users WHERE referral_balance > 0"
+            )
+            row = await cur.fetchone()
+            total = float(row["total"] or 0)
+            holders = row["holders"] or 0
+
+            await cur.execute(
+                "SELECT COALESCE(SUM(amount),0) AS s FROM balance_transactions "
+                "WHERE tx_type='topup' AND DATE(created_at)=CURDATE()"
+            )
+            topup_today = float((await cur.fetchone())["s"] or 0)
+
+            await cur.execute(
+                "SELECT COALESCE(SUM(-amount),0) AS s FROM balance_transactions "
+                "WHERE tx_type='purchase' AND DATE(created_at)=CURDATE()"
+            )
+            spent_today = float((await cur.fetchone())["s"] or 0)
+
+            await cur.execute(
+                "SELECT COALESCE(SUM(amount),0) AS s FROM balance_transactions "
+                "WHERE tx_type='topup'"
+            )
+            topup_all = float((await cur.fetchone())["s"] or 0)
+
+            return {
+                "total": total,
+                "holders": holders,
+                "topup_today": topup_today,
+                "spent_today": spent_today,
+                "topup_all": topup_all,
+            }
+
+
+async def count_users_with_balance() -> int:
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT COUNT(*) FROM users WHERE referral_balance > 0")
+            row = await cur.fetchone()
+            return row[0] if row else 0
+
+
+async def get_users_with_balance(offset: int = 0, limit: int = 15) -> list:
+    """Рӯйхати ҲАМАИ корбароне, ки баланс доранд — аз зиёдтарин ба камтарин."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, username, full_name, referral_balance "
+                "FROM users WHERE referral_balance > 0 "
+                "ORDER BY referral_balance DESC, id LIMIT %s OFFSET %s",
+                (limit, offset)
+            )
+            return await cur.fetchall()
+
+
 async def create_pending_purchase(topup_order_id: int, user_id: int, game_id: str,
                                    nickname: str, amount, price: float, label: str,
                                    offer_id: str) -> int:

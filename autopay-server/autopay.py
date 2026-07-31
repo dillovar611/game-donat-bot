@@ -979,6 +979,10 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
             logger.error(f"Хатогӣ дар expiry (search): {e}")
 
 
+# Аз ин маблағ боло — пуркунии баланс "калон" ҳисоб мешавад ва огоҳии
+# махсус ба админ меравад (аз танзими 'big_topup_alert' иваз кардан мумкин)
+BIG_TOPUP_DEFAULT = 200.0
+
 GIVEAWAY_DEFAULT_EVERY_N = 25
 GIVEAWAY_NEAR_MISS_THRESHOLD = 3  # чанд фармоиш монда огоҳии "наздикӣ" фиристода шавад
 
@@ -1014,8 +1018,17 @@ async def _credit_balance_topup(bot: Bot, order: dict):
         user = None
     full_name = user.get("full_name") if user else "—"
     username = f"@{user['username']}" if user and user.get("username") else "—"
+    # Пуркунии КАЛОН — огоҳии махсус (диққати соҳибро ҷалб мекунад)
+    big_line = ""
+    try:
+        threshold = float(await db.get_setting("big_topup_alert") or BIG_TOPUP_DEFAULT)
+    except Exception:
+        threshold = BIG_TOPUP_DEFAULT
+    if threshold > 0 and amount >= threshold:
+        big_line = f"\n🔔 <b>ДИҚҚАТ: пуркунии КАЛОН ({amount:.2f} сом)!</b>\n"
     admin_text = (
-        f"💰 <b>Баланси мизоҷ пур шуд</b>\n\n"
+        f"💰 <b>Баланси мизоҷ пур шуд</b>\n"
+        f"{big_line}\n"
         f"👤 Харидор: {esc(full_name)} ({esc(username)})\n"
         f"🆔 ID: <code>{user_id}</code>\n"
         f"💰 {old_balance:.2f} сом буд → {new_balance:.2f} сом шуд (+{amount:.2f} сом)\n"

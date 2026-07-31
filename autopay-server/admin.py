@@ -156,7 +156,7 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="💎 Нархи шахсии мизоҷ", callback_data="a_custom_price")],
         [InlineKeyboardButton(text="💳 Рақами корти ДС",     callback_data="a_dc_card")],
         [InlineKeyboardButton(text="🎁 Тӯҳфаи тасодуфӣ",      callback_data="a_giveaway")],
-        [InlineKeyboardButton(text="💰 Ҳадди пуркунии баланс", callback_data="a_max_topup")],
+        [InlineKeyboardButton(text="💰 Идоракунии баланс",    callback_data="a_balance_menu")],
     ])
 
 
@@ -215,6 +215,207 @@ async def a_dc_card_save(message: Message, state: FSMContext):
     )
 
 
+# ==================== ИДОРАКУНИИ БАЛАНС ====================
+class BalanceAdjustState(StatesGroup):
+    enter_user = State()
+    enter_amount = State()
+    enter_reason = State()
+
+
+def _balance_menu_kb() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Ҳисоботи балансҳо", callback_data="a_balance_report")],
+        [InlineKeyboardButton(text="➕➖ Дастӣ иваз кардани баланс", callback_data="a_balance_adjust")],
+        [InlineKeyboardButton(text="💰 Ҳадди пуркунӣ", callback_data="a_max_topup")],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")],
+    ])
+
+
+@router.callback_query(F.data == "a_balance_menu")
+async def a_balance_menu(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await state.clear()
+    summary = await db.get_balance_summary()
+    await _safe_edit(
+        call,
+        f"💰 <b>Идоракунии баланс</b>\n\n"
+        f"💳 Дар балансҳо ҳамагӣ: <b>{summary['total']:.2f} сом</b>\n"
+        f"👥 Соҳибони баланс: <b>{summary['holders']}</b> нафар\n\n"
+        f"Амалро интихоб кунед:",
+        _balance_menu_kb()
+    )
+
+
+@router.callback_query(F.data.startswith("a_balance_report"))
+async def a_balance_report(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    # callback: a_balance_report ё a_balance_report_<offset>
+    parts = call.data.split("_")
+    offset = int(parts[3]) if len(parts) > 3 and parts[3].isdigit() else 0
+    per_page = 15
+
+    summary = await db.get_balance_summary()
+    total_holders = await db.count_users_with_balance()
+    rows = await db.get_users_with_balance(offset, per_page)
+
+    text = (
+        f"📊 <b>Ҳисоботи балансҳо</b>\n\n"
+        f"💳 Ҳамагӣ дар балансҳо: <b>{summary['total']:.2f} сом</b>\n"
+        f"   <i>(ин пули мизоҷон аст — қарзи шумо)</i>\n"
+        f"👥 Соҳибони баланс: <b>{total_holders}</b> нафар\n\n"
+        f"📥 Имрӯз пур шуд: <b>{summary['topup_today']:.2f} сом</b>\n"
+        f"📤 Имрӯз харҷ шуд: <b>{summary['spent_today']:.2f} сом</b>\n"
+        f"🏦 Ҳамагӣ то ҳол пур шудааст: <b>{summary['topup_all']:.2f} сом</b>\n"
+    )
+
+    if not rows:
+        text += "\nҲоло ҳељ кас баланс надорад."
+    else:
+        text += f"\n👤 <b>Рӯйхат ({offset + 1}-{offset + len(rows)} аз {total_holders}):</b>\n"
+        for i, u in enumerate(rows, start=offset + 1):
+            name = esc(u.get("full_name") or "—")
+            uname = f"@{u['username']}" if u.get("username") else "—"
+            text += f"{i}. {name} ({uname})\n   <code>{u['id']}</code> — <b>{float(u['referral_balance']):.2f} сом</b>\n"
+
+    nav_rows = []
+    nav = []
+    if offset > 0:
+        nav.append(InlineKeyboardButton(
+            text="⬅️ Қафо", callback_data=f"a_balance_report_{max(0, offset - per_page)}"
+        ))
+    if offset + per_page < total_holders:
+        nav.append(InlineKeyboardButton(
+            text="Пеш ➡️", callback_data=f"a_balance_report_{offset + per_page}"
+        ))
+    if nav:
+        nav_rows.append(nav)
+    nav_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_balance_menu")])
+
+    await _safe_edit(call, text, InlineKeyboardMarkup(inline_keyboard=nav_rows))
+
+
+@router.callback_query(F.data == "a_balance_adjust")
+async def a_balance_adjust(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await state.clear()
+    await _safe_edit(
+        call,
+        "➕➖ <b>Дастӣ иваз кардани баланс</b>\n\n"
+        "ID-и Telegram-и корбарро нависед (масалан: 7001198513):",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_balance_menu")]
+        ])
+    )
+    await state.set_state(BalanceAdjustState.enter_user)
+
+
+@router.message(BalanceAdjustState.enter_user)
+async def a_balance_adjust_user(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    txt = (message.text or "").strip()
+    if not txt.isdigit():
+        await message.answer("⚠️ ID бояд танҳо аз рақамҳо бошад. Дубора нависед:")
+        return
+    user_id = int(txt)
+    user = await db.get_user(user_id)
+    if not user:
+        await message.answer("❌ Ин корбар ёфт нашуд. ID-и дигар нависед:")
+        return
+    balance = await db.get_referral_balance(user_id)
+    await state.update_data(adj_user_id=user_id)
+    name = esc(user.get("full_name") or "—")
+    uname = f"@{user['username']}" if user.get("username") else "—"
+    await message.answer(
+        f"👤 <b>{name}</b> ({uname})\n"
+        f"🆔 <code>{user_id}</code>\n"
+        f"💰 Баланси ҳозира: <b>{balance:.2f} сом</b>\n\n"
+        f"Маблағро нависед:\n"
+        f"• <b>50</b> — 50 сом ИЛОВА мекунад\n"
+        f"• <b>-50</b> — 50 сом КАМ мекунад",
+        parse_mode="HTML"
+    )
+    await state.set_state(BalanceAdjustState.enter_amount)
+
+
+@router.message(BalanceAdjustState.enter_amount)
+async def a_balance_adjust_amount(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        amount = round(float((message.text or "").strip().replace(",", ".")), 2)
+        if not math.isfinite(amount) or amount == 0:
+            raise ValueError
+    except ValueError:
+        await message.answer("⚠️ Рақами дуруст нависед (масалан: 50 ё -50):")
+        return
+    await state.update_data(adj_amount=amount)
+    await message.answer(
+        "📝 Сабабро кӯтоҳ нависед (масалан: «баргардонии фармоиши #123»).\n"
+        "Агар сабаб лозим набошад, «-» нависед:"
+    )
+    await state.set_state(BalanceAdjustState.enter_reason)
+
+
+@router.message(BalanceAdjustState.enter_reason)
+async def a_balance_adjust_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    await state.clear()
+    user_id = data.get("adj_user_id")
+    amount = data.get("adj_amount")
+    if not user_id or amount is None:
+        await message.answer("⚠️ Хатогӣ — аз нав сар кунед.")
+        return
+    reason = (message.text or "").strip()
+    if reason in ("-", "—", ""):
+        reason = ""
+
+    try:
+        ok, old_balance, new_balance = await db.admin_adjust_balance(user_id, amount, reason)
+    except Exception as e:
+        logger.error(f"a_balance_adjust_save: хато ({user_id}, {amount}): {e}")
+        await message.answer("⚠️ Хатои система — дубора кӯшиш кунед.")
+        return
+
+    if not ok:
+        await message.answer(
+            f"❌ Нашуд! Баланси корбар ({old_balance:.2f} сом) барои ин амал кофӣ нест "
+            f"(баланс манфӣ шуда наметавонад)."
+        )
+        return
+
+    sign = "+" if amount > 0 else ""
+    reason_line = f"\n📝 Сабаб: {esc(reason)}" if reason else ""
+    await message.answer(
+        f"✅ <b>Баланс иваз шуд!</b>\n\n"
+        f"👤 ID: <code>{user_id}</code>\n"
+        f"💰 {old_balance:.2f} сом → <b>{new_balance:.2f} сом</b> ({sign}{amount:.2f})"
+        f"{reason_line}",
+        parse_mode="HTML"
+    )
+
+    # Мизоҷро низ огоҳ мекунем
+    try:
+        if amount > 0:
+            head = f"💰 <b>Ба балансатон {amount:.2f} сом илова шуд!</b>"
+        else:
+            head = f"💰 <b>Аз балансатон {abs(amount):.2f} сом кам шуд.</b>"
+        await message.bot.send_message(
+            user_id,
+            f"{head}\n\n"
+            f"💳 Баланси ҳозира: <b>{new_balance:.2f} сом</b>"
+            f"{reason_line}",
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Огоҳии ивази баланс ба {user_id} нарасид: {e}")
+
+
 # ==================== ҲАДДИ ПУРКУНИИ БАЛАНС ====================
 class MaxTopupState(StatesGroup):
     change = State()
@@ -231,7 +432,7 @@ async def a_max_topup(call: CallbackQuery, state: FSMContext):
         f"Ҳозира: <b>{current:.2f} сомонӣ</b>\n\n"
         f"Маблағи нави ҳаддро нависед (сомонӣ):",
         InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_back")]
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_balance_menu")]
         ])
     )
     await state.set_state(MaxTopupState.change)
@@ -1857,13 +2058,68 @@ async def a_user_info_show(message: Message, state: FSMContext):
         kb_rows.append([InlineKeyboardButton(text="💬 ЛС ба корбар", url=f"https://t.me/{user['username']}")])
     if ref_count:
         kb_rows.append([InlineKeyboardButton(
-            text="👥 Рефералхои ин корбар",
+            text="👥 Рефералҳои ин корбар",
             callback_data=f"a_ref_subusers_{user_id}"
         )])
+    kb_rows.append([InlineKeyboardButton(
+        text="📜 Таърихи баланс",
+        callback_data=f"a_bal_hist_{user_id}"
+    )])
     kb_rows.append([InlineKeyboardButton(text="🚫 Бан/Анбан", callback_data="a_ban_unban")])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
     await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+_ADMIN_TX_LABELS = {
+    "topup": "💰 Пуркунӣ",
+    "purchase": "🛒 Харид",
+    "referral_reward": "🤝 Мукофоти реферралӣ",
+    "refund": "↩️ Баргардонӣ",
+    "admin_adjust": "🛠 Ивази админ",
+}
+
+
+@router.callback_query(F.data.startswith("a_bal_hist_"))
+async def a_balance_history_admin(call: CallbackQuery):
+    """Таърихи баланси як мизоҷ — барои админ (аз экрани 'Маълумоти корбар')."""
+    if not is_admin(call.from_user.id):
+        return
+    user_id = int(call.data.split("_")[-1])
+    balance = await db.get_referral_balance(user_id)
+    txs = await db.get_balance_transactions(user_id, limit=20)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")]
+    ])
+    if not txs:
+        await _safe_edit(
+            call,
+            f"📜 <b>Таърихи баланс</b>\n\n"
+            f"🆔 <code>{user_id}</code>\n"
+            f"💰 Баланси ҳозира: <b>{balance:.2f} сом</b>\n\n"
+            f"Ҳоло ҳељ амале нест.",
+            kb
+        )
+        return
+    lines = []
+    for tx in txs:
+        amount = float(tx["amount"])
+        sign = "+" if amount >= 0 else ""
+        label = _ADMIN_TX_LABELS.get(tx["tx_type"], tx["tx_type"])
+        dt = tx["created_at"].strftime("%d.%m %H:%M") if tx.get("created_at") else "—"
+        order_part = f" (#{tx['order_id']})" if tx.get("order_id") else ""
+        lines.append(
+            f"{label}{order_part}: {sign}{amount:.2f} → {float(tx['balance_after']):.2f} сом\n"
+            f"   🕒 {dt}"
+        )
+    await _safe_edit(
+        call,
+        f"📜 <b>Таърихи баланс</b> (охирин 20)\n\n"
+        f"🆔 <code>{user_id}</code>\n"
+        f"💰 Баланси ҳозира: <b>{balance:.2f} сом</b>\n\n"
+        + "\n\n".join(lines),
+        kb
+    )
 
 
 @router.callback_query(F.data.startswith("a_ref_subusers_"))
