@@ -567,6 +567,19 @@ async def order_confirm(call: CallbackQuery):
         await _combo_confirm(call, order)
         return
 
+    # Пуркунии баланс — ҲЕЉ ГОҲ донат нест (game_id/offer_id холист, ff_api
+    # табиист нокоме мекунад). Ин шоха ҳимоя мекунад агар топуп ба ин ҷо
+    # аз ягон роҳи ғайримустақим бирасад (масалан эскалатсияи expiry_loop-и
+    # "чек омада, пардохт ёфт нашуд" — ки бо ҳамин тугмаи умумии "ok_" кор мекунад)
+    if order.get("is_balance_topup"):
+        import autopay
+        await call.answer("⏳ Пуркунии баланс тафтиш карда истодааст...", show_alert=False)
+        await autopay._credit_balance_topup(call.bot, order)
+        await _safe_edit_caption(
+            call.message, f"✅ Баланси мизоҷ пур карда шуд (фармоиш #{order_id}).", None
+        )
+        return
+
     # Агар статус 'paid' ё 'donating' бошад, атомикӣ банд мекунем — то агар
     # дар ҳамин лаҳза DCSCAN/DCNOTIF низ ҳамин пардохтро ёфта, худкор
     # коркард карда истода бошад (ё аллакай оғоз кардааст), ду бор донат

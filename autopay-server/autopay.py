@@ -1011,16 +1011,23 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
 
         total_wins = await db.count_giveaway_wins()
 
-        # Эълони ҷамъиятӣ дар канали асосӣ — бо НОМ, вале БЕ юзернейм
+        # Эълони ҷамъиятӣ дар канали асосӣ — бо НОМ, вале БЕ юзернейм.
+        # Ҳар бор шарҳи механизм илова мешавад — то мизоҷон "чӣ хел дигарон
+        # ройгон гирифтанд?" напурсанд (қуръаи возеҳ, на дархост/VIP)
         try:
+            every_n = int(await db.get_setting("giveaway_every_n") or str(GIVEAWAY_DEFAULT_EVERY_N))
             display_name = winner_name if winner_name != "—" else "Яке аз мизоҷони мо"
             await bot.send_message(
                 config.CHANNEL_ID,
                 f"🎉🎁 <b>Тӯҳфаи ройгон дода шуд!</b>\n\n"
                 f"{display_name} тасодуфан интихоб шуд ва <b>{label}</b>-ро "
                 f"БЕПУЛ гирифт! 🍀\n\n"
-                f"🏆 Ин <b>{total_wins}-умин</b> барандаи мо аст!\n"
-                f"Шумо низ метавонед барандаи навбатӣ бошед — фақат фармоиш диҳед! 💎",
+                f"🏆 Ин <b>{total_wins}-умин</b> барандаи мо аст!\n\n"
+                f"🎲 <b>Чӣ гуна кор мекунад?</b> Ҳар <b>{every_n}-умин</b> фармоиши "
+                f"муваффақ — як БАРАНДАИ ТАСОДУФӢ аз ҳамон {every_n} харидор интихоб "
+                f"мешавад ва тӯҳфаи БЕПУЛ мегирад. Ин қуръа аст — на дархост, на "
+                f"VIP; ҳар кас имкони баробар дорад!\n"
+                f"Шумо низ фармоиш диҳед — шояд навбати шумо расад! 💎",
                 parse_mode="HTML"
             )
         except Exception as e:
