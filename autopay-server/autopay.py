@@ -1200,15 +1200,34 @@ async def _complete_pending_purchase(bot: Bot, user_id: int, pending: dict):
     await run_donate_from_balance(bot, order)
 
 
-async def _spin_gif_path(batch, winner_idx, label, total_wins):
+async def spin_names_for(batch):
+    """
+    Номҳои тозашуда барои чарх. Ҳамин номҳо дар МАТНИ эълон ҳам истифода
+    мешаванд — вагарна дар расм «Мизоҷ 7» ва дар матн «😐» мебуд.
+    """
+    try:
+        import spinwheel
+        names_map = await db.get_display_names(batch)
+        # Агар мизоҷ на username дошта бошад, на номи хондашаванда —
+        # 4 рақами охири ID-и ӯро мегузорем. Мизоҷ ID-и худро мешиносад,
+        # «Мизоҷ 24» бошад ба ӯ ҳеҷ чиз намегӯяд.
+        return [spinwheel.clean_name(names_map.get(int(u), ""),
+                                     f"ID •{str(u)[-4:]}")
+                for u in batch]
+    except Exception as e:
+        logger.error(f"Номҳои чарх тайёр нашуданд: {e}")
+        return [f"ID •{str(u)[-4:]}" for u in (batch or [])]
+
+
+async def _spin_gif_path(batch, winner_idx, label, total_wins, names=None):
     """
     GIF-и чархро месозад (дар риштаи алоҳида — то боти асосӣ кунд нашавад).
     Агар чизе нашавад — None, ва эълон бо матни оддӣ меравад.
     """
     try:
         import spinwheel
-        names_map = await db.get_display_names(batch)
-        names = [names_map.get(int(u), "Мизоҷ") for u in batch]
+        if names is None:
+            names = await spin_names_for(batch)
         out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "spin_last.gif")
         return await asyncio.to_thread(
             spinwheel.render_spin_gif, names, winner_idx, label,
@@ -1284,7 +1303,12 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int,
         # ройгон гирифтанд?" напурсанд (тӯҳфаи возеҳ, на дархост/VIP)
         try:
             every_n = int(await db.get_setting("giveaway_every_n") or str(GIVEAWAY_DEFAULT_EVERY_N))
-            display_name = winner_name if winner_name != "—" else "Яке аз мизоҷони мо"
+            # Номи чарх ва номи матн бояд ЯКХЕЛА бошанд
+            spin_names = await spin_names_for(batch) if batch else None
+            if spin_names and 0 <= winner_idx < len(spin_names):
+                display_name = esc(spin_names[winner_idx])
+            else:
+                display_name = winner_name if winner_name != "—" else "Яке аз мизоҷони мо"
             caption = (
                 f"🎉 <b>БАРАНДАИ НАВ!</b> 🎁\n\n"
                 f"🏅 <b>{display_name}</b>\n"
@@ -1311,7 +1335,8 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int,
             # мешавад, пас маълумот бояд дар матн ҳам бошад.
             gif = None
             if batch and winner_idx >= 0:
-                gif = await _spin_gif_path(batch, winner_idx, label, total_wins)
+                gif = await _spin_gif_path(batch, winner_idx, label, total_wins,
+                                           names=spin_names)
             if gif and os.path.isfile(gif):
                 try:
                     # Ҳудуди caption дар Telegram 1024 аломат аст. Агар номи

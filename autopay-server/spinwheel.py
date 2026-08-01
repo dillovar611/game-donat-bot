@@ -195,6 +195,30 @@ def clean_name(name: str, fallback: str = "Мизоҷ") -> str:
     return s or fallback
 
 
+def _draw_gift(size: int):
+    """Қуттии тӯҳфа — ивазкунандаи 🎁 барои серверҳое, ки шрифти
+    эмоҷии рангаро надоранд."""
+    ss = 4
+    S = size * ss
+    im = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    box_top = int(S * 0.34)
+    body = (int(S * .09), box_top, int(S * .91), int(S * .95))
+    lid = (int(S * .03), int(S * .20), int(S * .97), int(S * .40))
+    gold_d = (196, 138, 20)
+    d.rounded_rectangle(body, radius=int(S * .05), fill=gold_d)
+    d.rounded_rectangle(lid, radius=int(S * .05), fill=GOLD)
+    # лентаи амудӣ
+    d.rectangle((int(S * .42), box_top, int(S * .58), int(S * .95)), fill=MAG)
+    d.rectangle((int(S * .42), int(S * .20), int(S * .58), int(S * .40)), fill=MAG)
+    # камон
+    d.ellipse((int(S * .16), int(S * .02), int(S * .50), int(S * .26)),
+              outline=MAG, width=int(S * .07))
+    d.ellipse((int(S * .50), int(S * .02), int(S * .84), int(S * .26)),
+              outline=MAG, width=int(S * .07))
+    return im.resize((size, size), Image.LANCZOS)
+
+
 # ==================== НЕОН ====================
 def _add(base, layer_rgb, k=1.0):
     if k != 1.0:
@@ -363,7 +387,8 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
         return None
     # Ҳарфҳои «зебо»-и Unicode ва эмоҷӣ ба ҳарфи оддӣ табдил меёбанд —
     # вагарна ба ҷои ном чоркунҷаи холӣ кашида мешавад
-    names = [clean_name(x, f"Мизоҷ {i + 1}") for i, x in enumerate(names)]
+    names = [clean_name(x, f"Мизоҷ {i + 1}") if x else f"Мизоҷ {i + 1}"
+             for i, x in enumerate(names)]
 
     try:
         base_img = Image.open(BG_PATH).convert("RGB")
@@ -427,6 +452,10 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
         rings[flash] = (glow, merged)
 
     gift = _emoji_img("🎁", 66)
+    if gift is None:
+        # Дар сервер шрифти эмоҷӣ нест — қуттии тӯҳфаро худамон мекашем,
+        # вагарна маркази чарх холӣ ва нотамом менамояд
+        gift = _draw_gift(74)
 
     def compose(a, win, flash):
         img = static.copy()

@@ -538,8 +538,10 @@ async def a_giveaway_test_spin(call: CallbackQuery):
 
     widx = random.randrange(len(batch))
     total_wins = await db.count_giveaway_wins()
+    # Ҳамон номҳое, ки дар расм кашида мешаванд — то матн ва расм фарқ накунанд
+    names = await autopay.spin_names_for(batch)
     t0 = time.time()
-    gif = await autopay._spin_gif_path(batch, widx, label, total_wins + 1)
+    gif = await autopay._spin_gif_path(batch, widx, label, total_wins + 1, names=names)
     took = time.time() - t0
 
     if not gif or not os.path.isfile(gif):
@@ -553,8 +555,7 @@ async def a_giveaway_test_spin(call: CallbackQuery):
         return
 
     size_mb = os.path.getsize(gif) / (1024 * 1024)
-    names_map = await db.get_display_names(batch)
-    winner_name = names_map.get(int(batch[widx]), "Мизоҷ")
+    winner_name = names[widx] if widx < len(names) else "Мизоҷ"
     try:
         await call.message.answer_animation(
             FSInputFile(gif),
