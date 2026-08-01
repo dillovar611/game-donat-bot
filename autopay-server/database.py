@@ -793,6 +793,31 @@ async def get_confirmed_batch_user_ids_recent(offset: int, limit: int, hours: in
             return [r[0] for r in await cur.fetchall()]
 
 
+async def get_display_names(user_ids: list) -> dict:
+    """
+    Барои ҳар user_id номи намоишӣ бармегардонад — барои чархи тӯҳфа.
+    Тартиб: username → калимаи аввали ном → «Мизоҷ».
+    """
+    out = {}
+    if not user_ids:
+        return out
+    uniq = list({int(u) for u in user_ids})
+    ph = ",".join(["%s"] * len(uniq))
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                f"SELECT id, username, full_name FROM users WHERE id IN ({ph})", uniq)
+            for row in await cur.fetchall() or []:
+                nm = (row.get("username") or "").strip()
+                if not nm:
+                    full = (row.get("full_name") or "").strip()
+                    nm = full.split()[0] if full else ""
+                out[int(row["id"])] = nm or "Мизоҷ"
+    for u in uniq:
+        out.setdefault(u, "Мизоҷ")
+    return out
+
+
 async def get_last_giveaway_winner() -> dict | None:
     """Мизоҷи охирине, ки тӯҳфаи ройгон бурдааст (барои намоиши иҷтимоӣ)."""
     async with pool.acquire() as conn:

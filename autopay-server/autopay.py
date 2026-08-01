@@ -19,6 +19,7 @@ DC Next, ки барномаи Android ба канали махсуси Telegram
 """
 import asyncio
 import html
+import os
 import random
 import time
 import unicodedata
@@ -27,7 +28,8 @@ from datetime import datetime
 import re
 
 from aiogram import Router, F, Bot
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
+from aiogram.types import (Message, InlineKeyboardMarkup, InlineKeyboardButton,
+                           FSInputFile)
 
 import config
 import database as db
@@ -1198,7 +1200,26 @@ async def _complete_pending_purchase(bot: Bot, user_id: int, pending: dict):
     await run_donate_from_balance(bot, order)
 
 
-async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
+async def _spin_gif_path(batch, winner_idx, label, total_wins):
+    """
+    GIF-и чархро месозад (дар риштаи алоҳида — то боти асосӣ кунд нашавад).
+    Агар чизе нашавад — None, ва эълон бо матни оддӣ меравад.
+    """
+    try:
+        import spinwheel
+        names_map = await db.get_display_names(batch)
+        names = [names_map.get(int(u), "Мизоҷ") for u in batch]
+        out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "spin_last.gif")
+        return await asyncio.to_thread(
+            spinwheel.render_spin_gif, names, winner_idx, label,
+            total_wins, config.BOT_USERNAME, out)
+    except Exception as e:
+        logger.error(f"Чархи тӯҳфа сохта нашуд: {e}")
+        return None
+
+
+async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int,
+                              batch: list = None, winner_idx: int = -1):
     """Ба барандаи тасодуфӣ маҳсулоти тӯҳфаро худкор донат мекунад ва огоҳ мекунад."""
     product = await db.get_product(product_id)
     if not product:
@@ -1264,8 +1285,7 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
         try:
             every_n = int(await db.get_setting("giveaway_every_n") or str(GIVEAWAY_DEFAULT_EVERY_N))
             display_name = winner_name if winner_name != "—" else "Яке аз мизоҷони мо"
-            await bot.send_message(
-                config.CHANNEL_ID,
+            caption = (
                 f"🎉 <b>БАРАНДАИ НАВ!</b> 🎁\n\n"
                 f"🏅 <b>{display_name}</b>\n"
                 f"🎁 <b>{label}</b> — БЕПУЛ! 🍀\n\n"
@@ -1284,9 +1304,36 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
                 f"❗️ Ҳеҷ кас VIP нест — ҳама <b>баробар</b>\n\n"
                 f"🏆 То ҳол <b>{total_wins} нафар</b> ройгон гирифтаанд!\n\n"
                 f"💎 Фармоиш диҳед — шояд навбати шумо расад!\n\n"
-                f"🤖 Боти мо: @{config.BOT_USERNAME}",
-                parse_mode="HTML"
+                f"🤖 Боти мо: @{config.BOT_USERNAME}"
             )
+            # Чархи гарданда — агар сохта шавад, эълон ҳамчун GIF меравад.
+            # Матн ҳамчун caption мемонад: GIF дар Telegram беохир такрор
+            # мешавад, пас маълумот бояд дар матн ҳам бошад.
+            gif = None
+            if batch and winner_idx >= 0:
+                gif = await _spin_gif_path(batch, winner_idx, label, total_wins)
+            if gif and os.path.isfile(gif):
+                try:
+                    # Ҳудуди caption дар Telegram 1024 аломат аст. Агар номи
+                    # баранда хеле дароз бошад ва аз он гузарем, шарҳро
+                    # ҳамчун паёми ҷудогона мефиристем — вагарна эълон
+                    # тамоман нарафтан мегирад.
+                    if len(caption) <= 1000:
+                        await bot.send_animation(
+                            config.CHANNEL_ID, FSInputFile(gif),
+                            caption=caption, parse_mode="HTML")
+                    else:
+                        head, _, rest = caption.partition("━━━━━━━━━━━━━━")
+                        await bot.send_animation(
+                            config.CHANNEL_ID, FSInputFile(gif),
+                            caption=head.strip(), parse_mode="HTML")
+                        await bot.send_message(
+                            config.CHANNEL_ID, rest.strip(), parse_mode="HTML")
+                except Exception as e:
+                    logger.error(f"GIF-и чарх ба канал нарафт ({e}) — матн мефиристем")
+                    await bot.send_message(config.CHANNEL_ID, caption, parse_mode="HTML")
+            else:
+                await bot.send_message(config.CHANNEL_ID, caption, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Эълони тӯҳфа ба канал нарасид: {e}")
 
@@ -1789,8 +1836,12 @@ async def giveaway_loop(bot: Bot, interval_seconds: int = 60):
             offset = (next_multiple - 1) * every_n
             batch = await db.get_confirmed_batch_user_ids(offset, every_n)
             if batch:
-                winner_id = random.choice(batch)
-                asyncio.create_task(_send_giveaway_gift(bot, winner_id, int(product_id_str)))
+                # Индексро мегирем, на танҳо ID — то чархи тӯҳфа маҳз дар
+                # ҲАМОН сектор истад, ки баранда дар он аст
+                widx = random.randrange(len(batch))
+                winner_id = batch[widx]
+                asyncio.create_task(_send_giveaway_gift(
+                    bot, winner_id, int(product_id_str), batch, widx))
             await db.set_setting("giveaway_last_multiple", str(next_multiple))
         except Exception as e:
             logger.error(f"Хатогӣ дар giveaway_loop: {e}")
