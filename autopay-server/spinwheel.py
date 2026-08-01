@@ -162,6 +162,39 @@ def _cput(im, d, y, t, fnt, col, w):
     _put(im, d, (w - _width(d, t, fnt)) // 2, y, t, fnt, col)
 
 
+# ==================== ТОЗА КАРДАНИ НОМ ====================
+# Ҳарфҳое, ки шрифти DejaVu кашида метавонад
+_OK_RANGES = (
+    (0x20, 0x7E),      # ASCII
+    (0xA0, 0x24F),     # Latin-1 + Latin Extended A/B
+    (0x400, 0x52F),    # Кириллица (бо ҳарфҳои тоҷикӣ: ӯ ҳ ҷ қ ғ ӣ)
+    (0x2010, 0x2027),  # тире, нохунакҳо
+)
+
+
+def _renderable(ch: str) -> bool:
+    o = ord(ch)
+    return any(a <= o <= b for a, b in _OK_RANGES)
+
+
+def clean_name(name: str, fallback: str = "Мизоҷ") -> str:
+    """
+    Номро барои кашидан тайёр мекунад.
+
+    Бисёр корбарони Telegram дар ном ҳарфҳои «зебои» Unicode
+    (𝗌𝗎𝖽𝖺𝗒𝗌, 𝓐𝓵𝓲) ё эмоҷӣ мегузоранд. Шрифти DejaVu онҳоро надорад ва
+    ба ҷои ҳарф чоркунҷаи холӣ (▯▯▯) мекашид. NFKC онҳоро ба ҳарфҳои
+    оддӣ табдил медиҳад (𝗌𝗎𝖽𝖺𝗒𝗌 → sudays), бақияаш партофта мешавад.
+    """
+    import unicodedata
+    s = unicodedata.normalize("NFKC", (name or "").strip())
+    s = "".join(c for c in s if _renderable(c))
+    s = " ".join(s.split())
+    if len(s) > 18:
+        s = s[:17].rstrip() + "…"
+    return s or fallback
+
+
 # ==================== НЕОН ====================
 def _add(base, layer_rgb, k=1.0):
     if k != 1.0:
@@ -313,7 +346,7 @@ def _glow_text(base, t, fnt, y, color, w, h, stroke=4):
 
 
 def render_spin_gif(names, winner_idx, gift_label, total_wins,
-                    bot_username="", out_path=None, subtitle="БАРАНДА МАЪЛУМ ШУД!"):
+                    bot_username="", out_path=None, subtitle="ТӮҲФАИ МИННАТДОРИИ МАҒОЗА"):
     """
     GIF-и чархро месозад ва роҳи файлро бармегардонад (ё None).
 
@@ -328,6 +361,9 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
     if not names or not (0 <= winner_idx < len(names)):
         logger.warning("spinwheel: рӯйхати номҳо ё индекси баранда нодуруст")
         return None
+    # Ҳарфҳои «зебо»-и Unicode ва эмоҷӣ ба ҳарфи оддӣ табдил меёбанд —
+    # вагарна ба ҷои ном чоркунҷаи холӣ кашида мешавад
+    names = [clean_name(x, f"Мизоҷ {i + 1}") for i, x in enumerate(names)]
 
     try:
         base_img = Image.open(BG_PATH).convert("RGB")
@@ -415,26 +451,37 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
             img.paste(gift, (CX - gift.width // 2, CY - gift.height // 2), gift)
         return img
 
+    winner = names[winner_idx]
+    tail = f"{total_wins}-умин барандаи мо · аз {n} харидор"
+    if bot_username:
+        tail += f" · @{bot_username}"
+
+    def panel(img, win):
+        """Панели поёнӣ дар ҲАМА кадрҳо пур мешавад — вагарна ҳангоми
+        гардиш (ва GIF беохир такрор мешавад) як қуттии холӣ менамояд."""
+        d2 = ImageDraw.Draw(img)
+        if win:
+            _cput(img, d2, PT + 26, "🏅 " + winner, _font(44), WHITE, W)
+            _cput(img, d2, PT + 96, "🎁 " + gift_label + " — БЕПУЛ!", _font(28), GREEN, W)
+            _cput(img, d2, PT + 140, "🏆 " + tail, _font(16), (195, 175, 250), W)
+        else:
+            _cput(img, d2, PT + 34, "ИНТИХОБИ ТАСОДУФӢ...", _font(34), CYA, W)
+            _cput(img, d2, PT + 96, gift_label + " — БЕПУЛ!", _font(26), GREEN, W)
+            _cput(img, d2, PT + 140, "Ҳар харидор дар рӯйхат аст", _font(16),
+                  (195, 175, 250), W)
+        _cput(img, d2, BT + 24, "ФАРМОИШ ДИҲЕД!", _font(30), WHITE, W)
+        return img
+
     frames, durs = [], []
     steps = 26
     for i in range(steps):
         t = i / (steps - 1)
         e = 1 - (1 - t) ** 3.2
-        frames.append(compose(angle * e, False, False))
+        frames.append(panel(compose(angle * e, False, False), False))
         durs.append(int(50 + 170 * t ** 2.5))
 
-    winner = names[winner_idx]
     for j in range(4):
-        img = compose(angle, True, j % 2 == 0)
-        d2 = ImageDraw.Draw(img)
-        _cput(img, d2, PT + 26, "🏅 " + winner, _font(44), WHITE, W)
-        _cput(img, d2, PT + 96, "🎁 " + gift_label + " — БЕПУЛ!", _font(28), GREEN, W)
-        tail = f"🏆 {total_wins}-умин барандаи мо · аз {n} харидор"
-        if bot_username:
-            tail += f" · @{bot_username}"
-        _cput(img, d2, PT + 140, tail, _font(16), (195, 175, 250), W)
-        _cput(img, d2, BT + 24, "ФАРМОИШ ДИҲЕД!", _font(30), WHITE, W)
-        frames.append(img)
+        frames.append(panel(compose(angle, True, j % 2 == 0), True))
         durs.append(2800 if j == 3 else 250)
 
     if out_path is None:
