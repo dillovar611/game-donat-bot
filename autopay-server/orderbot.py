@@ -594,6 +594,10 @@ async def cmd_chat(message: Message):
 @dp.message()
 async def cmd_other(message: Message):
     if message.from_user.id != NOTIFY_CHAT_ID:
+        # Ба каси бегона ҷавоб намедиҳем, вале ба лог менависем — вагарна
+        # ҳангоми санҷиш маълум намешавад, ки чаро бот хомӯш монд
+        logger.info(f"[NOT-OWNER] паём аз {message.from_user.id} "
+                    f"({message.from_user.full_name}) — NOTIFY_CHAT_ID={NOTIFY_CHAT_ID}")
         return
     await message.answer(HELP, parse_mode="HTML")
 
