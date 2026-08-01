@@ -55,12 +55,22 @@ PT, PB = 812, 978      # панели натиҷа
 BT, BB = 1006, 1092    # тугмаи поёнӣ
 SPINS = 4              # чанд гардиши пурра
 
+# Бари ниҳоии видео. Паснамо 896px аст — ҳама чиз ба ин миқёс калон
+# карда мешавад, то матн ва чарх тезтар бароянд ва Telegram ҳангоми
+# фишурдан камтар вайрон кунад.
+TARGET_W = 1080
+MP4_FPS = 25
+
 
 # ==================== ШРИФТҲО ====================
 _font_cache = {}
 
 
+_FS = 1.0          # зарбкунандаи андозаи шрифт (аз миқёси расм)
+
+
 def _font(size: int):
+    size = max(6, int(round(size * _FS)))
     if size in _font_cache:
         return _font_cache[size]
     try:
@@ -301,8 +311,8 @@ def _wheel_parts(names, winner_idx, win, view):
         tw = td.textbbox((0, 0), nm, font=fnt)[2]
         # сояи тира — ном дар заминаи равшан низ хоно бошад
         td.text(((tl.width - tw) // 2, int(10 * SS)), nm, font=fnt,
-                fill=col + (255,), stroke_width=max(2, int(SS * 1.25)),
-                stroke_fill=(4, 0, 12, 255))
+                fill=col + (255,), stroke_width=max(2, int(SS * 1.6)),
+                stroke_fill=(3, 0, 10, 255))
         # Матн вақте хоно аст, ки кунҷи дидашавандааш байни -90 ва +90 бошад.
         # Дар 270° (маҳз боло — ҷои баранда) чаппа мекунем, то мисли
         # чархи воқеӣ аз поён ба боло хонда шавад.
@@ -365,12 +375,53 @@ def _glow_text(base, t, fnt, y, color, w, h, stroke=4):
     tw = d.textbbox((0, 0), t, font=fnt, stroke_width=stroke)[2]
     d.text(((w - tw) // 2, y), t, font=fnt, fill=color + (255,),
            stroke_width=stroke, stroke_fill=color + (255,))
-    base = _add(base, _glow_rgb(lay, (w, h), ((34, .5), (15, .7), (6, .85))))
+    base = _add(base, _glow_rgb(lay, (w, h), ((24, .38), (10, .58), (4, .8))))
     lay2 = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d2 = ImageDraw.Draw(lay2)
     d2.text(((w - tw) // 2, y), t, font=fnt, fill=(255, 255, 255, 255),
             stroke_width=max(1, stroke // 2), stroke_fill=color + (255,))
     return _add(base, _flatten(lay2, (w, h)))
+
+
+def _save_mp4(frames, durs, path):
+    """
+    Кадрҳоро ҳамчун MP4 (H.264) сабт мекунад. Telegram онро ҳамчун
+    аниматсия нишон медиҳад, вале сифаташ аз GIF хеле баландтар аст.
+
+    MP4 фақат fps-и СОБИТ дорад, пас ҳар кадр ба қадри давомнокияш
+    такрор мешавад. Кадрҳо якто-якто навишта мешаванд — вагарна ҳамаи
+    онҳо дар хотира ҷамъ шуда, сервери хурдро аз кор мемонанд.
+    """
+    try:
+        import imageio.v2 as imageio
+        import numpy as np
+    except Exception as e:
+        logger.info(f"spinwheel: MP4 нашуд ({e}) — GIF истифода мешавад")
+        return None
+    try:
+        w, h = frames[0].size
+        # H.264 бари ҷуфт талаб мекунад
+        w2, h2 = w - (w % 2), h - (h % 2)
+        wr = imageio.get_writer(path, fps=MP4_FPS, codec="libx264",
+                                quality=9, macro_block_size=1,
+                                ffmpeg_params=["-pix_fmt", "yuv420p"])
+        step = 1000.0 / MP4_FPS
+        for img, ms in zip(frames, durs):
+            if (w2, h2) != (w, h):
+                img = img.crop((0, 0, w2, h2))
+            arr = np.asarray(img)
+            for _ in range(max(1, int(round(ms / step)))):
+                wr.append_data(arr)
+        wr.close()
+        return path
+    except Exception as e:
+        logger.warning(f"spinwheel: MP4 сабт нашуд ({e}) — GIF истифода мешавад")
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+        except Exception:
+            pass
+        return None
 
 
 def render_spin_gif(names, winner_idx, gift_label, total_wins,
@@ -400,6 +451,22 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
         logger.error(f"spinwheel: паснамо кушода нашуд: {e}")
         return None
 
+    # Ҳама чиз ба TARGET_W миқёс мешавад: матн ва чарх дар андозаи калон
+    # кашида мешаванд, пас тезтар мебароянд ва Telegram ҳангоми фишурдан
+    # камтар вайрон мекунад.
+    global CX, CY, R, PT, PB, BT, BB, _FS
+    _CX0, _CY0, _R0, _PT0, _PB0, _BT0, _BB0 = CX, CY, R, PT, PB, BT, BB
+    sc = TARGET_W / float(base_img.width)
+    if abs(sc - 1.0) > 0.01:
+        base_img = base_img.resize(
+            (TARGET_W, int(round(base_img.height * sc))), Image.LANCZOS)
+        CX, CY, R = int(CX * sc), int(CY * sc), int(R * sc)
+        PT, PB = int(PT * sc), int(PB * sc)
+        BT, BB = int(BT * sc), int(BB * sc)
+        _FS = sc
+        _font_cache.clear()
+        _emoji_cache.clear()
+
     W, H = base_img.size
     n = len(names)
     seg = 360.0 / n
@@ -421,7 +488,7 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
     d = ImageDraw.Draw(l)
     d.rounded_rectangle((W // 2 - half, 124, W // 2 + half, 124 + sub_fs + 26),
                         radius=13, outline=CYA + (255,), width=4)
-    im = _add(im, _glow_rgb(l, (W, H), ((22, .5), (9, .75))))
+    im = _add(im, _glow_rgb(l, (W, H), ((15, .38), (6, .62))))
     im = _add(im, _flatten(l, (W, H)))
     im = _glow_text(im, subtitle, _font(sub_fs), 136, CYA, W, H, 2)
 
@@ -438,7 +505,7 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
     od.line([(W - 52, PT + 28), (W - 52, PB - 28)], fill=CYA + (255,), width=4)
     od.line([(W // 2, PB), (W - 80, PB)], fill=CYA + (255,), width=4)
     _chamfer(od, (W // 2 - 190, BT, W // 2 + 190, BB), 18, outline=MAG + (255,), width=4)
-    im = _add(im, _glow_rgb(ol, (W, H), ((26, .42), (10, .62), (3, .85))))
+    im = _add(im, _glow_rgb(ol, (W, H), ((18, .32), (7, .52), (2, .82))))
     im = _add(im, _flatten(ol, (W, H)))
     static = im
 
@@ -446,8 +513,8 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
     fill_spin, lines_spin = _wheel_parts(names, winner_idx, False, 0.0)
     fill_win, lines_win = _wheel_parts(names, winner_idx, True, angle)
     ws = fill_spin.size[0]
-    lg_spin = _glow_rgb(lines_spin, (ws, ws), ((10, .30), (4, .60))) 
-    lg_win = _glow_rgb(lines_win, (ws, ws), ((10, .30), (4, .60)))
+    lg_spin = _glow_rgb(lines_spin, (ws, ws), ((7, .22), (3, .45)))
+    lg_win = _glow_rgb(lines_win, (ws, ws), ((7, .22), (3, .45)))
 
     rings = {}
     pos = (CX - W // 2, CY - W // 2)
@@ -457,7 +524,7 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
         sharp.alpha_composite(rg, pos)
         psharp = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         psharp.alpha_composite(pt, pos)
-        glow = _glow_rgb(sharp, (W, H), ((22, .34), (9, .60), (3, .92)))
+        glow = _glow_rgb(sharp, (W, H), ((16, .26), (6, .48), (2, .85)))
         # дурахши нишондиҳанда — танҳо хурд, то ба чарх нарезад
         glow = ImageChops.add(glow, _glow_rgb(psharp, (W, H), ((9, .5), (3, .7))))
         merged = sharp.copy()
@@ -529,14 +596,32 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
         frames.append(panel(compose(angle, True, j % 2 == 0), True))
         durs.append(2800 if j == 3 else 250)
 
-    if out_path is None:
-        out_path = os.path.join(_DIR, "spin_last.gif")
+    # ---- Қиматҳои глобалиро барқарор мекунем ----
+    CX, CY, R, PT, PB, BT, BB = _CX0, _CY0, _R0, _PT0, _PB0, _BT0, _BB0
+    _FS = 1.0
+    _font_cache.clear()
+    _emoji_cache.clear()
+
+    base_out = out_path or os.path.join(_DIR, "spin_last")
+    base_out = os.path.splitext(base_out)[0]
+
+    # ---- Кӯшиши 1: MP4 (H.264). GIF танҳо 256 ранг дорад — маҳз аз ҳамин
+    # градиентҳо доғдор ва хира мебароянд. MP4 ин маҳдудиятро надорад. ----
+    mp4 = _save_mp4(frames, durs, base_out + ".mp4")
+    if mp4:
+        return mp4
+
+    # ---- Кӯшиши 2: GIF (агар ffmpeg дар сервер набошад) ----
+    gif_path = base_out + ".gif"
     try:
-        pal = frames[-1].convert("P", palette=Image.ADAPTIVE, colors=170)
-        q = [x.quantize(palette=pal, dither=Image.FLOYDSTEINBERG) for x in frames]
-        q[0].save(out_path, save_all=True, append_images=q[1:],
+        small = [x if x.width <= 900 else
+                 x.resize((900, int(x.height * 900 / x.width)), Image.LANCZOS)
+                 for x in frames]
+        pal = small[-1].convert("P", palette=Image.ADAPTIVE, colors=170)
+        q = [x.quantize(palette=pal, dither=Image.FLOYDSTEINBERG) for x in small]
+        q[0].save(gif_path, save_all=True, append_images=q[1:],
                   duration=durs, loop=0, optimize=True)
     except Exception as e:
         logger.error(f"spinwheel: GIF сабт нашуд: {e}")
         return None
-    return out_path
+    return gif_path

@@ -555,6 +555,7 @@ async def a_giveaway_test_spin(call: CallbackQuery):
         return
 
     size_mb = os.path.getsize(gif) / (1024 * 1024)
+    fmt = "MP4 (сифати баланд)" if gif.lower().endswith(".mp4") else "GIF"
     winner_name = names[widx] if widx < len(names) else "Мизоҷ"
     try:
         await call.message.answer_animation(
@@ -564,7 +565,7 @@ async def a_giveaway_test_spin(call: CallbackQuery):
                 f"🏅 «Баранда»: <b>{esc(winner_name)}</b> (тасодуфӣ, танҳо барои намуна)\n"
                 f"👥 Харидорон дар чарх: <b>{len(batch)}</b>\n"
                 f"🎁 Тӯҳфа: {esc(label)}\n\n"
-                f"⏱ Сохтани GIF: <b>{took:.1f} сония</b>\n"
+                f"⏱ Сохтани {fmt}: <b>{took:.1f} сония</b>\n"
                 f"💾 Ҳаҷм: <b>{size_mb:.1f} МБ</b>\n\n"
                 f"✅ Ҳељ тӯҳфа дода нашуд ва ҳисоб иваз нашуд."
             ),
