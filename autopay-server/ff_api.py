@@ -94,6 +94,13 @@ async def _nickname_fazer(player_id: str) -> str:
 
 
 # ==================== ДОНАТИ ХУДКОР (FazerCards) ====================
+# Ҳолатҳое, ки ВОҚЕАН ноком буданашонро ТАСДИҚ мекунанд. Танҳо дар ин
+# ҳолатҳо иҷозат аст фармоиши НАВ созем. Агар ҳолат НОМАЪЛУМ бошад
+# (масалан шабака хато дод ва мо ҷавоб нагирифтем), фармоиши нав
+# САХТАН манъ аст — вагарна фармоиши аллакай иҷрошуда дучандон мешавад.
+_FAZER_FAILED = {"failed", "cancelled", "canceled", "error", "refunded", "rejected"}
+
+
 def _idem_key(prefix: str, order_id, retry_tag: str = "") -> str:
     """
     Калиди Idempotency месозад. Барои ҳар фармоиш собит аст (то такрори
@@ -310,7 +317,16 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
             return True, existing_order_id, False, _extract_cost_usd(status_data)
         if status == "processing":
             return False, existing_order_id, False, None
-        # failed/cancelled/error — поён фармоиши НАВ месозем (бо калиди нав)
+        if status not in _FAZER_FAILED:
+            # Ҳолати ВОҚЕӢ номаълум (шабака ҷавоб надод) — фармоиши НАВ
+            # НАМЕСОЗЕМ, вагарна агар он воқеан иҷро шуда бошад, дучандон
+            # харҷ мешавад. Ба админ ҳамчун "номуайян" бармегардонем.
+            logger.warning(
+                f"auto_donate: ҳолати фармоиши {existing_order_id} номаълум "
+                f"({status!r}) — кӯшиши нав НАШУД (зидди дучандон харҷ)"
+            )
+            return False, existing_order_id, True, None
+        # ВОҚЕАН ноком — поён фармоиши НАВ месозем (бо калиди нав)
         retry_tag = existing_order_id
 
     if not offer_id:
@@ -417,7 +433,14 @@ async def auto_donate_ffid(player_id: str, offer_id: str, existing_order_id: str
             return True, existing_order_id
         if status == "processing":
             return False, existing_order_id
-        # ноком — кӯшиши НАВ бо калиди дигар (ниг. изоҳи _idem_key)
+        if status not in _FAZER_FAILED:
+            # Ҳолат номаълум — фармоиши НАВ намесозем (зидди дучандон харҷ)
+            logger.warning(
+                f"auto_donate_ffid: ҳолати {existing_order_id} номаълум "
+                f"({status!r}) — кӯшиши нав НАШУД"
+            )
+            return False, existing_order_id
+        # ВОҚЕАН ноком — кӯшиши НАВ бо калиди дигар (ниг. изоҳи _idem_key)
         retry_tag = existing_order_id
 
     if not offer_id or not config.FAZER_KEY:
@@ -486,7 +509,14 @@ async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str
             return True, existing_order_id
         if status == "processing":
             return False, existing_order_id
-        # ноком — кӯшиши НАВ бо калиди дигар (ниг. изоҳи _idem_key)
+        if status not in _FAZER_FAILED:
+            # Ҳолат номаълум — фармоиши НАВ намесозем (зидди дучандон харҷ)
+            logger.warning(
+                f"auto_donate_pubg: ҳолати {existing_order_id} номаълум "
+                f"({status!r}) — кӯшиши нав НАШУД"
+            )
+            return False, existing_order_id
+        # ВОҚЕАН ноком — кӯшиши НАВ бо калиди дигар (ниг. изоҳи _idem_key)
         retry_tag = existing_order_id
 
     if not offer_id or not config.FAZER_KEY:
@@ -564,6 +594,12 @@ async def buy_telegram_stars(username: str, quantity: int, order_id: int | str =
             return True, existing_order_id, False, _extract_cost_usd(status_data)
         if status == "processing":
             return False, existing_order_id, False, None
+        if status not in _FAZER_FAILED:
+            # Ҳолат номаълум — хариди НАВ намекунем (зидди дучандон харҷ)
+            logger.warning(
+                f"ҳолати {existing_order_id} номаълум ({status!r}) — кӯшиши нав НАШУД"
+            )
+            return False, existing_order_id, True, None
         retry_tag = existing_order_id
     username = username.lstrip("@")
     headers = {
@@ -622,6 +658,12 @@ async def buy_telegram_premium(username: str, months: int, order_id: int | str =
             return True, existing_order_id, False, _extract_cost_usd(status_data)
         if status == "processing":
             return False, existing_order_id, False, None
+        if status not in _FAZER_FAILED:
+            # Ҳолат номаълум — хариди НАВ намекунем (зидди дучандон харҷ)
+            logger.warning(
+                f"ҳолати {existing_order_id} номаълум ({status!r}) — кӯшиши нав НАШУД"
+            )
+            return False, existing_order_id, True, None
         retry_tag = existing_order_id
     username = username.lstrip("@")
     headers = {
