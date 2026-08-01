@@ -192,6 +192,8 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN combo_id INT DEFAULT NULL",
                 "ALTER TABLE orders ADD COLUMN is_balance_topup TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN confirmed_at DATETIME DEFAULT NULL",
+                "ALTER TABLE orders ADD COLUMN recheck_tries INT DEFAULT 0",
+                "ALTER TABLE orders ADD COLUMN admin_alerted TINYINT DEFAULT 0",
             ):
                 try:
                     await cur.execute(ddl)
@@ -1054,6 +1056,45 @@ async def claim_stuck_order_confirmed(order_id: int) -> bool:
                 "UPDATE orders SET status='confirmed' WHERE id=%s AND status='failed'",
                 (order_id,)
             )
+            return cur.rowcount > 0
+
+
+async def reset_recheck_state(order_id: int):
+    """
+    Пеш аз кӯшиши НАВИ донат (масалан админ «Дубора донат» пахш кард)
+    ҳисоби санҷишҳо ва аломати «ба админ хабар дода шуд» тоза мешавад —
+    то агар кӯшиши нав ҳам ноком шавад, тафтишгар аз нав кор кунад ва
+    админ бори дигар хабар гирад.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET recheck_tries=0, admin_alerted=0 WHERE id=%s",
+                (order_id,))
+
+
+async def bump_recheck_tries(order_id: int) -> int:
+    """Шумораи санҷишҳои худкорро як зина боло мебарад ва рақами навро медиҳад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "UPDATE orders SET recheck_tries = COALESCE(recheck_tries, 0) + 1 "
+                "WHERE id=%s", (order_id,))
+            await cur.execute("SELECT recheck_tries AS t FROM orders WHERE id=%s", (order_id,))
+            row = await cur.fetchone()
+            return int((row["t"] if row else 0) or 0)
+
+
+async def claim_admin_alert(order_id: int) -> bool:
+    """
+    Атомикӣ ҳуқуқи 'ба админ хабар додан'-ро мегирад. True танҳо як бор
+    бармегардад — то як фармоиш чанд бор ба админ хабар нашавад.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET admin_alerted=1 WHERE id=%s "
+                "AND COALESCE(admin_alerted, 0)=0", (order_id,))
             return cur.rowcount > 0
 
 

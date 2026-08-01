@@ -850,6 +850,13 @@ async def _do_donate_group(call: CallbackQuery, orders: list):
             await db.update_order_status(order_id, "failed")
             if uncertain:
                 await db.flag_order_uncertain(order_id)
+            # Тафтишгари худкор инро низ пайгирӣ кунад
+            import autopay
+            autopay._recheck_settled.discard(order_id)
+            try:
+                await db.reset_recheck_state(order_id)
+            except Exception as e:
+                logger.error(f"reset_recheck_state #{order_id} нашуд: {e}")
             results.append((order, False, api_order_id))
 
     ok_items = [r for r in results if r[1]]
@@ -1000,6 +1007,13 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
         await db.update_order_status(order_id, "failed")
         if uncertain:
             await db.flag_order_uncertain(order_id)
+        # Кӯшиши НАВ буд — ҳисоби тафтишгари худкор аз сифр сар шавад
+        import autopay
+        autopay._recheck_settled.discard(order_id)
+        try:
+            await db.reset_recheck_state(order_id)
+        except Exception as e:
+            logger.error(f"reset_recheck_state #{order_id} нашуд: {e}")
         # ЛС линки клент
         try:
             user_chat = await call.bot.get_chat(order["user_id"])
@@ -1013,22 +1027,34 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
             [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order_id}")],
             [InlineKeyboardButton(text="💬 ЛС ба клент", url=ls_url)],
         ])
-        uncertain_line = (
-            f"\n⚠️⚠️ <b>ДИҚҚАТ: ин на радди воқеӣ аст — шабака ба FazerCards "
-            f"такроран таймаут задааст, ҳолати ниҳоии воқеӣ номаълум аст!</b>\n"
-            f"Фармоиш шояд АЛЛАКАЙ иҷро шуда бошад — пеш аз «Дубора донат» "
-            f"дар FazerCards санҷед, вагарна ду бор донат мешавад!\n"
-            if uncertain else ""
-        )
+        if api_order_id:
+            # Фармоиш дар FazerCards ВУҶУД дорад — тафтишгари худкор
+            # (recheck_loop) ҳар 3 дақиқа онро мепурсад ва аксаран худаш
+            # ҳал мекунад. Админ бояд ҳозир ҳеҷ коре накунад.
+            head = "⏳ <b>Донат ҳанӯз тамом нашуд — бот худаш пайгирӣ мекунад</b>"
+            tail = (
+                f"\n🤖 <b>ЧИЗЕ НАКУНЕД.</b> Тафтишгари худкор ҳар 3 дақиқа "
+                f"ҳолати ин фармоишро аз FazerCards мепурсад:\n"
+                f"• иҷро шуда бошад → бот худаш тасдиқ мекунад ва ба шумо "
+                f"ва ба мизоҷ хабар медиҳад\n"
+                f"• воқеан рад шуда бошад → бот ба шумо хабар медиҳад ва "
+                f"«Дубора донат» бехатар мешавад\n\n"
+                f"Агар ҳудуди 30 дақиқа ҳеҷ хабар наояд, боз як паём мегиред."
+            )
+        else:
+            head = "⚠️ <b>Донати худкор нашуд!</b>"
+            tail = (
+                f"\n⚠️ Фармоиш умуман ба FazerCards нарасид (ID нест) — "
+                f"пас «🔄 Дубора донат» бехатар аст, дучандон харҷ намешавад."
+            )
         await _safe_edit_caption(
             wait_msg,
-            f"⚠️ <b>Донати худкор нашуд!</b>\n\n"
+            f"{head}\n\n"
             f"🆔 Фармоиш: #{order_id}\n"
             f"{api_id_line}"
             f"🆔 ID: <code>{order['game_id']}</code>\n"
             f"{order['label']}\n"
-            f"{uncertain_line}\n"
-            f"Метавонед дубора кӯшиш кунед ё дастӣ донат карда тасдиқ кунед.",
+            f"{tail}",
             retry_kb
         )
 

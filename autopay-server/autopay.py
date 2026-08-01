@@ -411,6 +411,73 @@ async def _check_network_health_alert(bot: Bot):
             logger.error(f"Огоҳии саломатии шабака ба админ {admin_id} нарасид: {e}")
 
 
+async def _handle_donate_failure(bot: Bot, order: dict, kod: str,
+                                 api_order_id: str, uncertain: bool = False):
+    """
+    Донат дар вақти муқаррарӣ тамом нашуд.
+
+    ФАЛСАФА: админро БЕҲУДА безобита накунем.
+      • Агар дар FazerCards/MooGold ID-и ВОҚЕӢ бошад — фармоиш ба
+        тафтишгари худкор (recheck_loop) супорида мешавад ва админ ҲЕҶ
+        паём намегирад. Тафтишгар ҳар 3 дақиқа мепурсад ва аксаран худаш
+        ҳал мекунад. Танҳо агар ~30 дақиқа гузарад ё FazerCards ВОҚЕАН
+        "рад кард" гӯяд, ЯК паём ба админ меравад.
+      • Агар ID нест (фармоиш умуман ба FazerCards нарасид) — чизе барои
+        санҷидан нест, пас фавран ба админ хабар меравад.
+    """
+    order_id = order["id"]
+    user_id = order["user_id"]
+
+    await db.update_order_status(order_id, "failed")
+    # Ин кӯшиши НАВ буд — ҳисоби тафтишгар ва аломати "ба админ хабар
+    # дода шуд" аз сифр сар мешаванд. Вагарна баъд аз «Дубора донат»-и
+    # дастӣ, агар боз ноком шавад, админ ҳеҷ хабар намегирифт.
+    _recheck_settled.discard(order_id)
+    try:
+        await db.reset_recheck_state(order_id)
+    except Exception as e:
+        logger.error(f"reset_recheck_state #{order_id} нашуд: {e}")
+    if uncertain:
+        try:
+            await db.flag_order_uncertain(order_id)
+        except Exception as e:
+            logger.error(f"flag_order_uncertain #{order_id} нашуд: {e}")
+
+    try:
+        if api_order_id:
+            customer_text = (
+                f"⏳ <b>Пардохти шумо қабул шуд — донат каме дертар мерасад.</b>\n\n"
+                f"🆔 Фармоиш: #{order_id}\n\n"
+                f"Фармоиши шумо ба система фиристода шудааст ва бот ҳар "
+                f"чанд дақиқа ҳолати онро месанҷад. Ҳамин ки тайёр шавад, "
+                f"ба шумо хабар медиҳем. Пулатон бехатар аст. 🙏"
+            )
+        else:
+            customer_text = (
+                f"⚠️ <b>Пардохти шумо қабул шуд, вале донат каме ба таъхир афтод.</b>\n\n"
+                f"🆔 Фармоиш: #{order_id}\n\n"
+                f"Хавотир нашавед — админ огоҳ карда шуд ва ба зудӣ "
+                f"дастӣ ҳал мекунад. Пулатон бехатар аст. 🙏"
+            )
+        await bot.send_message(user_id, customer_text, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Паёми таъхир ба {user_id} нарасид: {e}")
+
+    if api_order_id:
+        # Ба тафтишгари худкор месупорем — админ ҳоло безобита намешавад
+        logger.info(
+            f"#{order_id}: донат дар 10 дақиқа тамом нашуд, вале ID-и "
+            f"воқеӣ ({api_order_id}) ҳаст — ба тафтишгари худкор супорида "
+            f"шуд, админ ҳоло хабар намегирад"
+        )
+        return
+
+    # ID нест — чизе барои санҷидан нест, админ бояд дастӣ ҳал кунад
+    if not await db.claim_admin_alert(order_id):
+        return
+    await _admin_report_failure(bot, order, kod, api_order_id, uncertain)
+
+
 async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: str, uncertain: bool = False):
     """Пардохт омад, вале донат нашуд — админ бо тугмаҳо огоҳ мешавад."""
     if uncertain:
@@ -439,22 +506,38 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
         [InlineKeyboardButton(text="✅ Дастӣ тасдиқ кардам", callback_data=f"manual_{order['id']}")],
         [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order['id']}")],
     ])
-    if uncertain:
+    if uncertain and api_order_id:
+        # Тафтишгари худкор ~30 дақиқа кӯшиш кард ва натавонист
+        head = "⏰ <b>Ин фармоиш дер монд — кӯмаки шумо лозим аст</b>"
         warning_line = (
-            f"\n⚠️⚠️ <b>ДИҚҚАТ: ин на радди воқеӣ аст — шабака ба FazerCards "
-            f"такроран таймаут задааст ва мо ҲОЛАТИ НИҲОИИ ВОҚЕИРО намедонем!</b>\n"
-            f"Фармоиш дар FazerCards (ID боло) шояд АЛЛАКАЙ иҷро шуда бошад.\n\n"
-            f"🤖 <b>ХОЗИР ЧИЗЕ НАКУНЕД.</b> Тафтишгари худкор ҳар 3 дақиқа "
-            f"худаш FazerCards-ро мепурсад. Агар фармоиш дар асл иҷро шуда "
-            f"бошад, бот худаш онро тасдиқ мекунад ва ба шумо хабар медиҳад — "
-            f"ҳеҷ кори дастӣ лозим намешавад.\n"
-            f"Танҳо агар 20-30 дақиқа гузарад ва ҳеҷ хабар наояд, «Дубора "
-            f"донат»-ро пахш кунед.\n"
+            f"\n🤖 Тафтишгари худкор ҳудуди <b>30 дақиқа</b> ҳар 3 дақиқа "
+            f"FazerCards-ро пурсид, вале ҷавоби аниқ нагирифт "
+            f"(на «иҷро шуд», на «рад шуд»).\n\n"
+            f"📌 <b>Чӣ кор кунед:</b> дар кабинети FazerCards ID-и болоро "
+            f"кушоед ва бо чашм бинед:\n"
+            f"• Агар <b>completed</b> бошад → «✅ Дастӣ тасдиқ кардам»\n"
+            f"• Агар <b>failed/cancelled</b> бошад → «🔄 Дубора донат»\n\n"
+            f"ℹ️ Тафтишгар кори худро БАС НАКАРДААСТ — агар FazerCards "
+            f"баъдтар ҷавоб диҳад, бот худаш ҳал мекунад ва ба шумо хабар "
+            f"медиҳад. Агар шитоб надоред, боз каме сабр кардан мумкин.\n"
+        )
+    elif uncertain:
+        head = "⚠️ <b>ПАРДОХТ ОМАД, вале донати худкор НАШУД!</b>"
+        warning_line = (
+            f"\n⚠️ Фармоиш умуман ба FazerCards нарасид (ID нест) — "
+            f"пас дучандон донат шудан хатар надорад.\n"
+            f"«🔄 Дубора донат»-ро бехатар пахш кардан мумкин аст.\n"
         )
     else:
-        warning_line = ""
+        head = "⚠️ <b>ПАРДОХТ ОМАД, вале донати худкор НАШУД!</b>"
+        warning_line = (
+            f"\n❌ FazerCards ин фармоишро <b>ВОҚЕАН рад кард</b> — "
+            f"алмос нарафтааст.\n"
+            f"✅ «🔄 Дубора донат» дар ин ҳолат комилан бехатар аст "
+            f"(дучандон харҷ намешавад).\n"
+        )
     text = (
-        f"⚠️ <b>ПАРДОХТ ОМАД, вале донати худкор НАШУД!</b>\n\n"
+        f"{head}\n\n"
         f"👤 Харидор: {esc(full_name)} ({esc(username)})\n"
         f"🆔 ID Telegram: <code>{order['user_id']}</code>\n"
         f"💵 Маблағ: {float(order['price']):.2f} сомонӣ\n\n"
@@ -632,21 +715,7 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
 
         await _admin_report_success(bot, order, kod, api_order_id)
     else:
-        await db.update_order_status(order_id, "failed")
-        try:
-            await bot.send_message(
-                user_id,
-                f"⚠️ <b>Пардохти шумо қабул шуд, вале донат каме ба таъхир афтод.</b>\n\n"
-                f"🆔 Фармоиш: #{order_id}\n\n"
-                f"Хавотир нашавед — админ огоҳ карда шуд ва ба зудӣ "
-                f"дастӣ ҳал мекунад. Пулатон бехатар аст. 🙏",
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.error(f"Паёми таъхир ба {user_id} нарасид: {e}")
-        if uncertain:
-            await db.flag_order_uncertain(order_id)
-        await _admin_report_failure(bot, order, kod, api_order_id, uncertain)
+        await _handle_donate_failure(bot, order, kod, api_order_id, uncertain)
 
 
 async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
@@ -748,21 +817,7 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
 
             await _admin_report_success(bot, order, kod, api_order_id)
         else:
-            await db.update_order_status(order_id, "failed")
-            try:
-                await bot.send_message(
-                    user_id,
-                    f"⚠️ <b>Пардохти шумо қабул шуд, вале донат каме ба таъхир афтод.</b>\n\n"
-                    f"🆔 Фармоиш: #{order_id}\n\n"
-                    f"Хавотир нашавед — админ огоҳ карда шуд ва ба зудӣ "
-                    f"дастӣ ҳал мекунад. Пулатон бехатар аст. 🙏",
-                    parse_mode="HTML"
-                )
-            except Exception as e:
-                logger.error(f"Паёми таъхир (эскалатсия) ба {user_id} нарасид: {e}")
-            if uncertain:
-                await db.flag_order_uncertain(order_id)
-            await _admin_report_failure(bot, order, kod, api_order_id, uncertain)
+            await _handle_donate_failure(bot, order, kod, api_order_id, uncertain)
     finally:
         _in_flight_orders.discard(order_id)
 
@@ -863,21 +918,7 @@ async def run_donate_from_balance(bot: Bot, order: dict):
 
         await _admin_report_success(bot, order, "", api_order_id)
     else:
-        await db.update_order_status(order_id, "failed")
-        try:
-            await bot.send_message(
-                user_id,
-                f"⚠️ <b>Пардохти шумо қабул шуд, вале донат каме ба таъхир афтод.</b>\n\n"
-                f"🆔 Фармоиш: #{order_id}\n\n"
-                f"Хавотир нашавед — админ огоҳ карда шуд ва ба зудӣ "
-                f"дастӣ ҳал мекунад. Пулатон бехатар аст. 🙏",
-                parse_mode="HTML"
-            )
-        except Exception as e:
-            logger.error(f"Паёми таъхир (аз баланс) ба {user_id} нарасид: {e}")
-        if uncertain:
-            await db.flag_order_uncertain(order_id)
-        await _admin_report_failure(bot, order, "", api_order_id, uncertain)
+        await _handle_donate_failure(bot, order, "", api_order_id, uncertain)
 
 
 async def expiry_loop(bot: Bot, interval_seconds: int = 60):
@@ -1262,6 +1303,10 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
 # Фармоишҳое, ки FazerCards ВОҚЕАН "ноком" гуфтааст — дигар напурсем
 _recheck_settled: set = set()
 
+# Баъд аз чанд санҷиши бенатиҷа ба админ хабар диҳем.
+# 10 санҷиш × 3 дақиқа ≈ 30 дақиқа
+RECHECK_ALERT_AFTER_TRIES = 10
+
 
 async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost_usd):
     """Фармоише, ки тафтишгари худкор онро иҷрошуда ёфт — расман анҷом медиҳад."""
@@ -1365,8 +1410,31 @@ async def recheck_loop(bot: Bot, interval_seconds: int = 180):
                     await _finish_recovered_order(bot, order, api_order_id, cost_usd)
 
                 elif state == "failed":
-                    # Ҷавоби ВОҚЕИИ "ноком" — дигар напурсем
+                    # Ҷавоби ВОҚЕИИ "ноком" — дигар напурсем ва як бор
+                    # ба админ хабар диҳем (акнун "Дубора донат" бехатар аст)
                     _recheck_settled.add(order_id)
+                    if await db.claim_admin_alert(order_id):
+                        logger.info(
+                            f"recheck_loop: #{order_id} ({api_order_id}) "
+                            f"ВОҚЕАН рад шудааст — админ хабар мегирад"
+                        )
+                        await _admin_report_failure(
+                            bot, order, "", api_order_id, uncertain=False)
+
+                else:
+                    # Ҳанӯз "дар ҷараён" ё ҷавоб нест — сабр мекунем.
+                    # Танҳо агар хеле дер шавад, ЯК бор ба админ хабар медиҳем
+                    # (вале санҷиданро бас намекунем — шояд боз ҳал шавад).
+                    tries = await db.bump_recheck_tries(order_id)
+                    if tries >= RECHECK_ALERT_AFTER_TRIES:
+                        if await db.claim_admin_alert(order_id):
+                            logger.warning(
+                                f"recheck_loop: #{order_id} ({api_order_id}) "
+                                f"баъд аз {tries} санҷиш ҳал нашуд — админ "
+                                f"хабар мегирад"
+                            )
+                            await _admin_report_failure(
+                                bot, order, "", api_order_id, uncertain=True)
 
                 await asyncio.sleep(1)  # ба API фишор наорем
         except Exception as e:
