@@ -18,8 +18,10 @@ import time
 from datetime import datetime, timedelta
 
 import aiomysql
-from aiogram import Bot, Dispatcher
-from aiogram.types import Message
+from aiogram import Bot, Dispatcher, F
+from aiogram.types import BusinessMessagesDeleted, FSInputFile, Message
+
+import chatlog
 
 logging.basicConfig(
     level=logging.INFO,
@@ -209,6 +211,10 @@ async def nightly_report_loop():
         if now >= target:
             target += timedelta(days=1)
         await asyncio.sleep((target - now).total_seconds())
+        try:
+            await nightly_snapshot()
+        except Exception as e:
+            logger.error(f"nightly_snapshot хато: {e}")
         stats = dict(_stats)
         _stats["messages"] = 0
         _stats["orders_checked"] = 0
@@ -326,6 +332,13 @@ async def handle_business_message(message: Message):
     logger.info(f"[IN] chat={chat_id} user={user_id} bcid={message.business_connection_id!r} text={text!r}")
 
     await _log_to_channel(message, user_id, sender, text)
+    # Бойгонии сервер: ХОМӮШОНА сабт мешавад — ҳељ огоҳӣ ба соҳиб намеравад.
+    # Соҳиб танҳо ҳангоми несткунӣ/ислоҳи паём хабар мегирад (поёнтар).
+    await chatlog.record(
+        bot, message, chat_id,
+        "owner" if user_id == NOTIFY_CHAT_ID else "client",
+        sender, message.from_user.username or "",
+    )
 
     if user_id == NOTIFY_CHAT_ID:
         # Ин паёми ХУДИ соҳиб аст (шумо аз app-и худ ба мизоҷ навиштед).
@@ -459,6 +472,150 @@ async def handle_business_message(message: Message):
         logger.error(f"[FATAL] handle_business_message хато: {e}", exc_info=True)
 
 
+def _short(t: str, n: int = 400) -> str:
+    t = (t or "").strip()
+    return (t[:n] + "…") if len(t) > n else (t or "—")
+
+
+@dp.edited_business_message()
+async def handle_edited_business_message(message: Message):
+    """
+    Мизоҷ паёмашро ИСЛОҲ кард. Матни аввала дар бойгонӣ мемонад ва ба
+    соҳиб ҳам матни кӯҳна, ҳам матни нав фиристода мешавад.
+    """
+    chat_id = message.chat.id
+    user_id = message.from_user.id
+    new_text = message.text or message.caption or ""
+    old_text = chatlog.record_edit(chat_id, message.message_id, new_text)
+    if user_id == NOTIFY_CHAT_ID:
+        return                     # ислоҳи ХУДИ соҳиб — огоҳӣ лозим нест
+    sender = message.from_user.full_name or str(user_id)
+    await notify_owner(
+        f"✏️ Мизоҷ паёмашро ИСЛОҲ кард!\n\n"
+        f"👤 {sender} (ID: {user_id})\n\n"
+        f"Пештар навишта буд:\n«{_short(old_text)}»\n\n"
+        f"Ҳоло шуд:\n«{_short(new_text)}»\n\n"
+        f"📁 Матни аввала дар бойгонӣ боқӣ монд."
+    )
+
+
+@dp.deleted_business_messages()
+async def handle_deleted_business_messages(event: BusinessMessagesDeleted):
+    """
+    Мизоҷ паём(ҳо)-ро НЕСТ кард. Telegram танҳо рақами паёмро медиҳад,
+    матнашро не — вале мо онро аз бойгонии худамон бармегардонем.
+    """
+    chat_id = event.chat.id
+    rows = chatlog.record_delete(chat_id, list(event.message_ids or []))
+    rows = [r for r in rows if r[2] != "owner"]   # несткунии худи соҳиб не
+    if not rows:
+        return
+    name = (event.chat.full_name or event.chat.first_name
+            or event.chat.username or str(chat_id))
+    body = "\n\n".join(f"«{_short(t, 300)}»" for _, t, _ in rows)
+    await notify_owner(
+        f"❌ Мизоҷ {len(rows)} паёмашро НЕСТ кард!\n\n"
+        f"👤 {name} (ID: {chat_id})\n\n"
+        f"Матни несткардашуда:\n{body}\n\n"
+        f"📁 Дар бойгонии сервер боқӣ монд — /chat {chat_id}"
+    )
+
+
+# ==================== ФАРМОНҲОИ СОҲИБ (чати шахсӣ бо ҳамин бот) ====================
+HELP = (
+    "📁 <b>Бойгонии сӯҳбатҳо</b>\n\n"
+    "Ҳар сӯҳбат бо мизоҷ дар сервер захира мешавад: матн, расмҳо, "
+    "инчунин паёмҳои несткарда ва ислоҳшуда.\n\n"
+    "<b>Фармонҳо:</b>\n"
+    "/chats — рӯйхати ҳамаи мизоҷон\n"
+    "/chat 5961814932 — скриншот ва файли сӯҳбати ҳамон мизоҷ\n\n"
+    "ℹ️ Ҳангоми несткунӣ ё ислоҳи паём аз ҷониби мизоҷ, ман фавран "
+    "худам ба шумо хабар медиҳам."
+)
+
+
+@dp.message(F.text.startswith("/chats"))
+async def cmd_chats(message: Message):
+    if message.from_user.id != NOTIFY_CHAT_ID:
+        return
+    rows = chatlog.list_chats()
+    if not rows:
+        await message.answer("📭 Ҳанӯз ягон сӯҳбат сабт нашудааст.")
+        return
+    lines = [f"📁 <b>Сӯҳбатҳои сабтшуда: {len(rows)}</b>\n"]
+    for r in rows[:40]:
+        uname = f" @{r['username']}" if r["username"] else ""
+        marks = ""
+        if r["deleted"]:
+            marks += f" ❌{r['deleted']}"
+        if r["edited"]:
+            marks += f" ✏️{r['edited']}"
+        when = datetime.fromtimestamp(r["last_seen"]).strftime("%d.%m %H:%M") if r["last_seen"] else "—"
+        lines.append(f"👤 {r['name']}{uname}\n   💬 {r['count']} паём{marks} · {when}\n"
+                     f"   /chat {r['user_id']}")
+    if len(rows) > 40:
+        lines.append(f"\n… ва боз {len(rows) - 40} мизоҷи дигар")
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@dp.message(F.text.startswith("/chat"))
+async def cmd_chat(message: Message):
+    if message.from_user.id != NOTIFY_CHAT_ID:
+        return
+    parts = (message.text or "").split()
+    if len(parts) < 2 or not parts[1].lstrip("-").isdigit():
+        await message.answer("Нависед: /chat 5961814932\n(рӯйхат: /chats)")
+        return
+    uid = int(parts[1])
+    thread = chatlog.build_thread(uid)
+    if not thread:
+        await message.answer("📭 Барои ин мизоҷ ягон паём сабт нашудааст.")
+        return
+    await message.answer(f"⏳ Скриншоти {len(thread)} паём тайёр шуда истодааст...")
+    try:
+        shots = await asyncio.to_thread(chatlog.render, uid)
+        txt = await asyncio.to_thread(chatlog.dump_text, uid)
+    except Exception as e:
+        logger.error(f"cmd_chat хато ({uid}): {e}", exc_info=True)
+        await message.answer(f"❌ Нашуд: {e}")
+        return
+    for p in shots:
+        try:
+            await message.answer_photo(FSInputFile(p))
+        except Exception as e:
+            logger.error(f"скриншот нарафт ({p}): {e}")
+    try:
+        await message.answer_document(
+            FSInputFile(txt), caption="📄 Ҳамон сӯҳбат ҳамчун матн (бо эмоҷӣ)")
+    except Exception as e:
+        logger.error(f"файли матн нарафт: {e}")
+
+
+@dp.message()
+async def cmd_other(message: Message):
+    if message.from_user.id != NOTIFY_CHAT_ID:
+        return
+    await message.answer(HELP, parse_mode="HTML")
+
+
+async def nightly_snapshot():
+    """
+    Ҳар шаб скриншоти ҳамаи сӯҳбатҳоро месозад ва дар папкаи ҳар мизоҷ
+    захира мекунад. ХОМӮШОНА — ҳељ чиз ба соҳиб фиристода намешавад
+    (вагарна ҳар шаб даҳҳо расм меомад). Ҳар вақт хоҳед: /chat <id>.
+    """
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    made = 0
+    for r in chatlog.list_chats():
+        try:
+            if await asyncio.to_thread(chatlog.render, r["user_id"], stamp):
+                await asyncio.to_thread(chatlog.dump_text, r["user_id"])
+                made += 1
+        except Exception as e:
+            logger.error(f"nightly_snapshot ({r['user_id']}): {e}")
+    logger.info(f"nightly_snapshot: {made} сӯҳбат захира шуд")
+
+
 @dp.business_connection()
 async def handle_business_connection(event):
     logger.info(f"Business connection: id={event.id} user={event.user.id} is_enabled={event.is_enabled}")
@@ -470,9 +627,12 @@ async def main():
     logger.info(f"✅ orderbot омода аст! @{me.username}")
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(nightly_report_loop())
+    logger.info(f"📁 Бойгонии сӯҳбатҳо: {chatlog.BASE}")
     await dp.start_polling(
         bot,
-        allowed_updates=["business_connection", "business_message", "edited_business_message"],
+        allowed_updates=["business_connection", "business_message",
+                         "edited_business_message", "deleted_business_messages",
+                         "message"],
     )
 
 

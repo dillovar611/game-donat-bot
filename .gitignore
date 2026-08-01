@@ -2,3 +2,5 @@ __pycache__/
 *.pyc
 autopay-server/spin_last.gif
 autopay-server/spin_last.mp4
+# Сӯҳбатҳои шахсии мизоҷон — ҳаргиз ба GitHub нараванд
+autopay-server/chats/
