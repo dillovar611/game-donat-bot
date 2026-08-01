@@ -1167,6 +1167,30 @@ _ORDER_STATUS_REPLY = {
 }
 
 
+# Пуркунии баланс донат нест — матни худро дорад
+_TOPUP_STATUS_REPLY = {
+    "awaiting_autopay": (
+        "⏳ Мо ҳанӯз <b>расми чеки</b> шуморо нагирифтем.\n"
+        "Пулро фиристодед? Пас расми чекро ба ҳамин ҷо фиристед — "
+        "баланс худкор пур мешавад."
+    ),
+    "autopay_search": (
+        "🔍 Чеки шумо қабул шуд — ҳоло пардохти шуморо меҷӯем.\n"
+        "Одатан 1-5 дақиқа мегирад. Ҳамин ки ёфт шавад, маблағ "
+        "ХУДКОР ба балансатон гузошта мешавад."
+    ),
+    "paid": (
+        "✅ Пардохти шумо қабул шудааст — дар навбати тасдиқ аст.\n"
+        "Ба зудӣ ба балансатон гузошта мешавад."
+    ),
+    "donating": "🔄 Пуркунии баланси шумо айни ҳол коркард шуда истодааст.",
+    "failed": (
+        "⏳ Пуркунии баланси шумо каме дертар анҷом меёбад.\n"
+        "<b>Пулатон бехатар аст</b> — ҳељ ҷо гум намешавад. 🙏"
+    ),
+}
+
+
 @fallback_router.message(F.chat.type == "private", F.text)
 async def auto_answer_status(message: Message):
     """
@@ -1187,7 +1211,8 @@ async def auto_answer_status(message: Message):
         )
         return
 
-    status_text = _ORDER_STATUS_REPLY.get(
+    table = _TOPUP_STATUS_REPLY if order.get("is_balance_topup") else _ORDER_STATUS_REPLY
+    status_text = table.get(
         order["status"],
         "ℹ️ Фармоиши шумо дар коркард аст."
     )

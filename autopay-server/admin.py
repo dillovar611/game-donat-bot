@@ -622,7 +622,7 @@ async def a_my_work(call: CallbackQuery):
     waiting = [o for o in orders if o["status"] == "paid"]
     broken = [o for o in orders if o["status"] == "failed"]
 
-    lines = [f"🛠 <b>Кор барои ман ({len(orders)})</b>\n"]
+    lines = [f"🛠 <b>Кор барои ман ({len(orders)})</b>"]
     if waiting:
         lines.append(f"\n📥 <b>Интизори тасдиқи шумо ({len(waiting)}):</b>")
         for o in waiting:
