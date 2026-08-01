@@ -635,6 +635,10 @@ async def a_my_work(call: CallbackQuery):
         "\nℹ️ Барои ҳар фармоиш тугмаашро пахш кунед — расми чек ва "
         "тугмаҳои Тасдиқ/Рад мебарояд."
     )
+    lines.append(
+        "📌 Танҳо фармоишҳои <b>3 рӯзи охир</b> (ҳадди аксар 30-то) нишон "
+        "дода мешаванд — то рӯйхат кӯтоҳ ва кориро бошад."
+    )
 
     kb_rows = [
         [InlineKeyboardButton(
@@ -679,7 +683,8 @@ async def a_health(call: CallbackQuery):
     """Дар як нигоҳ: система хуб кор мекунад ё не."""
     if not is_admin(call.from_user.id):
         return
-    h = await db.get_system_health(hours=24)
+    import autopay
+    h = await db.get_system_health(hours=24, watch_since=autopay._BOT_START_TS)
 
     rate = h["success_rate"]
     if rate is None:
@@ -704,15 +709,24 @@ async def a_health(call: CallbackQuery):
         f"❌ Ноком: <b>{h['failed']}</b>\n"
         f"🚫 Радшуда: <b>{h['rejected']}</b>\n"
         f"⚠️ Ҳолати номаълум (таймаут): <b>{h['uncertain']}</b>\n"
-        f"⏱ Вақти миёнаи донат: <b>{avg}</b>\n\n"
+        f"⏱ Аз фармоиш то тасдиқ: <b>{avg}</b>\n"
+        f"<i>(вақти интизории мизоҷ то пардохт низ дохил аст)</i>\n\n"
         f"<b>Ҳозир дар кор:</b>\n"
         f"🔄 Дар ҷараёни донат: <b>{h['donating_now']}</b>\n"
         f"🤖 Тафтишгар пайгирӣ мекунад: <b>{h['stuck_now']}</b>\n"
-        f"📥 Интизори тасдиқи шумо: <b>{h['waiting_admin']}</b>\n"
+        f"📥 Интизори тасдиқи шумо: <b>{h['waiting_admin']}</b> "
+        f"<i>(3 рӯзи охир)</i>\n"
     )
+    if h["waiting_admin_old"]:
+        text += (
+            f"\n🗄 <b>{h['waiting_admin_old']}</b> фармоиши КӮҲНА (аз 3 рӯз "
+            f"пештар) ҳанӯз дар ҳолати «пардохтшуда» мондаанд.\n"
+            f"<i>Инҳо кори имрӯза нестанд — эҳтимол аллакай дастӣ ҳал "
+            f"шудаанд, вале дар бот пӯшида нашудаанд.</i>"
+        )
     if h["uncertain"] >= 3:
         text += (
-            f"\n💡 Шумораи зиёди «номаълум» одатан маънои сусти алоқа бо "
+            f"\n\n💡 Шумораи зиёди «номаълум» одатан маънои сусти алоқа бо "
             f"FazerCards-ро дорад — на хатогии боти шумо."
         )
 

@@ -1135,12 +1135,18 @@ async def get_active_order_for_user(user_id: int):
             return await cur.fetchone()
 
 
-async def get_system_health(hours: int = 24) -> dict:
-    """Саломатии система дар N соати охир — барои панели админ."""
+async def get_system_health(hours: int = 24, watch_since=None, recent_days: int = 3) -> dict:
+    """
+    Саломатии система дар N соати охир — барои панели админ.
+
+    watch_since — лаҳзаи оғози бот. Тафтишгари худкор танҳо фармоишҳои
+    баъд аз ин лаҳзаро пайгирӣ мекунад, пас 'stuck_now' низ бояд ҳаминро
+    ҳисоб кунад, вагарна рақам гумроҳкунанда мешавад.
+    """
     out = {
         "confirmed": 0, "failed": 0, "uncertain": 0, "rejected": 0,
         "avg_minutes": None, "stuck_now": 0, "waiting_admin": 0,
-        "donating_now": 0, "success_rate": None,
+        "waiting_admin_old": 0, "donating_now": 0, "success_rate": None,
     }
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -1173,17 +1179,35 @@ async def get_system_health(hours: int = 24) -> dict:
             if secs is not None:
                 out["avg_minutes"] = round(float(secs) / 60, 1)
 
-            # Ҳозир дар кор/интизор (бе маҳдудияти вақт)
-            await cur.execute(
-                "SELECT COUNT(*) AS c FROM orders WHERE status='failed' "
-                "AND api_order_id IS NOT NULL AND api_order_id <> '' "
-                "AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)")
+            # Фармоишҳое, ки тафтишгар ВОҚЕАН пайгирӣ мекунад — танҳо
+            # баъд аз оғози бот сохташуда (ниг. autopay._BOT_START_TS)
+            if watch_since is not None:
+                await cur.execute(
+                    "SELECT COUNT(*) AS c FROM orders WHERE status='failed' "
+                    "AND api_order_id IS NOT NULL AND api_order_id <> '' "
+                    "AND created_at >= %s", (watch_since,))
+            else:
+                await cur.execute(
+                    "SELECT COUNT(*) AS c FROM orders WHERE status='failed' "
+                    "AND api_order_id IS NOT NULL AND api_order_id <> '' "
+                    "AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)")
             row = await cur.fetchone()
             out["stuck_now"] = int((row["c"] if row else 0) or 0)
 
-            await cur.execute("SELECT COUNT(*) AS c FROM orders WHERE status='paid'")
+            # Интизори тасдиқ: НАВҲО (ҳамонҳое ки дар «Кор барои ман» ҳастанд)
+            await cur.execute(
+                "SELECT COUNT(*) AS c FROM orders WHERE status='paid' "
+                "AND created_at >= DATE_SUB(NOW(), INTERVAL %s DAY)", (recent_days,))
             row = await cur.fetchone()
             out["waiting_admin"] = int((row["c"] if row else 0) or 0)
+
+            # Фармоишҳои КӮҲНАИ 'paid' — солҳо боз овезон мондаанд ва
+            # аслан кори имрӯза нестанд, вале донистанашон фоидаовар аст
+            await cur.execute(
+                "SELECT COUNT(*) AS c FROM orders WHERE status='paid' "
+                "AND created_at < DATE_SUB(NOW(), INTERVAL %s DAY)", (recent_days,))
+            row = await cur.fetchone()
+            out["waiting_admin_old"] = int((row["c"] if row else 0) or 0)
 
             await cur.execute("SELECT COUNT(*) AS c FROM orders WHERE status='donating'")
             row = await cur.fetchone()
