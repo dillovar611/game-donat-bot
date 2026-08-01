@@ -793,6 +793,19 @@ async def get_confirmed_batch_user_ids_recent(offset: int, limit: int, hours: in
             return [r[0] for r in await cur.fetchall()]
 
 
+async def get_recent_confirmed_user_ids(limit: int) -> list:
+    """user_id-и N фармоиши ОХИРИНИ тасдиқшуда (аз кӯҳна ба нав) —
+    барои санҷиши чархи тӯҳфа дар админ-панел."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT user_id FROM ("
+                "  SELECT id, user_id FROM orders WHERE status='confirmed' "
+                "  AND is_balance_topup=0 ORDER BY id DESC LIMIT %s"
+                ") t ORDER BY t.id ASC", (limit,))
+            return [r[0] for r in await cur.fetchall()]
+
+
 async def get_display_names(user_ids: list) -> dict:
     """
     Барои ҳар user_id номи намоишӣ бармегардонад — барои чархи тӯҳфа.

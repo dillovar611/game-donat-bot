@@ -7,6 +7,8 @@
 """
 import asyncio
 import hashlib
+import os
+import random
 import logging
 import math
 import html
@@ -15,6 +17,7 @@ from datetime import datetime
 
 from aiogram import Router, F
 from aiogram.types import (
+    FSInputFile,
     Message, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
     BufferedInputFile,
@@ -482,6 +485,7 @@ async def a_giveaway(call: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text=f"✏️ Иваз кардани миқдор (ҳозира: ҳар {every_n})", callback_data="giveaway_change_n")],
         [InlineKeyboardButton(text="🎁 Интихоби маҳсулоти тӯҳфа", callback_data="giveaway_pick_product")],
+        [InlineKeyboardButton(text="🎡 Санҷиши чарх (ба ман)", callback_data="giveaway_test_spin")],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")],
     ])
     await _safe_edit(
@@ -493,6 +497,80 @@ async def a_giveaway(call: CallbackQuery):
         f"Агар маҳсулот танзим нашуда бошад, тӯҳфа фиристода намешавад.",
         kb
     )
+
+
+@router.callback_query(F.data == "giveaway_test_spin")
+async def a_giveaway_test_spin(call: CallbackQuery):
+    """
+    Чархро бо харидорони ВОҚЕИИ охирин месозад ва ба АДМИН мефиристад.
+
+    Ба канал чизе намеравад ва ҳељ тӯҳфа дода намешавад — ин танҳо
+    санҷиш аст, то пеш аз тӯҳфаи воқеӣ намуди онро бинед ва бифаҳмед
+    сервер чанд сония сарф мекунад.
+    """
+    if not is_admin(call.from_user.id):
+        return
+    await call.answer("⏳ Чарх сохта истодааст, каме сабр кунед...", show_alert=True)
+
+    import time
+    import autopay
+    every_n = int(await db.get_setting("giveaway_every_n") or "25")
+
+    try:
+        batch = await db.get_recent_confirmed_user_ids(every_n)
+    except Exception as e:
+        logger.error(f"Санҷиши чарх: харидорон гирифта нашуданд: {e}")
+        batch = []
+    if not batch:
+        await call.message.answer(
+            "❌ Ҳанӯз ягон фармоиши тасдиқшуда нест — чарх сохта намешавад.")
+        return
+
+    label = "💠 Ваучери намунавӣ"
+    product_id_str = await db.get_setting("giveaway_product_id")
+    if product_id_str:
+        try:
+            product = await db.get_product(int(product_id_str))
+            if product:
+                label = product.get("label") or f"💎 {product['amount']}"
+        except Exception:
+            pass
+
+    widx = random.randrange(len(batch))
+    total_wins = await db.count_giveaway_wins()
+    t0 = time.time()
+    gif = await autopay._spin_gif_path(batch, widx, label, total_wins + 1)
+    took = time.time() - t0
+
+    if not gif or not os.path.isfile(gif):
+        await call.message.answer(
+            "❌ <b>Чарх сохта нашуд.</b>\n\n"
+            "Эҳтимол файли <code>assets/spin_bg.png</code> дар сервер нест, "
+            "ё Pillow/шрифт намерасад. Логро бинед — сабаб он ҷо навишта "
+            "шудааст.\n\n"
+            "ℹ️ Тӯҳфаҳо бе чарх ҳам кор мекунанд — эълон ҳамчун матн меравад.",
+            parse_mode="HTML")
+        return
+
+    size_mb = os.path.getsize(gif) / (1024 * 1024)
+    names_map = await db.get_display_names(batch)
+    winner_name = names_map.get(int(batch[widx]), "Мизоҷ")
+    try:
+        await call.message.answer_animation(
+            FSInputFile(gif),
+            caption=(
+                f"🎡 <b>САНҶИШ — ба канал ЧИЗЕ нарафт</b>\n\n"
+                f"🏅 «Баранда»: <b>{esc(winner_name)}</b> (тасодуфӣ, танҳо барои намуна)\n"
+                f"👥 Харидорон дар чарх: <b>{len(batch)}</b>\n"
+                f"🎁 Тӯҳфа: {esc(label)}\n\n"
+                f"⏱ Сохтани GIF: <b>{took:.1f} сония</b>\n"
+                f"💾 Ҳаҷм: <b>{size_mb:.1f} МБ</b>\n\n"
+                f"✅ Ҳељ тӯҳфа дода нашуд ва ҳисоб иваз нашуд."
+            ),
+            parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Санҷиши чарх фиристода нашуд: {e}")
+        await call.message.answer(f"❌ GIF фиристода нашуд: {e}")
 
 
 @router.callback_query(F.data == "giveaway_change_n")
