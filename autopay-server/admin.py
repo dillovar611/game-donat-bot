@@ -916,13 +916,22 @@ async def a_health(call: CallbackQuery):
         f"<i>(3 рӯзи охир)</i>\n"
     )
     if h["waiting_admin_old"]:
+        auto_on = (await db.get_setting("auto_archive") or "1") == "1"
+        auto_days = int(await db.get_setting("auto_archive_days")
+                        or str(AUTO_ARCHIVE_DEFAULT_DAYS))
         text += (
             f"\n🗄 <b>{h['waiting_admin_old']}</b> фармоиши КӮҲНА (аз 3 рӯз "
             f"пештар) ҳанӯз дар ҳолати «пардохтшуда» мондаанд.\n"
             f"<i>Инҳо кори имрӯза нестанд — эҳтимол аллакай дастӣ ҳал "
             f"шудаанд, вале дар бот пӯшида нашудаанд.</i>\n"
-            f"👇 Бо тугмаи «🧹 Бастани фармоишҳои кӯҳна» тоза кардан мумкин."
         )
+        if auto_on:
+            text += (
+                f"🤖 Тозакунии худкор ҳар рӯз соати 09:00 фармоишҳои аз "
+                f"<b>{auto_days} рӯз</b> кӯҳнатарро мебандад — пас инҳо "
+                f"худашон навбат ба навбат мебароянд.\n"
+            )
+        text += "👇 Дастӣ ҳозир бастан — «🧹 Бастани фармоишҳои кӯҳна»."
     if h["uncertain"] >= 3:
         text += (
             f"\n\n💡 Шумораи зиёди «номаълум» одатан маънои сусти алоқа бо "

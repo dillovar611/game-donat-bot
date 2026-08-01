@@ -1672,7 +1672,10 @@ async def auto_archive_loop(bot: Bot, interval_seconds: int = 300):
                 now = datetime.now()
                 today_key = now.strftime("%Y-%m-%d")
                 last = await db.get_setting("auto_archive_last") or ""
-                if now.hour >= ARCHIVE_HOUR and last != today_key:
+                # Танҳо дар РАВЗАНАИ 09:00–12:00, на "ҳар вақт баъд аз 09:00".
+                # Вагарна ҳангоми рестарти нимишабӣ тозакунӣ ФАВРАН иҷро
+                # мешавад — на он вақте ки соҳиб интизор аст.
+                if ARCHIVE_HOUR <= now.hour < ARCHIVE_HOUR + 3 and last != today_key:
                     await db.set_setting("auto_archive_last", today_key)
                     days = int(await db.get_setting("auto_archive_days")
                                or str(AUTO_ARCHIVE_DEFAULT_DAYS))
