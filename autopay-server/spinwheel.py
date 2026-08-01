@@ -268,7 +268,7 @@ def _wheel_parts(names, winner_idx, win, view):
     fd = ImageDraw.Draw(fill)
     for i in range(n):
         col = (214, 158, 24) if (win and i == winner_idx) else TONES[i % len(TONES)]
-        fd.pieslice(box, i * seg, (i + 1) * seg, fill=col + (248,))
+        fd.pieslice(box, i * seg, (i + 1) * seg, fill=col + (255,))
 
     ln = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     ld = ImageDraw.Draw(ln)
@@ -287,7 +287,7 @@ def _wheel_parts(names, winner_idx, win, view):
         ld.arc(box, winner_idx * seg, winner_idx * seg + seg, fill=GOLD + (255,), width=int(4.5 * SS))
 
     # Андозаи ҳарф ба шумораи секторҳо ва дарозии ном мутобиқ мешавад
-    base_fs = int(min(32, max(15, 340 / n)) * SS)
+    base_fs = int(min(34, max(16, 380 / n)) * SS)
     for i, nm in enumerate(names):
         mid = i * seg + seg / 2
         fs = base_fs
@@ -301,8 +301,8 @@ def _wheel_parts(names, winner_idx, win, view):
         tw = td.textbbox((0, 0), nm, font=fnt)[2]
         # сояи тира — ном дар заминаи равшан низ хоно бошад
         td.text(((tl.width - tw) // 2, int(10 * SS)), nm, font=fnt,
-                fill=col + (255,), stroke_width=max(1, int(SS * 0.9)),
-                stroke_fill=(6, 0, 18, 235))
+                fill=col + (255,), stroke_width=max(2, int(SS * 1.25)),
+                stroke_fill=(4, 0, 12, 255))
         # Матн вақте хоно аст, ки кунҷи дидашавандааш байни -90 ва +90 бошад.
         # Дар 270° (маҳз боло — ҷои баранда) чаппа мекунем, то мисли
         # чархи воқеӣ аз поён ба боло хонда шавад.
@@ -408,13 +408,22 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
     # ---- Паснамои статикӣ: сарлавҳа, панел, тугма ----
     im = base_img
     im = _glow_text(im, "ТӮҲФАИ РОЙГОН", _font(58), 36, MAG, W, H, 4)
+    # Хатакаш ба ДАРОЗИИ матн сохта мешавад; агар матн аз расм васеътар
+    # бошад, ҳарф хурд мешавад — вагарна матн аз хатакаш мебарояд
+    sub_fs = 26
+    probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
+    while sub_fs > 15 and probe.textbbox((0, 0), subtitle,
+                                         font=_font(sub_fs))[2] > W - 150:
+        sub_fs -= 1
+    sub_w = probe.textbbox((0, 0), subtitle, font=_font(sub_fs))[2]
+    half = min(W // 2 - 30, sub_w // 2 + 34)
     l = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     d = ImageDraw.Draw(l)
-    d.rounded_rectangle((W // 2 - 215, 124, W // 2 + 215, 180), radius=13,
-                        outline=CYA + (255,), width=4)
+    d.rounded_rectangle((W // 2 - half, 124, W // 2 + half, 124 + sub_fs + 26),
+                        radius=13, outline=CYA + (255,), width=4)
     im = _add(im, _glow_rgb(l, (W, H), ((22, .5), (9, .75))))
     im = _add(im, _flatten(l, (W, H)))
-    im = _glow_text(im, subtitle, _font(26), 136, CYA, W, H, 2)
+    im = _glow_text(im, subtitle, _font(sub_fs), 136, CYA, W, H, 2)
 
     fl = Image.new("RGBA", (W, H), (0, 0, 0, 0))
     fd = ImageDraw.Draw(fl)
@@ -437,8 +446,8 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
     fill_spin, lines_spin = _wheel_parts(names, winner_idx, False, 0.0)
     fill_win, lines_win = _wheel_parts(names, winner_idx, True, angle)
     ws = fill_spin.size[0]
-    lg_spin = _glow_rgb(lines_spin, (ws, ws), ((16, .5), (6, .8)))
-    lg_win = _glow_rgb(lines_win, (ws, ws), ((16, .5), (6, .8)))
+    lg_spin = _glow_rgb(lines_spin, (ws, ws), ((10, .30), (4, .60))) 
+    lg_win = _glow_rgb(lines_win, (ws, ws), ((10, .30), (4, .60)))
 
     rings = {}
     pos = (CX - W // 2, CY - W // 2)
@@ -448,7 +457,7 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
         sharp.alpha_composite(rg, pos)
         psharp = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         psharp.alpha_composite(pt, pos)
-        glow = _glow_rgb(sharp, (W, H), ((30, .62), (12, .85), (4, 1.0)))
+        glow = _glow_rgb(sharp, (W, H), ((22, .34), (9, .60), (3, .92)))
         # дурахши нишондиҳанда — танҳо хурд, то ба чарх нарезад
         glow = ImageChops.add(glow, _glow_rgb(psharp, (W, H), ((9, .5), (3, .7))))
         merged = sharp.copy()
@@ -483,8 +492,8 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
         if gift:
             img.paste(gift, (CX - gift.width // 2, CY - gift.height // 2), gift)
         # Каме контраст ва серобӣ — вагарна расм хира менамояд
-        img = ImageEnhance.Color(img).enhance(1.18)
-        img = ImageEnhance.Contrast(img).enhance(1.10)
+        img = ImageEnhance.Color(img).enhance(1.30)
+        img = ImageEnhance.Contrast(img).enhance(1.24)
         return img
 
     winner = names[winner_idx]
