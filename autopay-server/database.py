@@ -193,6 +193,7 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN is_balance_topup TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN confirmed_at DATETIME DEFAULT NULL",
                 "ALTER TABLE orders ADD COLUMN recheck_tries INT DEFAULT 0",
+                "ALTER TABLE orders ADD COLUMN nudge_sent TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN admin_alerted TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN auto_retried TINYINT DEFAULT 0",
             ):
@@ -1452,6 +1453,48 @@ async def find_check_reuse(check_hash: str, exclude_order_ids=()) -> list:
             rows = await cur.fetchall()
     ex = set(exclude_order_ids or ())
     return [r for r in rows if r["id"] not in ex]
+
+
+async def get_abandoned_orders_for_nudge(min_hours: int = 3, max_hours: int = 24,
+                                         limit: int = 30) -> list:
+    """
+    Фармоишҳое, ки мизоҷ сар кард, вале чек нафиристод ва мӯҳлаташон
+    гузашт — барои ЯК ёдоварии нарм.
+
+    Танҳо касоне гирифта мешаванд, ки БАЪДИ он фармоиш ягон хариди
+    тасдиқшуда НАКАРДААНД: агар мизоҷ баъдтар харид карда бошад, ёдоварӣ
+    маънои худро гум мекунад ва танҳо озор медиҳад.
+
+    Ҳар мизоҷ ЯК бор дар ин рӯйхат меафтад (аз ҳар мизоҷ навтарин
+    фармоиши партофташуда), то касе ду-се паём нагирад.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT o.* FROM orders o "
+                "WHERE o.status='expired' AND o.nudge_sent=0 "
+                "AND o.is_balance_topup=0 "
+                "AND o.created_at <  NOW() - INTERVAL %s HOUR "
+                "AND o.created_at >= NOW() - INTERVAL %s HOUR "
+                "AND NOT EXISTS (SELECT 1 FROM orders c WHERE c.user_id=o.user_id "
+                "                AND c.status='confirmed' AND c.created_at > o.created_at) "
+                "AND o.id = (SELECT MAX(x.id) FROM orders x WHERE x.user_id=o.user_id "
+                "            AND x.status='expired' AND x.nudge_sent=0) "
+                "ORDER BY o.created_at ASC LIMIT %s",
+                (min_hours, max_hours, limit)
+            )
+            return await cur.fetchall()
+
+
+async def mark_nudge_sent(user_id: int):
+    """Ҳамаи фармоишҳои партофташудаи ин мизоҷро аломат мезанад — то
+    ёдоварӣ барои ҳар кадоми онҳо алоҳида такрор нашавад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET nudge_sent=1 WHERE user_id=%s AND status='expired'",
+                (user_id,)
+            )
 
 
 async def set_order_api_id(order_id: int, api_id: str):

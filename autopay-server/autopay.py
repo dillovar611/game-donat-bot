@@ -47,6 +47,8 @@ _CARD_RE = re.compile(r"card\D{0,3}(\d{1,10})", re.IGNORECASE)
 MAX_AGE_MINUTES = 20      # мӯҳлати умумии фармоиши автопардохт
 SEARCH_TIMEOUT_MIN = 10   # чек омад, вале пардохт то ин дақиқа ёфт нашуд → ба админ
 EXPIRY_WARN_BEFORE_MIN = 3  # чанд дақиқа пеш аз итмоми мӯҳлат огоҳ кунем
+NUDGE_AFTER_HOURS = 3     # баъди чанд соат ба фармоиши нотамом ёдоварӣ кунем
+NUDGE_UNTIL_HOURS = 24    # аз ин кӯҳнатар бошад, дигар ёдоварӣ намекунем
 
 # Навбати автодонат — то 4 донат ҳамзамон иҷро мешаванд (пеш танҳо 1,
 # ки дар соати пик боиси интизории беҳуда мешуд; бехатарии зидди
@@ -967,6 +969,36 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
                     logger.error(f"Огоҳии итмоми мӯҳлат ба {order['user_id']} нарасид: {e}")
         except Exception as e:
             logger.error(f"Хатогӣ дар огоҳии итмоми мӯҳлат: {e}")
+
+        # ---- Фармоиши нотамом монда: ЯК ёдоварии нарм баъди чанд соат ----
+        # Паёми «мӯҳлат гузашт» ҳамон лаҳза меравад, вақте мизоҷ шояд банд
+        # бошад ва онро нахонад. Ин ёдоварии дуюм баъди 3 соат меояд —
+        # танҳо як бор ва танҳо ба касе, ки баъд аз он ҳанӯз харид накард.
+        try:
+            for order in await db.get_abandoned_orders_for_nudge(
+                    NUDGE_AFTER_HOURS, NUDGE_UNTIL_HOURS):
+                try:
+                    await bot.send_message(
+                        order["user_id"],
+                        f"👋 <b>Фармоишатон нотамом монд</b>\n\n"
+                        f"🎁 {esc(order['label'])} — {float(order['price']):.2f} сом\n\n"
+                        f"Пардохт наомад, пас фармоиш пӯшида шуд. Ҳељ пуле кам "
+                        f"нашуд — хавотир нашавед.\n\n"
+                        f"Агар ҳанӯз хоҳед, харидро аз нав сар кардан мумкин "
+                        f"аст — ду дақиқа вақт мегирад 👇",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="🛒 Харидро давом додан",
+                                                  callback_data="back_main")],
+                        ]),
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.info(f"Ёдоварии фармоиши нотамом ба {order['user_id']} нарасид: {e}")
+                # Новобаста аз он ки паём расид ё не, аломат мегузорем —
+                # вагарна ба касе, ки ботро баста, ҳар дақиқа кӯшиш мешавад
+                await db.mark_nudge_sent(order["user_id"])
+        except Exception as e:
+            logger.error(f"Хатогӣ дар ёдоварии фармоишҳои нотамом: {e}")
 
         # ---- Чек наомада, мӯҳлат гузашт ----
         try:
