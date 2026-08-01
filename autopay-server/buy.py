@@ -56,6 +56,27 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
+async def _offer_game(message: Message, note: str = ""):
+    """
+    Баъди қабули чек ба мизоҷ бозӣ пешниҳод мекунад — интизорӣ то 10-15
+    дақиқа мешавад ва дар он муддат мизоҷ асабӣ мешавад.
+
+    ПАЁМИ АЛОҲИДА мефиристад ва тамоми бозӣ дар ҳамон як паём мегузарад
+    (games.py онро нав мекунад). Бо ин, паёми «Тасдиқ шуд» дар байни
+    ҳаракатҳои бозӣ гум намешавад.
+
+    Агар чизе нашавад — хариди мизоҷ НАБОЯД халал ёбад, пас хато танҳо
+    ба лог меравад.
+    """
+    try:
+        import games
+        games.start_state(message.from_user.id, note)
+        await message.answer(games.menu_text(note),
+                             reply_markup=games.menu_kb(), parse_mode="HTML")
+    except Exception as e:
+        logger.info(f"Бозӣ пешниҳод нашуд: {e}")
+
+
 async def _hash_photo(message: Message) -> str:
     """Sha256-и байтҳои расми чекро мебарорад — барои муайян кардани
     он ки ҳамин чек пештар истифода шудааст ё не (новобаста аз file_id,
@@ -978,6 +999,7 @@ async def receive_check(message: Message, state: FSMContext):
             f"Натиҷа ҳозир хабар дода мешавад...",
             parse_mode="HTML"
         )
+        await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
         # Шояд пардохт аллакай ПЕШ аз чек омада бошад — тафтиш мекунем:
         # аввал Kod-и ба ҳамин фармоиш резервшуда (аз коменти card_XXXX),
         # баъд ҳамчун эҳтиёт — аз рӯи маблағ
@@ -1030,6 +1052,7 @@ async def receive_check(message: Message, state: FSMContext):
             "Натиҷа ба зудӣ фиристода мешавад. 🙏",
             parse_mode="HTML"
         )
+        await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
 
         nickname = data.get("nickname", "") or "—"
         username = f"@{message.from_user.username}" if message.from_user.username else "—"
@@ -1092,6 +1115,7 @@ async def receive_check(message: Message, state: FSMContext):
         "Натиҷа ба зудӣ фиристода мешавад. 🙏",
         parse_mode="HTML"
     )
+    await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
 
     # Ба ҳамаи админҳо — расм + тугмаҳо
     nickname = data.get("nickname", "") or "—"
@@ -1538,6 +1562,7 @@ async def ffid_receive_check(message: Message, state: FSMContext):
         "Натиҷа ба зудӣ фиристода мешавад. 🙏",
         parse_mode="HTML"
     )
+    await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
 
     nickname = data.get("nickname", "") or "—"
     username = f"@{message.from_user.username}" if message.from_user.username else "—"
@@ -1854,6 +1879,7 @@ async def pubg_receive_check(message: Message, state: FSMContext):
         "Натиҷа ба зудӣ фиристода мешавад. 🙏",
         parse_mode="HTML"
     )
+    await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
 
     username = f"@{message.from_user.username}" if message.from_user.username else "—"
     caption = (
@@ -2167,6 +2193,7 @@ async def stars_receive_check(message: Message, state: FSMContext):
         "Натиҷа ба зудӣ фиристода мешавад. 🙏",
         parse_mode="HTML"
     )
+    await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
 
     username_caller = f"@{message.from_user.username}" if message.from_user.username else "—"
     caption = (
@@ -2459,6 +2486,7 @@ async def premium_receive_check(message: Message, state: FSMContext):
         "Натиҷа ба зудӣ фиристода мешавад. 🙏",
         parse_mode="HTML"
     )
+    await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
 
     username_caller = f"@{message.from_user.username}" if message.from_user.username else "—"
     caption = (
@@ -2956,6 +2984,7 @@ async def topup_receive_check(message: Message, state: FSMContext):
         f"Натиҷа ҳозир хабар дода мешавад...",
         parse_mode="HTML"
     )
+    await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
     kod = await db.find_kod_for_order(autopay_order_id) \
         or await db.find_unmatched_kod(float(order["price"]), autopay.MAX_AGE_MINUTES)
     if kod:

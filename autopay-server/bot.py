@@ -21,6 +21,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 import config
 import database as db
 from buy import router as buy_router, esc
+from games import router as minigames_router
 from admin import router as admin_router
 from autopay import router as autopay_router
 import autopay
@@ -132,6 +133,7 @@ dp.callback_query.middleware(SubscriptionMiddleware())
 # Роутерҳо
 dp.include_router(admin_router)
 dp.include_router(buy_router)
+dp.include_router(minigames_router)
 dp.include_router(autopay_router)
 
 # Роутери ОХИРИН — паёмҳое, ки ҳељ ҳандлери дигар нагирифт.
