@@ -21,7 +21,8 @@ import re
 logger = logging.getLogger(__name__)
 
 try:
-    from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
+    from PIL import (Image, ImageDraw, ImageFont, ImageFilter, ImageChops,
+                     ImageEnhance)
     _PIL_OK = True
 except Exception as e:                                    # pragma: no cover
     logger.warning(f"spinwheel: Pillow нест — чарх кор намекунад: {e}")
@@ -44,8 +45,8 @@ WHITE = (255, 255, 255)
 GREEN = (80, 255, 175)
 
 # Рангҳои секторҳо — мисли conic-gradient
-TONES = [(17, 27, 85), (34, 0, 68), (0, 51, 85), (68, 0, 34), (17, 34, 85),
-         (51, 0, 85), (0, 51, 68), (34, 17, 68), (20, 30, 78), (44, 0, 60)]
+TONES = [(34, 56, 168), (74, 0, 148), (0, 104, 168), (150, 0, 76), (36, 72, 176),
+         (108, 0, 172), (0, 106, 138), (76, 36, 150), (44, 64, 160), (96, 0, 128)]
 
 CX, CY = 448, 516      # маркази чарх дар паснамо
 R = 250                # радиуси чарх
@@ -266,7 +267,7 @@ def _wheel_parts(names, winner_idx, win, view):
     fill = Image.new("RGBA", (S, S), (0, 0, 0, 0))
     fd = ImageDraw.Draw(fill)
     for i in range(n):
-        col = (30, 18, 0) if (win and i == winner_idx) else TONES[i % len(TONES)]
+        col = (214, 158, 24) if (win and i == winner_idx) else TONES[i % len(TONES)]
         fd.pieslice(box, i * seg, (i + 1) * seg, fill=col + (248,))
 
     ln = Image.new("RGBA", (S, S), (0, 0, 0, 0))
@@ -277,7 +278,7 @@ def _wheel_parts(names, winner_idx, win, view):
         a = math.radians(i * seg)
         ld.line([(c + math.cos(a) * inner, c + math.sin(a) * inner),
                  (c + math.cos(a) * r, c + math.sin(a) * r)],
-                fill=PUR + (225,), width=lw)
+                fill=(190, 140, 255, 255), width=lw)
     if win:
         for a in (math.radians(winner_idx * seg), math.radians(winner_idx * seg + seg)):
             ld.line([(c + math.cos(a) * inner, c + math.sin(a) * inner),
@@ -286,7 +287,7 @@ def _wheel_parts(names, winner_idx, win, view):
         ld.arc(box, winner_idx * seg, winner_idx * seg + seg, fill=GOLD + (255,), width=int(4.5 * SS))
 
     # Андозаи ҳарф ба шумораи секторҳо ва дарозии ном мутобиқ мешавад
-    base_fs = int(min(30, max(13, 300 / n)) * SS)
+    base_fs = int(min(32, max(15, 340 / n)) * SS)
     for i, nm in enumerate(names):
         mid = i * seg + seg / 2
         fs = base_fs
@@ -294,11 +295,14 @@ def _wheel_parts(names, winner_idx, win, view):
         while fs > int(8 * SS) and probe.textbbox((0, 0), nm, font=_font(fs))[2] > r * .58:
             fs -= SS
         fnt = _font(fs)
-        col = (255, 238, 160) if (win and i == winner_idx) else WHITE
+        col = (255, 255, 255) if (win and i == winner_idx) else WHITE
         tl = Image.new("RGBA", (int(300 * SS), int(64 * SS)), (0, 0, 0, 0))
         td = ImageDraw.Draw(tl)
         tw = td.textbbox((0, 0), nm, font=fnt)[2]
-        td.text(((tl.width - tw) // 2, int(10 * SS)), nm, font=fnt, fill=col + (255,))
+        # сояи тира — ном дар заминаи равшан низ хоно бошад
+        td.text(((tl.width - tw) // 2, int(10 * SS)), nm, font=fnt,
+                fill=col + (255,), stroke_width=max(1, int(SS * 0.9)),
+                stroke_fill=(6, 0, 18, 235))
         # Матн вақте хоно аст, ки кунҷи дидашавандааш байни -90 ва +90 бошад.
         # Дар 270° (маҳз боло — ҷои баранда) чаппа мекунем, то мисли
         # чархи воқеӣ аз поён ба боло хонда шавад.
@@ -433,8 +437,8 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
     fill_spin, lines_spin = _wheel_parts(names, winner_idx, False, 0.0)
     fill_win, lines_win = _wheel_parts(names, winner_idx, True, angle)
     ws = fill_spin.size[0]
-    lg_spin = _glow_rgb(lines_spin, (ws, ws), ((15, .35), (6, .6)))
-    lg_win = _glow_rgb(lines_win, (ws, ws), ((15, .35), (6, .6)))
+    lg_spin = _glow_rgb(lines_spin, (ws, ws), ((16, .5), (6, .8)))
+    lg_win = _glow_rgb(lines_win, (ws, ws), ((16, .5), (6, .8)))
 
     rings = {}
     pos = (CX - W // 2, CY - W // 2)
@@ -444,7 +448,7 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
         sharp.alpha_composite(rg, pos)
         psharp = Image.new("RGBA", (W, H), (0, 0, 0, 0))
         psharp.alpha_composite(pt, pos)
-        glow = _glow_rgb(sharp, (W, H), ((28, .48), (11, .7), (4, .88)))
+        glow = _glow_rgb(sharp, (W, H), ((30, .62), (12, .85), (4, 1.0)))
         # дурахши нишондиҳанда — танҳо хурд, то ба чарх нарезад
         glow = ImageChops.add(glow, _glow_rgb(psharp, (W, H), ((9, .5), (3, .7))))
         merged = sharp.copy()
@@ -478,6 +482,9 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
         img.paste(gsharp.convert("RGB"), (0, 0), gsharp)
         if gift:
             img.paste(gift, (CX - gift.width // 2, CY - gift.height // 2), gift)
+        # Каме контраст ва серобӣ — вагарна расм хира менамояд
+        img = ImageEnhance.Color(img).enhance(1.18)
+        img = ImageEnhance.Contrast(img).enhance(1.10)
         return img
 
     winner = names[winner_idx]
