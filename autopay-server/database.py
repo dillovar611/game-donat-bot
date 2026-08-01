@@ -1422,24 +1422,36 @@ async def find_orders_by_check_hash(check_hash: str, limit: int = 10):
             return await cur.fetchall()
 
 
-async def find_confirmed_duplicate_check(user_id: int, check_hash: str, hours: int = 72):
+async def find_check_reuse(check_hash: str, exclude_order_ids=()) -> list:
     """
-    Агар ҳамин корбар аллакай як фармоиши ТАСДИҚШУДА дошта бошад бо
-    маҳз ҳамин расми чек (check_hash баробар), онро бармегардонад — то
-    пешгирии донати такрории ҳамон пардохт (мизоҷ/админ иштибоҳан
-    ҳамон чекро дубора мефиристад/тасдиқ мекунад).
+    Ҳамаи фармоишҳое, ки маҳз ҲАМИН расми чек ба онҳо пайваст шудааст —
+    БЕ маҳдудияти корбар, БЕ маҳдудияти вақт.
+
+    Се маҳдудияти кӯҳна қасдан бардошта шуданд:
+      • корбар — чеки як нафар метавонад ба ҳисоби ДИГАР истифода шавад
+        (ду аккаунт, ё расмро ба дӯсташ додан). Ин ҳолати аз ҳама хатарнок
+        буд ва тамоман дида намешуд.
+      • статус — чеки такрорӣ метавонад ҳанӯз дар кор бошад (paid,
+        autopay_search, donating), яъне ҳанӯз 'confirmed' нашуда. Пештар
+        маҳз ҳамин роҳи тезтарин кушода буд.
+      • вақт — 72 соат сабаби техникӣ надошт.
+
+    Фармоишҳои радшуда/мӯҳлатгузашта ҳисоб намешаванд: чеки онҳо кор
+    накард, пас истифодаи дубораи ҳамон расм қонунӣ аст.
     """
     if not check_hash:
-        return None
+        return []
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
-                "SELECT * FROM orders WHERE user_id=%s AND check_hash=%s "
-                "AND status='confirmed' AND created_at >= NOW() - INTERVAL %s HOUR "
-                "ORDER BY created_at DESC LIMIT 1",
-                (user_id, check_hash, hours)
+                "SELECT * FROM orders WHERE check_hash=%s "
+                "AND status NOT IN ('rejected','expired') "
+                "ORDER BY created_at ASC LIMIT 10",
+                (check_hash,)
             )
-            return await cur.fetchone()
+            rows = await cur.fetchall()
+    ex = set(exclude_order_ids or ())
+    return [r for r in rows if r["id"] not in ex]
 
 
 async def set_order_api_id(order_id: int, api_id: str):
