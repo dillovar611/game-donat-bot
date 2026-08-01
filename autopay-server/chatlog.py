@@ -303,6 +303,95 @@ def list_chats() -> list:
     return out
 
 
+def make_zip(dest_dir: str = None) -> str:
+    """
+    Ҳамаи бойгониро ба як файли ZIP мебандад ва роҳашро бармегардонад
+    (ё сатри холӣ, агар ҳанӯз ягон сӯҳбат набошад).
+
+    Матн ва сабтҳо ҲАМЕША дохил мешаванд. Расмҳо танҳо он вақт, ки ҳаҷми
+    умумӣ аз ҳудуди Telegram (50 МБ) нагузарад — вагарна файл умуман
+    фиристода намешавад ва нусхаи эҳтиётӣ маъно надорад.
+    """
+    import zipfile
+    if not os.path.isdir(BASE):
+        return ""
+    dest_dir = dest_dir or BASE
+    stamp = datetime.now().strftime("%Y-%m-%d")
+    path = os.path.join(dest_dir, f"sohbatho_{stamp}.zip")
+
+    files, photos = [], []
+    for root, _dirs, names in os.walk(BASE):
+        for n in names:
+            if n.endswith(".zip"):
+                continue
+            full = os.path.join(root, n)
+            rel = os.path.relpath(full, BASE)
+            (photos if f"{os.sep}photos{os.sep}" in full else files).append((full, rel))
+    if not files and not photos:
+        return ""
+
+    LIMIT = 45 * 1024 * 1024
+    try:
+        with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED, compresslevel=6) as z:
+            for full, rel in files:
+                z.write(full, rel)
+            # Расмҳо аз навтарин ба кӯҳна, то ҷои холӣ бас кунад
+            photos.sort(key=lambda p: os.path.getmtime(p[0]), reverse=True)
+            skipped = 0
+            for full, rel in photos:
+                if os.path.getsize(path) > LIMIT:
+                    skipped += 1
+                    continue
+                z.write(full, rel)
+            if skipped:
+                z.writestr("ЭЗОҲ.txt",
+                           f"{skipped} расми кӯҳна ба ин архив дохил нашуд — "
+                           f"ҳаҷм аз ҳудуди Telegram мегузашт.\n"
+                           f"Онҳо дар сервер боқӣ мондаанд.\n")
+    except Exception as e:
+        logger.error(f"chatlog: ZIP сохта нашуд: {e}")
+        return ""
+    return path
+
+
+def search(needle: str, limit: int = 40) -> list:
+    """
+    Дар ҳамаи сӯҳбатҳо калима ё рақами фармоишро меёбад.
+
+    Матни НЕСТКАРДАШУДА ва матни то ислоҳ ҳам ҷустуҷӯ мешавад — маҳз
+    онҳо аз ҳама муҳиманд, чунки дар худи Telegram дигар вуҷуд надоранд.
+
+    Бармегардонад: [{user_id, name, ts, who, text, deleted, edited}, ...]
+    навтарин аввал.
+    """
+    q = (needle or "").strip().lower()
+    if not q:
+        return []
+    hits = []
+    for c in list_chats():
+        uid = c["user_id"]
+        for m in build_thread(uid):
+            found, mark = None, ""
+            if q in (m["text"] or "").lower():
+                found = m["text"]
+            else:
+                for e in m["edited"]:
+                    if q in (e["old"] or "").lower():
+                        found, mark = e["old"], "edited"
+                        break
+            if found is None:
+                continue
+            hits.append({
+                "user_id": uid, "name": c["name"], "ts": m["ts"],
+                "who": m["who"], "text": found,
+                "deleted": m["deleted"],
+                "edited": bool(mark) or bool(m["edited"]),
+                "only_in_archive": m["deleted"] or bool(mark),
+            })
+    hits.sort(key=lambda h: h["ts"], reverse=True)
+    return hits[:limit]
+
+
 def dump_text(user_id: int) -> str:
     """Сӯҳбатро ҳамчун файли матнии оддӣ менависад ва роҳашро бармегардонад."""
     thread = build_thread(user_id)

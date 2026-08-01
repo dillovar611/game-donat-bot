@@ -12,6 +12,7 @@ orderbot.py — Боти АЛОҲИДА барои "Автоматизация �
 """
 import asyncio
 import logging
+import os
 import random
 import re
 import time
@@ -528,7 +529,10 @@ HELP = (
     "инчунин паёмҳои несткарда ва ислоҳшуда.\n\n"
     "<b>Фармонҳо:</b>\n"
     "/chats — рӯйхати ҳамаи мизоҷон\n"
-    "/chat 5961814932 — скриншот ва файли сӯҳбати ҳамон мизоҷ\n\n"
+    "/chat 5961814932 — скриншот ва файли сӯҳбати ҳамон мизоҷ\n"
+    "/find дузд — ҷустуҷӯи калима дар ҲАМАИ сӯҳбатҳо (ҳатто дар "
+    "паёмҳои несткарда)\n"
+    "/backup — нусхаи ҳамаи бойгонӣ ҳамчун як файл\n\n"
     "ℹ️ Ҳангоми несткунӣ ё ислоҳи паём аз ҷониби мизоҷ, ман фавран "
     "худам ба шумо хабар медиҳам."
 )
@@ -591,6 +595,50 @@ async def cmd_chat(message: Message):
         logger.error(f"файли матн нарафт: {e}")
 
 
+@dp.message(F.text.startswith("/find"))
+async def cmd_find(message: Message):
+    if message.from_user.id != NOTIFY_CHAT_ID:
+        return
+    q = (message.text or "")[len("/find"):].strip()
+    if len(q) < 2:
+        await message.answer("Нависед: /find дузд\nё: /find 29738")
+        return
+    hits = await asyncio.to_thread(chatlog.search, q)
+    if not hits:
+        await message.answer(f"🔍 «{q}» дар ягон сӯҳбат ёфт нашуд.")
+        return
+    lines = [f"🔍 <b>«{q}» — {len(hits)} ҷой ёфт шуд</b>\n"]
+    for h in hits[:25]:
+        when = datetime.fromtimestamp(h["ts"]).strftime("%d.%m.%Y %H:%M")
+        who = h["name"] if h["who"] == "client" else "Мо"
+        flag = ""
+        if h["deleted"]:
+            flag = " ❌ НЕСТ КАРДА ШУД"
+        elif h["edited"]:
+            flag = " ✏️ ислоҳ шуд"
+        body = h["text"].replace("\n", " ")
+        lines.append(f"👤 <b>{who}</b> · {when}{flag}\n"
+                     f"   «{_short(body, 200)}»\n"
+                     f"   /chat {h['user_id']}")
+    hidden = sum(1 for h in hits if h["only_in_archive"])
+    if hidden:
+        lines.append(f"\n❗️ Аз инҳо <b>{hidden}</b>-тоаш дар худи Telegram "
+                     f"дигар НЕСТ — танҳо дар бойгонии мо боқӣ мондааст.")
+    if len(hits) > 25:
+        lines.append(f"\n… ва боз {len(hits) - 25} ҷои дигар")
+    await message.answer("\n".join(lines), parse_mode="HTML")
+
+
+@dp.message(F.text.startswith("/backup"))
+async def cmd_backup(message: Message):
+    if message.from_user.id != NOTIFY_CHAT_ID:
+        return
+    await message.answer("⏳ Архиви бойгонӣ тайёр шуда истодааст...")
+    await send_backup(manual=True)
+
+
+# ДИҚҚАТ: ин handler ҲАМА чизро мегирад, пас бояд ОХИРИН бошад —
+# вагарна фармонҳои поёнтар сабтшуда ҳаргиз кор намекунанд.
 @dp.message()
 async def cmd_other(message: Message):
     if message.from_user.id != NOTIFY_CHAT_ID:
@@ -600,6 +648,56 @@ async def cmd_other(message: Message):
                     f"({message.from_user.full_name}) — NOTIFY_CHAT_ID={NOTIFY_CHAT_ID}")
         return
     await message.answer(HELP, parse_mode="HTML")
+
+
+async def send_backup(manual: bool = False):
+    """Ҳамаи бойгониро ҳамчун ZIP ба соҳиб мефиристад."""
+    try:
+        path = await asyncio.to_thread(chatlog.make_zip)
+    except Exception as e:
+        logger.error(f"send_backup: ZIP нашуд: {e}")
+        path = ""
+    if not path:
+        if manual:
+            await bot.send_message(NOTIFY_CHAT_ID, "📭 Ҳанӯз ягон сӯҳбат сабт нашудааст.")
+        return
+    mb = os.path.getsize(path) / (1024 * 1024)
+    n = len(chatlog.list_chats())
+    try:
+        await bot.send_document(
+            NOTIFY_CHAT_ID, FSInputFile(path),
+            caption=(f"📦 <b>Нусхаи бойгонии сӯҳбатҳо</b>\n\n"
+                     f"👥 {n} мизоҷ · 💾 {mb:.1f} МБ\n"
+                     f"🗓 {datetime.now():%d.%m.%Y}\n\n"
+                     f"Ин файлро нигоҳ доред — агар сервер аз кор монад, "
+                     f"ҳамаи сӯҳбатҳо дар ҳамин ҷо боқӣ мемонанд."),
+            parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"send_backup: файл нарафт: {e}")
+        if manual:
+            await bot.send_message(NOTIFY_CHAT_ID, f"❌ Архив фиристода нашуд: {e}")
+    finally:
+        try:
+            os.remove(path)      # дар сервер ҷой нагирад — нусхааш дар Telegram аст
+        except Exception:
+            pass
+
+
+async def weekly_backup_loop():
+    """Ҳар якшанбе соати 23:30 нусхаи бойгониро ба соҳиб мефиристад."""
+    while True:
+        now = datetime.now()
+        target = now.replace(hour=23, minute=30, second=0, microsecond=0)
+        # 6 = якшанбе
+        days = (6 - now.weekday()) % 7
+        target += timedelta(days=days)
+        if target <= now:
+            target += timedelta(days=7)
+        await asyncio.sleep((target - now).total_seconds())
+        try:
+            await send_backup()
+        except Exception as e:
+            logger.error(f"weekly_backup хато: {e}")
 
 
 async def nightly_snapshot():
@@ -631,6 +729,7 @@ async def main():
     logger.info(f"✅ orderbot омода аст! @{me.username}")
     await bot.delete_webhook(drop_pending_updates=True)
     asyncio.create_task(nightly_report_loop())
+    asyncio.create_task(weekly_backup_loop())
     logger.info(f"📁 Бойгонии сӯҳбатҳо: {chatlog.BASE}")
     await dp.start_polling(
         bot,
