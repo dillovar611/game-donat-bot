@@ -23,6 +23,7 @@ import random
 import time
 import unicodedata
 import logging
+from datetime import datetime
 import re
 
 from aiogram import Router, F, Bot
@@ -473,9 +474,7 @@ async def _handle_donate_failure(bot: Bot, order: dict, kod: str,
         return
 
     # ID нест — чизе барои санҷидан нест, админ бояд дастӣ ҳал кунад
-    if not await db.claim_admin_alert(order_id):
-        return
-    await _admin_report_failure(bot, order, kod, api_order_id, uncertain)
+    await _report_failure_to_admin(bot, order, kod, api_order_id, uncertain)
 
 
 async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: str, uncertain: bool = False):
@@ -822,6 +821,49 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
         _in_flight_orders.discard(order_id)
 
 
+async def _dispatch_donate_call(order: dict):
+    """
+    Ба API-и ДУРУСТИ хизмат муроҷиат мекунад (аз рӯи префикси game_id) ва
+    натиҷаро ба як шакл меорад: (success, api_order_id, uncertain, cost_usd).
+    FFID/PUBG 2-tuple бармегардонанд — ин ҷо ба 4-tuple табдил мешаванд.
+
+    Даъват дар try — то агар exception партояд, фармоиш дар 'donating' гир
+    намонад; чунин ҳолат ҳамчун "номаълум" (uncertain) баҳо дода мешавад,
+    яъне фармоиши НАВ сохта намешавад.
+    """
+    order_id = order["id"]
+    game_id = order["game_id"] or ""
+    try:
+        if game_id.startswith("FFID:"):
+            player_id = game_id.replace("FFID:", "")
+            success, api_order_id = await ff_api.auto_donate_ffid(
+                player_id, order["offer_id"], order.get("api_order_id") or "", order_id
+            )
+            return success, api_order_id, False, None
+        if game_id.startswith("PUBG:"):
+            player_id = game_id.replace("PUBG:", "")
+            success, api_order_id = await ff_api.auto_donate_pubg(
+                player_id, order["offer_id"], order.get("api_order_id") or "", order_id
+            )
+            return success, api_order_id, False, None
+        if game_id.startswith("STARS:"):
+            tg_username = game_id.replace("STARS:", "")
+            return await ff_api.buy_telegram_stars(
+                tg_username, order["amount"], order_id, order.get("api_order_id") or ""
+            )
+        if game_id.startswith("PREMIUM:"):
+            tg_username = game_id.replace("PREMIUM:", "")
+            return await ff_api.buy_telegram_premium(
+                tg_username, order["amount"], order_id, order.get("api_order_id") or ""
+            )
+        return await ff_api.auto_donate(
+            game_id, order["offer_id"], order.get("api_order_id") or "", order_id
+        )
+    except Exception as e:
+        logger.error(f"_dispatch_donate_call: ff_api хато барои #{order_id}: {e}")
+        return False, "", True, None
+
+
 async def run_donate_from_balance(bot: Bot, order: dict):
     """
     Фармоише, ки МИЗОҶ АЗ БАЛАНСИ ХУД пардохт кардааст (баланс аллакай
@@ -835,48 +877,15 @@ async def run_donate_from_balance(bot: Bot, order: dict):
     """
     order_id = order["id"]
     user_id = order["user_id"]
-    game_id = order["game_id"] or ""
 
     await db.update_order_status(order_id, "donating")
 
     async with _donate_semaphore:
-        # Ҳар хизмат API-и худро дорад (game_id бо префикс фарқ мекунад —
-        # мисли admin.py-и order_confirm_ffid/_pubg/_stars/_premium аллакай
-        # мекунанд). FFID/PUBG 2-tuple бармегардонанд (uncertain/cost_usd надоранд).
+        # Ҳар хизмат API-и худро дорад — ниг. _dispatch_donate_call.
         # Даъвати API дар try — то агар exception партояд, фармоиш дар 'donating'
         # гир намонад (баланс аллакай кам шудааст) — онро ҳамчун ноком коркард
         # мекунем ва админ огоҳ мешавад (мисли уncertain).
-        try:
-            if game_id.startswith("FFID:"):
-                player_id = game_id.replace("FFID:", "")
-                success, api_order_id = await ff_api.auto_donate_ffid(
-                    player_id, order["offer_id"], order.get("api_order_id") or "", order_id
-                )
-                uncertain, cost_usd = False, None
-            elif game_id.startswith("PUBG:"):
-                player_id = game_id.replace("PUBG:", "")
-                success, api_order_id = await ff_api.auto_donate_pubg(
-                    player_id, order["offer_id"], order.get("api_order_id") or "", order_id
-                )
-                uncertain, cost_usd = False, None
-            elif game_id.startswith("STARS:"):
-                tg_username = game_id.replace("STARS:", "")
-                success, api_order_id, uncertain, cost_usd = await ff_api.buy_telegram_stars(
-                    tg_username, order["amount"], order_id, order.get("api_order_id") or ""
-                )
-            elif game_id.startswith("PREMIUM:"):
-                tg_username = game_id.replace("PREMIUM:", "")
-                success, api_order_id, uncertain, cost_usd = await ff_api.buy_telegram_premium(
-                    tg_username, order["amount"], order_id, order.get("api_order_id") or ""
-                )
-            else:
-                success, api_order_id, uncertain, cost_usd = await ff_api.auto_donate(
-                    game_id, order["offer_id"], order.get("api_order_id") or "",
-                    order_id
-                )
-        except Exception as e:
-            logger.error(f"run_donate_from_balance: ff_api хато барои #{order_id}: {e}")
-            success, api_order_id, uncertain, cost_usd = False, "", True, None
+        success, api_order_id, uncertain, cost_usd = await _dispatch_donate_call(order)
         logger.info(f"[COST-DEBUG] run_donate_from_balance: order={order_id} success={success} cost_usd={cost_usd!r}")
         if api_order_id:
             await db.set_order_api_id(order_id, api_order_id)
@@ -1307,9 +1316,107 @@ _recheck_settled: set = set()
 # 10 санҷиш × 3 дақиқа ≈ 30 дақиқа
 RECHECK_ALERT_AFTER_TRIES = 10
 
+# Реҷаи хомӯшии шабона: аз 00:00 то 08:00 огоҳиҳои "кӯмак лозим" ҷамъ
+# мешаванд ва субҳ дар ЯК паёми ҷамъбастӣ мераванд (то хоб халал нашавад).
+QUIET_START_HOUR = 0
+QUIET_END_HOUR = 8
 
-async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost_usd):
-    """Фармоише, ки тафтишгари худкор онро иҷрошуда ёфт — расман анҷом медиҳад."""
+
+async def _quiet_hours_on() -> bool:
+    """Реҷаи хомӯшии шабона фаъол аст ё не (админ хомӯш карда метавонад)."""
+    try:
+        return (await db.get_setting("quiet_hours") or "1") == "1"
+    except Exception:
+        return True
+
+
+def _is_quiet_now() -> bool:
+    return QUIET_START_HOUR <= datetime.now().hour < QUIET_END_HOUR
+
+
+async def _should_defer_alert() -> bool:
+    """Огоҳии «кӯмак лозим»-ро то субҳ таъхир кунем ё не."""
+    return _is_quiet_now() and await _quiet_hours_on()
+
+
+async def _report_failure_to_admin(bot: Bot, order: dict, kod: str,
+                                   api_order_id: str, uncertain: bool = False) -> bool:
+    """
+    Огоҳии «ин фармоиш кӯмаки шуморо мехоҳад»-ро мефиристад — ҳадди аксар
+    ЯК бор барои ҳар фармоиш (claim_admin_alert).
+
+    Дар реҷаи хомӯшии шабона (00:00–08:00) чизе фиристода намешавад ва
+    аломат ҳам гузошта намешавад — субҳ quiet_digest_loop ин фармоишро
+    дар ЯК паёми ҷамъбастӣ мефиристад.
+
+    True = огоҳӣ ВОҚЕАН фиристода шуд.
+    """
+    if await _should_defer_alert():
+        logger.info(
+            f"#{order['id']}: реҷаи хомӯшии шабона — огоҳӣ то субҳ таъхир шуд"
+        )
+        return False
+    if not await db.claim_admin_alert(order["id"]):
+        return False
+    await _admin_report_failure(bot, order, kod, api_order_id, uncertain)
+    return True
+
+
+async def _auto_retry_donate(bot: Bot, order: dict):
+    """
+    ЯК кӯшиши ХУДКОРИ такрорӣ барои фармоише, ки FazerCards онро ВОҚЕАН
+    рад кардааст.
+
+    Чаро ин бехатар аст: ҳолати ниҳоӣ МАЪЛУМ аст — донат НАШУДААСТ. Пас
+    фармоиши нав дучандон харҷ карда наметавонад. (Агар ҳолат номаълум
+    мебуд, ин ҷо ҳељ гоҳ намерасидем — ниг. recheck_loop.)
+
+    Статус аллакай атомикӣ ба 'donating' гузаштааст
+    (claim_failed_order_for_autoretry), пас рақиб нест.
+    Такрори ХУДКОР танҳо ЯК бор мешавад (auto_retried=1).
+    """
+    order_id = order["id"]
+    user_id = order["user_id"]
+    try:
+        async with _donate_semaphore:
+            fresh = await db.get_order(order_id) or order
+            success, api_order_id, uncertain, cost_usd = await _dispatch_donate_call(fresh)
+            if api_order_id:
+                await db.set_order_api_id(order_id, api_order_id)
+    except Exception as e:
+        logger.error(f"_auto_retry_donate #{order_id} хато: {e}")
+        success, api_order_id, uncertain, cost_usd = False, "", True, None
+
+    if success:
+        await db.update_order_status(order_id, "confirmed")
+        logger.info(f"_auto_retry_donate: #{order_id} такрори худкор МУВАФФАҚ шуд")
+        await _finish_recovered_order(
+            bot, order, api_order_id, cost_usd,
+            admin_note=(
+                "FazerCards кӯшиши аввалро рад карда буд, бот ХУДАШ як бор "
+                "такрор кард ва ин дафъа муваффақ шуд. Ҳеҷ кори дастӣ "
+                "лозим набуд."
+            ),
+            customer_text=(
+                f"🎉 <b>Донати шумо анҷом ёфт!</b>\n\n"
+                f"🆔 Фармоиш: #{order_id}\n"
+                f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
+                f"Кӯшиши аввал нашуда буд, бот худаш такрор кард — ҳоло "
+                f"ҳама чиз дуруст расид. Аккаунтатонро санҷед. 🙏"
+            ),
+        )
+        return
+
+    # Такрори худкор ҳам ноком шуд — акнун бо роҳи муқаррарӣ коркард
+    # мешавад (auto_retried=1 мемонад, пас такрори дуюми худкор намешавад)
+    logger.warning(f"_auto_retry_donate: #{order_id} такрори худкор ҳам ноком шуд")
+    _recheck_settled.discard(order_id)
+    await _handle_donate_failure(bot, order, "", api_order_id, uncertain)
+
+
+async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost_usd,
+                                  admin_note: str = "", customer_text: str = ""):
+    """Фармоише, ки тафтишгар/такрори худкор онро анҷомёфта кард — расман мебандад."""
     order_id = order["id"]
     user_id = order["user_id"]
 
@@ -1334,15 +1441,18 @@ async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost
     except Exception as e:
         logger.error(f"credit_referral (recheck) барои #{order_id} хато: {e}")
 
-    try:
-        await bot.send_message(
-            user_id,
+    if not customer_text:
+        customer_text = (
             f"🎉 <b>Хушхабар — донати шумо анҷом ёфт!</b>\n\n"
             f"🆔 Фармоиш: #{order_id}\n"
             f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
             f"Каме таъхир шуд, вале ҳама чиз дуруст расид. "
-            f"Аккаунтатонро санҷед. 🙏\n\n"
-            f"⭐ Лутфан отзив гузоред:",
+            f"Аккаунтатонро санҷед. 🙏"
+        )
+    try:
+        await bot.send_message(
+            user_id,
+            customer_text + "\n\n⭐ Лутфан отзив гузоред:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🧾 Чеки муваффақ", callback_data=f"receipt_{order_id}")],
                 [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
@@ -1352,6 +1462,12 @@ async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost
     except Exception as e:
         logger.error(f"Паёми барқароршуда ба {user_id} нарасид: {e}")
 
+    if not admin_note:
+        admin_note = (
+            "Тафтишгари худкор санҷид: ин фармоиш дар асл ИҶРО ШУДААСТ "
+            "(таймаути шабака гумроҳ карда буд). Фармоиш тасдиқ шуд ва "
+            "ба мизоҷ хабар дода шуд."
+        )
     for admin_id in config.ADMIN_IDS:
         try:
             await bot.send_message(
@@ -1360,9 +1476,7 @@ async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"🆔 ID FazerCards: <code>{api_order_id}</code>\n"
                 f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
-                f"Тафтишгари худкор санҷид: ин фармоиш дар асл ИҶРО ШУДААСТ "
-                f"(таймаути шабака гумроҳ карда буд). Фармоиш тасдиқ шуд ва "
-                f"ба мизоҷ хабар дода шуд.",
+                f"{admin_note}",
                 parse_mode="HTML"
             )
         except Exception as e:
@@ -1410,15 +1524,20 @@ async def recheck_loop(bot: Bot, interval_seconds: int = 180):
                     await _finish_recovered_order(bot, order, api_order_id, cost_usd)
 
                 elif state == "failed":
-                    # Ҷавоби ВОҚЕИИ "ноком" — дигар напурсем ва як бор
-                    # ба админ хабар диҳем (акнун "Дубора донат" бехатар аст)
+                    # Ҷавоби ВОҚЕИИ "ноком". Дар ин ҳолат такрор кардан
+                    # 100% бехатар аст (ҳолати ниҳоӣ маълум — донат
+                    # НАШУДААСТ), пас бот ЯК бор ХУДАШ такрор мекунад.
                     _recheck_settled.add(order_id)
-                    if await db.claim_admin_alert(order_id):
+                    if await db.claim_failed_order_for_autoretry(order_id):
                         logger.info(
                             f"recheck_loop: #{order_id} ({api_order_id}) "
-                            f"ВОҚЕАН рад шудааст — админ хабар мегирад"
+                            f"ВОҚЕАН рад шудааст — такрори ХУДКОР оғоз шуд"
                         )
-                        await _admin_report_failure(
+                        asyncio.create_task(_auto_retry_donate(bot, order))
+                    else:
+                        # Аллакай як бор худкор такрор шуда буд — акнун
+                        # кӯмаки админ лозим аст
+                        await _report_failure_to_admin(
                             bot, order, "", api_order_id, uncertain=False)
 
                 else:
@@ -1427,18 +1546,87 @@ async def recheck_loop(bot: Bot, interval_seconds: int = 180):
                     # (вале санҷиданро бас намекунем — шояд боз ҳал шавад).
                     tries = await db.bump_recheck_tries(order_id)
                     if tries >= RECHECK_ALERT_AFTER_TRIES:
-                        if await db.claim_admin_alert(order_id):
+                        if await _report_failure_to_admin(
+                                bot, order, "", api_order_id, uncertain=True):
                             logger.warning(
                                 f"recheck_loop: #{order_id} ({api_order_id}) "
                                 f"баъд аз {tries} санҷиш ҳал нашуд — админ "
-                                f"хабар мегирад"
+                                f"хабар гирифт"
                             )
-                            await _admin_report_failure(
-                                bot, order, "", api_order_id, uncertain=True)
 
                 await asyncio.sleep(1)  # ба API фишор наорем
         except Exception as e:
             logger.error(f"Хатогӣ дар recheck_loop: {e}")
+
+        await asyncio.sleep(interval_seconds)
+
+
+_STATUS_LABELS_SHORT = {
+    "paid": "чек омада, интизори тасдиқ",
+    "failed": "донат нашуд",
+}
+
+
+def _order_need_line(o: dict, now: datetime) -> str:
+    """Як сатри рӯйхати «кор барои ман»."""
+    created_at = o.get("created_at")
+    age_min = int((now - created_at).total_seconds() / 60) if created_at else 0
+    age = f"{age_min} дақ" if age_min < 60 else f"{age_min // 60} соат"
+    what = "💰 пуркунии баланс" if o.get("is_balance_topup") else o.get("label") or "—"
+    st = _STATUS_LABELS_SHORT.get(o.get("status"), o.get("status") or "—")
+    return f"#{o['id']} — {what} — {float(o['price']):.2f} сом — {st} — {age} пеш"
+
+
+async def quiet_digest_loop(bot: Bot, interval_seconds: int = 300):
+    """
+    ҶАМЪБАСТИ СУБҲ.
+
+    Дар реҷаи хомӯшии шабона (00:00–08:00) огоҳиҳои «ин фармоиш кӯмак
+    мехоҳад» фиристода намешаванд — то хоби соҳиб халал нашавад. Ҳамин
+    ки соати 08:00 расид, ҳамаи он фармоишҳо дар ЯК паём мераванд.
+
+    Агар шаб ҳеҷ чиз ҷамъ нашуда бошад, ҳељ паём фиристода намешавад.
+    """
+    await asyncio.sleep(60)
+    while True:
+        try:
+            now = datetime.now()
+            today_key = now.strftime("%Y-%m-%d")
+            # Танҳо дар равзанаи субҳ (08:00–11:00) ва танҳо ЯК бор дар рӯз —
+            # то агар бот нисфирӯзӣ рестарт шавад, "ҷамъбасти субҳ" беҷо наравад
+            if (QUIET_END_HOUR <= now.hour < QUIET_END_HOUR + 3
+                    and await _quiet_hours_on()):
+                last = await db.get_setting("quiet_digest_last") or ""
+                if last != today_key:
+                    orders = await db.get_unalerted_admin_orders(hours=12)
+                    await db.set_setting("quiet_digest_last", today_key)
+                    if orders:
+                        lines = [
+                            f"🌅 <b>Субҳ ба хайр! Шаб {len(orders)} фармоиш "
+                            f"кӯмаки шуморо мехоҳад:</b>\n"
+                        ]
+                        for o in orders:
+                            lines.append(_order_need_line(o, now))
+                            try:
+                                await db.claim_admin_alert(o["id"])
+                            except Exception:
+                                pass
+                        lines.append(
+                            "\n👇 Барои кор кардан «🛠 Кор барои ман»-ро кушоед."
+                        )
+                        kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="🛠 Кор барои ман",
+                                                  callback_data="a_my_work")]
+                        ])
+                        for admin_id in config.ADMIN_IDS:
+                            try:
+                                await bot.send_message(
+                                    admin_id, "\n".join(lines),
+                                    reply_markup=kb, parse_mode="HTML")
+                            except Exception as e:
+                                logger.error(f"Ҷамъбасти субҳ ба {admin_id} нарасид: {e}")
+        except Exception as e:
+            logger.error(f"Хатогӣ дар quiet_digest_loop: {e}")
 
         await asyncio.sleep(interval_seconds)
 

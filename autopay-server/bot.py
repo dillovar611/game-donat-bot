@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from typing import Any, Awaitable, Callable, Dict
 from urllib.parse import quote
 
-from aiogram import Bot, Dispatcher, BaseMiddleware, F
+from aiogram import Bot, Dispatcher, BaseMiddleware, Router, F
 from aiogram.types import (
     Message, CallbackQuery,
     InlineKeyboardMarkup, InlineKeyboardButton,
@@ -133,6 +133,10 @@ dp.callback_query.middleware(SubscriptionMiddleware())
 dp.include_router(admin_router)
 dp.include_router(buy_router)
 dp.include_router(autopay_router)
+
+# Роутери ОХИРИН — паёмҳое, ки ҳељ ҳандлери дигар нагирифт.
+# ҲАТМАН баъд аз ҳама дохил мешавад, вагарна ҳолатҳои FSM-и buy.py-ро мегирад.
+fallback_router = Router()
 
 
 # ==================== МЕНЮИ АСОСӢ ====================
@@ -1131,12 +1135,93 @@ async def _stale_paid_orders_loop(bot: Bot):
 
 
 # ==================== ОҒОЗ ====================
+# ==================== ҶАВОБИ ХУДКОР БА САВОЛИ МИЗОҶ ====================
+# Вақте мизоҷ дар вақти интизорӣ чизе менависад ("пулам чӣ шуд?", "алмос
+# наомад" ва ғ.), бот ХУДАШ ҳолати фармоиши охиринашро мегӯяд — то соҳиб
+# ба ҳар як савол ҷавоб надиҳад.
+_ORDER_STATUS_REPLY = {
+    "awaiting_autopay": (
+        "⏳ Мо ҳанӯз <b>расми чеки</b> шуморо нагирифтем.\n"
+        "Пулро фиристодед? Пас расми чекро ба ҳамин ҷо фиристед — "
+        "фармоиш худкор идома меёбад."
+    ),
+    "autopay_search": (
+        "🔍 Чеки шумо қабул шуд — ҳоло пардохти шуморо меҷӯем.\n"
+        "Одатан 1-5 дақиқа мегирад. Ҳамин ки ёфт шавад, донат "
+        "ХУДКОР оғоз мешавад."
+    ),
+    "paid": (
+        "✅ Пардохти шумо қабул шудааст — фармоиш дар навбати "
+        "тасдиқ аст.\nБа зудӣ иҷро мешавад."
+    ),
+    "donating": (
+        "🚀 Донати шумо АЙНИ ҲОЛ дар ҷараён аст!\n"
+        "Одатан 1-3 дақиқа мегирад — каме сабр кунед."
+    ),
+    "failed": (
+        "⏳ Фармоиши шумо каме дертар мерасад.\n"
+        "Бот ҳар чанд дақиқа ҳолати онро месанҷад ва ҳамин ки тайёр "
+        "шавад, ба шумо хабар медиҳад. <b>Пулатон бехатар аст</b> — "
+        "ҳељ ҷо гум намешавад. 🙏"
+    ),
+}
+
+
+@fallback_router.message(F.chat.type == "private", F.text)
+async def auto_answer_status(message: Message):
+    """
+    Паёме, ки ҳељ ҳандлери дигар нагирифт. Агар корбар фармоиши «зинда»
+    дошта бошад — ҳолати онро худкор мегӯем. Вагарна ба менюи асосӣ
+    равона мекунем.
+    """
+    try:
+        order = await db.get_active_order_for_user(message.from_user.id)
+    except Exception as e:
+        logger.error(f"auto_answer_status: {e}")
+        order = None
+
+    if not order:
+        await message.answer(
+            "👋 Барои харид тугмаҳои поёнро истифода баред:",
+            reply_markup=main_menu(), parse_mode="HTML"
+        )
+        return
+
+    status_text = _ORDER_STATUS_REPLY.get(
+        order["status"],
+        "ℹ️ Фармоиши шумо дар коркард аст."
+    )
+    created_at = order.get("created_at")
+    age_line = ""
+    if created_at:
+        age_min = int((datetime.now() - created_at).total_seconds() / 60)
+        age_line = f"⏱ {age_min} дақиқа пеш сохта шудааст\n"
+
+    what = "💰 Пуркунии баланс" if order.get("is_balance_topup") else (order.get("label") or "—")
+    await message.answer(
+        f"📦 <b>Фармоиши охирини шумо: #{order['id']}</b>\n"
+        f"🎁 {what}\n"
+        f"💵 {float(order['price']):.2f} сомонӣ\n"
+        f"{age_line}\n"
+        f"{status_text}\n\n"
+        f"❓ Агар савол дошта бошед, ба дастгирӣ нависед:",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Фармоишҳоям", callback_data="my_orders")],
+            [InlineKeyboardButton(text="🆘 Дастгирӣ", url=config.SUPPORT_URL)],
+            [InlineKeyboardButton(text="🏠 Менюи асосӣ", callback_data="back_main")],
+        ]),
+        parse_mode="HTML"
+    )
+
+
 async def main():
     global BOT_USERNAME
     await db.create_pool()
     await db.init_db()
     me = await bot.get_me()
     BOT_USERNAME = me.username
+    # Роутери охирин — баъд аз ҳама, то ҳолатҳои FSM-ро нагирад
+    dp.include_router(fallback_router)
     logger.info(f"✅ Бот омода аст! @{BOT_USERNAME}")
     # Webhook-ро тоза мекунем (то TelegramConflictError нашавад)
     await bot.delete_webhook(drop_pending_updates=True)
@@ -1156,6 +1241,8 @@ async def main():
     asyncio.create_task(autopay.giveaway_loop(bot))
     # Тафтишгари худкори фармоишҳои "овезон" — ҳар 3 дақиқа (танҳо мехонад)
     asyncio.create_task(autopay.recheck_loop(bot))
+    # Ҷамъбасти субҳ баъд аз реҷаи хомӯшии шабона
+    asyncio.create_task(autopay.quiet_digest_loop(bot))
     await dp.start_polling(bot)
 
 

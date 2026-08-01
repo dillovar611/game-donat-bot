@@ -194,6 +194,7 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN confirmed_at DATETIME DEFAULT NULL",
                 "ALTER TABLE orders ADD COLUMN recheck_tries INT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN admin_alerted TINYINT DEFAULT 0",
+                "ALTER TABLE orders ADD COLUMN auto_retried TINYINT DEFAULT 0",
             ):
                 try:
                     await cur.execute(ddl)
@@ -1057,6 +1058,133 @@ async def claim_stuck_order_confirmed(order_id: int) -> bool:
                 (order_id,)
             )
             return cur.rowcount > 0
+
+
+async def claim_failed_order_for_autoretry(order_id: int) -> bool:
+    """
+    Атомикӣ фармоиши ВОҚЕАН нокомро барои ЯК кӯшиши худкори такрорӣ
+    мегирад. Танҳо ЯК бор кор мекунад (auto_retried=1) — то ҳалқа
+    беохир такрор накунад ва харҷ дучандон нашавад.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET status='donating', donating_at=NOW(), auto_retried=1 "
+                "WHERE id=%s AND status='failed' AND COALESCE(auto_retried, 0)=0",
+                (order_id,)
+            )
+            return cur.rowcount > 0
+
+
+async def get_orders_needing_admin(days: int = 3, limit: int = 30):
+    """
+    Фармоишҳое, ки ВОҚЕАН кӯмаки админро мехоҳанд:
+      • 'paid'   — чек омада, интизори тасдиқи дастӣ
+      • 'failed' — донат нашуд ва бот дигар худаш ҳал карда наметавонад
+    Фармоишҳои 'donating' (дар ҷараён) ва 'autopay_search' (бот ҳанӯз
+    худаш меҷӯяд) дохил намешаванд — онҳо кори админ нестанд.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders "
+                "WHERE status IN ('paid', 'failed') "
+                "AND created_at >= DATE_SUB(NOW(), INTERVAL %s DAY) "
+                "ORDER BY id DESC LIMIT %s",
+                (days, limit)
+            )
+            return await cur.fetchall()
+
+
+async def get_unalerted_admin_orders(hours: int = 12, limit: int = 50):
+    """Фармоишҳои кӯмакталаб, ки ҳанӯз ба админ хабар дода нашудаанд
+    (масалан дар реҷаи хомӯшии шабона таъхир шудаанд)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders "
+                "WHERE status IN ('paid', 'failed') "
+                "AND COALESCE(admin_alerted, 0)=0 "
+                "AND created_at >= DATE_SUB(NOW(), INTERVAL %s HOUR) "
+                "ORDER BY id DESC LIMIT %s",
+                (hours, limit)
+            )
+            return await cur.fetchall()
+
+
+async def get_active_order_for_user(user_id: int):
+    """Фармоиши охирини «зинда»-и мизоҷ (ҳанӯз ниҳоӣ нашуда) — барои
+    ҷавоби худкор ба саволи «фармоишам чӣ шуд?»."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders WHERE user_id=%s "
+                "AND status IN ('awaiting_autopay','autopay_search','paid','donating','failed') "
+                "AND created_at >= DATE_SUB(NOW(), INTERVAL 2 DAY) "
+                "ORDER BY id DESC LIMIT 1",
+                (user_id,)
+            )
+            return await cur.fetchone()
+
+
+async def get_system_health(hours: int = 24) -> dict:
+    """Саломатии система дар N соати охир — барои панели админ."""
+    out = {
+        "confirmed": 0, "failed": 0, "uncertain": 0, "rejected": 0,
+        "avg_minutes": None, "stuck_now": 0, "waiting_admin": 0,
+        "donating_now": 0, "success_rate": None,
+    }
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT status, COUNT(*) AS c FROM orders "
+                "WHERE created_at >= DATE_SUB(NOW(), INTERVAL %s HOUR) "
+                "GROUP BY status", (hours,))
+            for row in await cur.fetchall():
+                st = row["status"]
+                if st == "confirmed":
+                    out["confirmed"] = int(row["c"])
+                elif st == "failed":
+                    out["failed"] = int(row["c"])
+                elif st == "rejected":
+                    out["rejected"] = int(row["c"])
+
+            await cur.execute(
+                "SELECT COUNT(*) AS c FROM orders "
+                "WHERE uncertain_flagged=1 "
+                "AND created_at >= DATE_SUB(NOW(), INTERVAL %s HOUR)", (hours,))
+            row = await cur.fetchone()
+            out["uncertain"] = int((row["c"] if row else 0) or 0)
+
+            await cur.execute(
+                "SELECT AVG(TIMESTAMPDIFF(SECOND, created_at, confirmed_at)) AS s "
+                "FROM orders WHERE confirmed_at IS NOT NULL "
+                "AND confirmed_at >= DATE_SUB(NOW(), INTERVAL %s HOUR)", (hours,))
+            row = await cur.fetchone()
+            secs = (row["s"] if row else None)
+            if secs is not None:
+                out["avg_minutes"] = round(float(secs) / 60, 1)
+
+            # Ҳозир дар кор/интизор (бе маҳдудияти вақт)
+            await cur.execute(
+                "SELECT COUNT(*) AS c FROM orders WHERE status='failed' "
+                "AND api_order_id IS NOT NULL AND api_order_id <> '' "
+                "AND created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)")
+            row = await cur.fetchone()
+            out["stuck_now"] = int((row["c"] if row else 0) or 0)
+
+            await cur.execute("SELECT COUNT(*) AS c FROM orders WHERE status='paid'")
+            row = await cur.fetchone()
+            out["waiting_admin"] = int((row["c"] if row else 0) or 0)
+
+            await cur.execute("SELECT COUNT(*) AS c FROM orders WHERE status='donating'")
+            row = await cur.fetchone()
+            out["donating_now"] = int((row["c"] if row else 0) or 0)
+
+    total = out["confirmed"] + out["failed"]
+    if total > 0:
+        out["success_rate"] = round(out["confirmed"] * 100.0 / total, 1)
+    return out
 
 
 async def reset_recheck_state(order_id: int):

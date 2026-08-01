@@ -144,6 +144,8 @@ async def _buyer_info_line(order: dict) -> str:
 # ==================== МЕНЮИ АДМИН ====================
 def admin_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛠 Кор барои ман",       callback_data="a_my_work")],
+        [InlineKeyboardButton(text="🩺 Саломатии система",   callback_data="a_health")],
         [InlineKeyboardButton(text="💎 Маҷсулотҳо",         callback_data="a_products_menu")],
         [InlineKeyboardButton(text="📊 Омор",               callback_data="a_stats")],
         [InlineKeyboardButton(text="📋 Фармоишҳои интизорӣ", callback_data="a_pending_orders")],
@@ -587,6 +589,141 @@ async def a_back(call: CallbackQuery):
 
 
 # ==================== ФАРМОИШҲОИ ИНТИЗОРӢ ====================
+# ==================== 🛠 КОР БАРОИ МАН ====================
+@router.callback_query(F.data == "a_my_work")
+async def a_my_work(call: CallbackQuery):
+    """
+    Ҳамаи фармоишҳое, ки ВОҚЕАН кӯмаки админро мехоҳанд — дар ЯК рӯйхат.
+    Дигар лозим нест дар байни садҳо паём кофтуков кардан.
+    """
+    if not is_admin(call.from_user.id):
+        return
+    orders = await db.get_orders_needing_admin(days=3, limit=30)
+    quiet_on = (await db.get_setting("quiet_hours") or "1") == "1"
+    quiet_label = "🌙 Хомӯшии шабона: ФАЪОЛ" if quiet_on else "🔔 Хомӯшии шабона: ХОМӮШ"
+    tail_rows = [
+        [InlineKeyboardButton(text=quiet_label, callback_data="a_toggle_quiet")],
+        [InlineKeyboardButton(text="🔄 Навсозӣ", callback_data="a_my_work")],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")],
+    ]
+
+    if not orders:
+        await _safe_edit(
+            call,
+            "🛠 <b>Кор барои ман</b>\n\n"
+            "✅ Ҳеҷ кор нест — ҳама чиз ҳал шудааст!\n\n"
+            "ℹ️ Фармоишҳое, ки бот ҳоло худаш пайгирӣ мекунад, ин ҷо "
+            "нишон дода намешаванд — онҳо кори шумо нестанд.",
+            InlineKeyboardMarkup(inline_keyboard=tail_rows)
+        )
+        return
+
+    now = datetime.now()
+    waiting = [o for o in orders if o["status"] == "paid"]
+    broken = [o for o in orders if o["status"] == "failed"]
+
+    lines = [f"🛠 <b>Кор барои ман ({len(orders)})</b>\n"]
+    if waiting:
+        lines.append(f"\n📥 <b>Интизори тасдиқи шумо ({len(waiting)}):</b>")
+        for o in waiting:
+            lines.append(_work_line(o, now))
+    if broken:
+        lines.append(f"\n❌ <b>Донат нашуд ({len(broken)}):</b>")
+        for o in broken:
+            lines.append(_work_line(o, now))
+    lines.append(
+        "\nℹ️ Барои ҳар фармоиш тугмаашро пахш кунед — расми чек ва "
+        "тугмаҳои Тасдиқ/Рад мебарояд."
+    )
+
+    kb_rows = [
+        [InlineKeyboardButton(
+            text=f"{'📥' if o['status'] == 'paid' else '❌'} #{o['id']} — {float(o['price']):.2f} сом",
+            callback_data=f"a_order_view_{o['id']}")]
+        for o in orders[:20]
+    ] + tail_rows
+    await _safe_edit(call, "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb_rows))
+
+
+def _work_line(o: dict, now: datetime) -> str:
+    created_at = o.get("created_at")
+    age_min = int((now - created_at).total_seconds() / 60) if created_at else 0
+    age = f"{age_min} дақ" if age_min < 60 else f"{age_min // 60} соат"
+    what = "💰 пуркунии баланс" if o.get("is_balance_topup") else (o.get("label") or "—")
+    warn = "🔥 " if age_min >= 60 else ""
+    return f"{warn}#{o['id']} — {what} — {float(o['price']):.2f} сом — {age} пеш"
+
+
+@router.callback_query(F.data == "a_toggle_quiet")
+async def a_toggle_quiet(call: CallbackQuery):
+    """Реҷаи хомӯшии шабона (00:00–08:00)-ро фаъол/хомӯш мекунад."""
+    if not is_admin(call.from_user.id):
+        return
+    now_on = (await db.get_setting("quiet_hours") or "1") == "1"
+    await db.set_setting("quiet_hours", "0" if now_on else "1")
+    if now_on:
+        await call.answer(
+            "🔔 Хомӯшии шабона ХОМӮШ шуд — огоҳиҳо шабона ҳам фавран меоянд.",
+            show_alert=True)
+    else:
+        await call.answer(
+            "🌙 Хомӯшии шабона ФАЪОЛ шуд — аз 00:00 то 08:00 огоҳиҳо ҷамъ "
+            "мешаванд ва субҳ дар як паём меоянд.",
+            show_alert=True)
+    await a_my_work(call)
+
+
+# ==================== 🩺 САЛОМАТИИ СИСТЕМА ====================
+@router.callback_query(F.data == "a_health")
+async def a_health(call: CallbackQuery):
+    """Дар як нигоҳ: система хуб кор мекунад ё не."""
+    if not is_admin(call.from_user.id):
+        return
+    h = await db.get_system_health(hours=24)
+
+    rate = h["success_rate"]
+    if rate is None:
+        verdict, bar = "ℹ️ Дар 24 соат фармоиш набуд", "—"
+    elif rate >= 95:
+        verdict, bar = "🟢 Система хуб кор мекунад", "🟢🟢🟢🟢🟢"
+    elif rate >= 85:
+        verdict, bar = "🟡 Каме мушкилӣ ҳаст", "🟢🟢🟢🟢⚪"
+    elif rate >= 60:
+        verdict, bar = "🟠 Мушкилии ҷиддӣ — FazerCards-ро санҷед", "🟢🟢🟢⚪⚪"
+    else:
+        verdict, bar = "🔴 Система бад кор мекунад!", "🔴⚪⚪⚪⚪"
+
+    avg = f"{h['avg_minutes']} дақиқа" if h["avg_minutes"] is not None else "—"
+    rate_txt = f"{rate}%" if rate is not None else "—"
+
+    text = (
+        f"🩺 <b>Саломатии система</b>\n"
+        f"<i>24 соати охир</i>\n\n"
+        f"{verdict}\n{bar}  <b>{rate_txt}</b>\n\n"
+        f"✅ Муваффақ: <b>{h['confirmed']}</b>\n"
+        f"❌ Ноком: <b>{h['failed']}</b>\n"
+        f"🚫 Радшуда: <b>{h['rejected']}</b>\n"
+        f"⚠️ Ҳолати номаълум (таймаут): <b>{h['uncertain']}</b>\n"
+        f"⏱ Вақти миёнаи донат: <b>{avg}</b>\n\n"
+        f"<b>Ҳозир дар кор:</b>\n"
+        f"🔄 Дар ҷараёни донат: <b>{h['donating_now']}</b>\n"
+        f"🤖 Тафтишгар пайгирӣ мекунад: <b>{h['stuck_now']}</b>\n"
+        f"📥 Интизори тасдиқи шумо: <b>{h['waiting_admin']}</b>\n"
+    )
+    if h["uncertain"] >= 3:
+        text += (
+            f"\n💡 Шумораи зиёди «номаълум» одатан маънои сусти алоқа бо "
+            f"FazerCards-ро дорад — на хатогии боти шумо."
+        )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛠 Кор барои ман", callback_data="a_my_work")],
+        [InlineKeyboardButton(text="🔄 Навсозӣ", callback_data="a_health")],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")],
+    ])
+    await _safe_edit(call, text, kb)
+
+
 @router.callback_query(F.data == "a_pending_orders")
 async def a_pending_orders(call: CallbackQuery):
     if not is_admin(call.from_user.id):
