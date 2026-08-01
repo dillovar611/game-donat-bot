@@ -54,6 +54,7 @@ SS = 3                 # supersampling ҳангоми сохтани қисмҳ�
 PT, PB = 812, 978      # панели натиҷа
 BT, BB = 1006, 1092    # тугмаи поёнӣ
 SPINS = 4              # чанд гардиши пурра
+SEG_CHARS = 8          # то чанд ҳарфи ном дар сектори чарх кашида шавад
 
 # Бари ниҳоии видео. Паснамо 896px аст — ҳама чиз ба ин миқёс калон
 # карда мешавад, то матн ва чарх тезтар бароянд ва Telegram ҳангоми
@@ -307,6 +308,11 @@ def _wheel_parts(names, winner_idx, win, view):
     probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
     for i, nm in enumerate(names):
         mid = i * seg + seg / 2
+        # Дар сектор ҳарфи зиёд ҷой намешавад — номи дароз бурида мешавад,
+        # то ҳамаи номҳо як андозаи КАЛОН ва хоно дошта бошанд. Номи пурра
+        # дар панели баранда ва дар матни эълон боқӣ мемонад.
+        if len(nm) > SEG_CHARS:
+            nm = nm[:SEG_CHARS].rstrip(" ._-") + "…"
         fs = base_fs
         while fs > int(11 * SS) and probe.textbbox((0, 0), nm, font=_font(fs))[2] > max_w:
             fs -= SS
