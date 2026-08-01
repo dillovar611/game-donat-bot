@@ -590,7 +590,12 @@ async def a_back(call: CallbackQuery):
 
 # ==================== ФАРМОИШҲОИ ИНТИЗОРӢ ====================
 # ==================== 🛠 КОР БАРОИ МАН ====================
+# Филтри чуқурӣ: a_my_work (пешфарз 3 рӯз) ё a_my_work_d<рӯз>
+_WORK_RANGES = [(1, "Имрӯз"), (3, "3 рӯз"), (7, "7 рӯз"), (3650, "Ҳама")]
+
+
 @router.callback_query(F.data == "a_my_work")
+@router.callback_query(F.data.startswith("a_my_work_d"))
 async def a_my_work(call: CallbackQuery):
     """
     Ҳамаи фармоишҳое, ки ВОҚЕАН кӯмаки админро мехоҳанд — дар ЯК рӯйхат.
@@ -598,22 +603,38 @@ async def a_my_work(call: CallbackQuery):
     """
     if not is_admin(call.from_user.id):
         return
-    orders = await db.get_orders_needing_admin(days=3, limit=30)
+    try:
+        days = int(call.data.rsplit("_d", 1)[1]) if "_d" in call.data else 3
+    except (ValueError, IndexError):
+        days = 3
+    # Маҳдудият то ба ҳадди 4096 аломати Telegram нарасем
+    limit = 30 if days <= 7 else 40
+    orders = await db.get_orders_needing_admin(days=days, limit=limit)
     quiet_on = (await db.get_setting("quiet_hours") or "1") == "1"
     quiet_label = "🌙 Хомӯшии шабона: ФАЪОЛ" if quiet_on else "🔔 Хомӯшии шабона: ХОМӮШ"
+    filter_row = [
+        InlineKeyboardButton(
+            text=(f"▪️{lbl}" if d == days else lbl),
+            callback_data=f"a_my_work_d{d}")
+        for d, lbl in _WORK_RANGES
+    ]
     tail_rows = [
+        filter_row,
         [InlineKeyboardButton(text=quiet_label, callback_data="a_toggle_quiet")],
-        [InlineKeyboardButton(text="🔄 Навсозӣ", callback_data="a_my_work")],
+        [InlineKeyboardButton(text="🧹 Бастани фармоишҳои кӯҳна",
+                              callback_data="a_archive_menu")],
+        [InlineKeyboardButton(text="🔄 Навсозӣ", callback_data=f"a_my_work_d{days}")],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")],
     ]
+    period = dict(_WORK_RANGES).get(days, f"{days} рӯз")
 
     if not orders:
         await _safe_edit(
             call,
-            "🛠 <b>Кор барои ман</b>\n\n"
-            "✅ Ҳеҷ кор нест — ҳама чиз ҳал шудааст!\n\n"
-            "ℹ️ Фармоишҳое, ки бот ҳоло худаш пайгирӣ мекунад, ин ҷо "
-            "нишон дода намешаванд — онҳо кори шумо нестанд.",
+            f"🛠 <b>Кор барои ман</b> — <i>{period}</i>\n\n"
+            f"✅ Ҳеҷ кор нест — ҳама чиз ҳал шудааст!\n\n"
+            f"ℹ️ Фармоишҳое, ки бот ҳоло худаш пайгирӣ мекунад, ин ҷо "
+            f"нишон дода намешаванд — онҳо кори шумо нестанд.",
             InlineKeyboardMarkup(inline_keyboard=tail_rows)
         )
         return
@@ -622,7 +643,7 @@ async def a_my_work(call: CallbackQuery):
     waiting = [o for o in orders if o["status"] == "paid"]
     broken = [o for o in orders if o["status"] == "failed"]
 
-    lines = [f"🛠 <b>Кор барои ман ({len(orders)})</b>"]
+    lines = [f"🛠 <b>Кор барои ман ({len(orders)})</b> — <i>{period}</i>"]
     if waiting:
         lines.append(f"\n📥 <b>Интизори тасдиқи шумо ({len(waiting)}):</b>")
         for o in waiting:
@@ -635,10 +656,11 @@ async def a_my_work(call: CallbackQuery):
         "\nℹ️ Барои ҳар фармоиш тугмаашро пахш кунед — расми чек ва "
         "тугмаҳои Тасдиқ/Рад мебарояд."
     )
-    lines.append(
-        "📌 Танҳо фармоишҳои <b>3 рӯзи охир</b> (ҳадди аксар 30-то) нишон "
-        "дода мешаванд — то рӯйхат кӯтоҳ ва кориро бошад."
-    )
+    if len(orders) >= limit:
+        lines.append(
+            f"📌 Ҳадди аксар <b>{limit}</b>-то нишон дода мешавад — "
+            f"эҳтимол боз ҳам ҳаст."
+        )
 
     kb_rows = [
         [InlineKeyboardButton(
@@ -646,6 +668,11 @@ async def a_my_work(call: CallbackQuery):
             callback_data=f"a_order_view_{o['id']}")]
         for o in orders[:20]
     ] + tail_rows
+    if len(orders) > 20:
+        lines.append(
+            f"\n⬇️ Тугмаҳо танҳо барои 20-тои аввал — бақияро дар "
+            f"«🔎 Ҷустуҷӯи фармоиш» аз рӯи рақам кушоед."
+        )
     await _safe_edit(call, "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=kb_rows))
 
 
@@ -677,6 +704,158 @@ async def a_toggle_quiet(call: CallbackQuery):
     await a_my_work(call)
 
 
+# ==================== 🧹 БАСТАНИ ФАРМОИШҲОИ КӮҲНА ====================
+# «Бастан» = ба ҳолати 'archived' гузаронидан. Пул, таърих ва расми чек
+# ГУМ НАМЕШАВАД — фармоиш танҳо аз рӯйхати «кор» бароварда мешавад, то
+# рақамҳо ҳақиқиро нишон диҳанд.
+_ARCHIVE_CHOICES = [7, 30, 90]
+AUTO_ARCHIVE_DEFAULT_DAYS = 7
+
+
+@router.callback_query(F.data == "a_archive_menu")
+async def a_archive_menu(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    auto_on = (await db.get_setting("auto_archive") or "1") == "1"
+    auto_days = int(await db.get_setting("auto_archive_days")
+                    or str(AUTO_ARCHIVE_DEFAULT_DAYS))
+
+    lines = [
+        "🧹 <b>Бастани фармоишҳои кӯҳна</b>\n",
+        "Фармоишҳое, ки мизоҷ чек фиристодааст, вале ҳељ гоҳ дар бот "
+        "«Тасдиқ» ё «Рад» пахш нашудааст, абадӣ дар рӯйхат мемонанд ва "
+        "рақамҳоро вайрон мекунанд.\n",
+        "🔒 <b>Пул ва таърих ГУМ НАМЕШАВАД</b> — фармоиш танҳо ба архив "
+        "мегузарад ва аз рӯйхати «кор» мебарояд. Дар ҷустуҷӯи фармоиш "
+        "аз рӯи рақам ҳамеша ёфт мешавад.\n",
+        "<b>Ҳозир дар навбат:</b>",
+    ]
+    rows = []
+    for d in _ARCHIVE_CHOICES:
+        st = await db.count_stale_paid_orders(d)
+        lines.append(f"• аз <b>{d} рӯз</b> кӯҳнатар — "
+                     f"<b>{st['count']}</b> дона ({st['sum']:.0f} сом)")
+        if st["count"]:
+            rows.append([InlineKeyboardButton(
+                text=f"🧹 Бастани {st['count']}-тои аз {d} рӯз кӯҳнатар",
+                callback_data=f"a_archive_ask_{d}")])
+
+    if not rows:
+        lines.append("\n✅ Ҳеҷ фармоиши кӯҳна нест — ҳама тоза аст!")
+
+    auto_label = (f"🤖 Худкор бастан: ФАЪОЛ ({auto_days} рӯз)"
+                  if auto_on else "🤖 Худкор бастан: ХОМӮШ")
+    lines.append(
+        f"\n{'✅' if auto_on else '⛔️'} <b>Худкор бастан:</b> "
+        + (f"ҳар рӯз фармоишҳои аз <b>{auto_days} рӯз</b> кӯҳнатар худкор "
+           f"баста мешаванд ва ба шумо рӯйхаташон меояд."
+           if auto_on else "хомӯш аст — фармоишҳо худашон ҷамъ мешаванд.")
+    )
+    rows += [
+        [InlineKeyboardButton(text=auto_label, callback_data="a_toggle_autoarchive")],
+        [InlineKeyboardButton(text="⏱ Иваз кардани мӯҳлат", callback_data="a_archive_days")],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_my_work")],
+    ]
+    await _safe_edit(call, "\n".join(lines), InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+@router.callback_query(F.data.startswith("a_archive_ask_"))
+async def a_archive_ask(call: CallbackQuery):
+    """Тасдиқи охирин пеш аз бастан."""
+    if not is_admin(call.from_user.id):
+        return
+    days = int(call.data.rsplit("_", 1)[1])
+    st = await db.count_stale_paid_orders(days)
+    if not st["count"]:
+        await call.answer("✅ Аллакай ҳеҷ чиз нест.", show_alert=True)
+        return await a_archive_menu(call)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"✅ Ҳа, {st['count']}-таро бас",
+                              callback_data=f"a_archive_go_{days}")],
+        [InlineKeyboardButton(text="❌ Не, бекор", callback_data="a_archive_menu")],
+    ])
+    await _safe_edit(
+        call,
+        f"⚠️ <b>Тасдиқ кунед</b>\n\n"
+        f"<b>{st['count']}</b> фармоиши аз <b>{days} рӯз</b> кӯҳнатар "
+        f"(ҷамъан {st['sum']:.2f} сом) ба архив мегузаранд.\n\n"
+        f"🔒 Ҳељ чиз нест намешавад — на пул, на чек, на таърих. Онҳо "
+        f"танҳо аз рӯйхати «Кор барои ман» мебароянд.\n\n"
+        f"Давом диҳем?",
+        kb
+    )
+
+
+@router.callback_query(F.data.startswith("a_archive_go_"))
+async def a_archive_go(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    days = int(call.data.rsplit("_", 1)[1])
+    await call.answer("⏳ Кор рафта истодааст...")
+    try:
+        res = await db.archive_stale_paid_orders(days)
+    except Exception as e:
+        logger.error(f"archive_stale_paid_orders({days}) хато: {e}")
+        await call.answer("❌ Хатогӣ шуд — логро бинед.", show_alert=True)
+        return
+    logger.info(f"Админ {call.from_user.id} {res['count']} фармоиши кӯҳнаро баст")
+    await call.answer(
+        f"✅ {res['count']} фармоиш ба архив гузашт.", show_alert=True)
+    await a_archive_menu(call)
+
+
+@router.callback_query(F.data == "a_toggle_autoarchive")
+async def a_toggle_autoarchive(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    now_on = (await db.get_setting("auto_archive") or "1") == "1"
+    await db.set_setting("auto_archive", "0" if now_on else "1")
+    await call.answer(
+        "⛔️ Худкор бастан ХОМӮШ шуд." if now_on
+        else "✅ Худкор бастан ФАЪОЛ шуд.", show_alert=True)
+    await a_archive_menu(call)
+
+
+class ArchiveDaysState(StatesGroup):
+    enter = State()
+
+
+@router.callback_query(F.data == "a_archive_days")
+async def a_archive_days(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    cur = int(await db.get_setting("auto_archive_days")
+              or str(AUTO_ARCHIVE_DEFAULT_DAYS))
+    await state.set_state(ArchiveDaysState.enter)
+    await _safe_edit(
+        call,
+        f"⏱ <b>Мӯҳлати худкор бастан</b>\n\n"
+        f"Ҳозир: <b>{cur} рӯз</b>\n\n"
+        f"Рақами нави рӯзҳоро нависед (аз 2 то 365).\n"
+        f"Масалан: <code>14</code>",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_archive_menu")]])
+    )
+
+
+@router.message(ArchiveDaysState.enter)
+async def a_archive_days_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        days = int((message.text or "").strip())
+        if not (2 <= days <= 365):
+            raise ValueError
+    except ValueError:
+        await message.answer("❌ Рақами дуруст нависед (аз 2 то 365).")
+        return
+    await state.clear()
+    await db.set_setting("auto_archive_days", str(days))
+    await message.answer(
+        f"✅ Акнун фармоишҳои аз <b>{days} рӯз</b> кӯҳнатар худкор "
+        f"баста мешаванд.", parse_mode="HTML")
+
+
 # ==================== 🩺 САЛОМАТИИ СИСТЕМА ====================
 @router.callback_query(F.data == "a_health")
 async def a_health(call: CallbackQuery):
@@ -701,10 +880,29 @@ async def a_health(call: CallbackQuery):
     avg = f"{h['avg_minutes']} дақиқа" if h["avg_minutes"] is not None else "—"
     rate_txt = f"{rate}%" if rate is not None else "—"
 
+    srate = h.get("service_rate")
+    if srate is None:
+        service_block = ""
+    else:
+        gap = (rate - srate) if rate is not None else 0
+        service_block = (
+            f"🤝 <b>Фоизи хизматрасонӣ: {srate}%</b>\n"
+            f"<i>аз ҳар 100 мизоҷе, ки пул дод, чандто алмосашро гирифт "
+            f"(фармоишҳои ҳанӯз ҳалнашуда низ ҳисоб мешаванд)</i>\n"
+        )
+        if gap >= 5:
+            service_block += (
+                f"⚠️ Фарқи {gap:.1f}% байни ду фоиз маънои онро дорад, ки "
+                f"фармоишҳо интизори тасдиқи ДАСТИИ шумо мемонанд.\n"
+            )
+        service_block += "\n"
+
     text = (
         f"🩺 <b>Саломатии система</b>\n"
         f"<i>24 соати охир</i>\n\n"
-        f"{verdict}\n{bar}  <b>{rate_txt}</b>\n\n"
+        f"{verdict}\n{bar}  <b>{rate_txt}</b>\n"
+        f"<i>фоизи техникӣ — мошини донат чӣ хел кор мекунад</i>\n\n"
+        f"{service_block}"
         f"✅ Муваффақ: <b>{h['confirmed']}</b>\n"
         f"❌ Ноком: <b>{h['failed']}</b>\n"
         f"🚫 Радшуда: <b>{h['rejected']}</b>\n"
@@ -722,7 +920,8 @@ async def a_health(call: CallbackQuery):
             f"\n🗄 <b>{h['waiting_admin_old']}</b> фармоиши КӮҲНА (аз 3 рӯз "
             f"пештар) ҳанӯз дар ҳолати «пардохтшуда» мондаанд.\n"
             f"<i>Инҳо кори имрӯза нестанд — эҳтимол аллакай дастӣ ҳал "
-            f"шудаанд, вале дар бот пӯшида нашудаанд.</i>"
+            f"шудаанд, вале дар бот пӯшида нашудаанд.</i>\n"
+            f"👇 Бо тугмаи «🧹 Бастани фармоишҳои кӯҳна» тоза кардан мумкин."
         )
     if h["uncertain"] >= 3:
         text += (
@@ -730,12 +929,15 @@ async def a_health(call: CallbackQuery):
             f"FazerCards-ро дорад — на хатогии боти шумо."
         )
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛠 Кор барои ман", callback_data="a_my_work")],
+    rows = [[InlineKeyboardButton(text="🛠 Кор барои ман", callback_data="a_my_work")]]
+    if h["waiting_admin_old"]:
+        rows.append([InlineKeyboardButton(text="🧹 Бастани фармоишҳои кӯҳна",
+                                          callback_data="a_archive_menu")])
+    rows += [
         [InlineKeyboardButton(text="🔄 Навсозӣ", callback_data="a_health")],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")],
-    ])
-    await _safe_edit(call, text, kb)
+    ]
+    await _safe_edit(call, text, InlineKeyboardMarkup(inline_keyboard=rows))
 
 
 @router.callback_query(F.data == "a_pending_orders")

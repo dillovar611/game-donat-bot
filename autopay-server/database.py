@@ -1084,6 +1084,47 @@ async def claim_failed_order_for_autoretry(order_id: int) -> bool:
             return cur.rowcount > 0
 
 
+async def count_stale_paid_orders(days: int) -> dict:
+    """Чандто фармоиши 'пардохтшуда'-и аз N рӯз кӯҳнатар ҳаст ва ҷамъи пулаш."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT COUNT(*) AS c, COALESCE(SUM(price), 0) AS s FROM orders "
+                "WHERE status='paid' AND created_at < DATE_SUB(NOW(), INTERVAL %s DAY)",
+                (days,))
+            row = await cur.fetchone()
+            return {"count": int((row["c"] if row else 0) or 0),
+                    "sum": float((row["s"] if row else 0) or 0)}
+
+
+async def archive_stale_paid_orders(days: int, limit: int = 1000) -> dict:
+    """
+    Фармоишҳои 'пардохтшуда'-и фаромӯшшударо ба ҳолати 'archived'
+    мегузаронад.
+
+    'archived' статуси НАВ аст — ҳељ як дархости мавҷуда онро намегирад
+    (ҳамаашон рӯйхати аниқи статусҳоро мепурсанд), пас ҳисоботҳо ва
+    ҳисоби фоида бетағйир мемонанд. Пул ва таърих гум НАМЕШАВАД — танҳо
+    фармоиш аз рӯйхати "кор" бароварда мешавад.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, price FROM orders WHERE status='paid' "
+                "AND created_at < DATE_SUB(NOW(), INTERVAL %s DAY) "
+                "ORDER BY id ASC LIMIT %s", (days, limit))
+            rows = await cur.fetchall() or []
+            if not rows:
+                return {"count": 0, "sum": 0.0, "ids": []}
+            ids = [r["id"] for r in rows]
+            total = sum(float(r["price"] or 0) for r in rows)
+            placeholders = ",".join(["%s"] * len(ids))
+            await cur.execute(
+                f"UPDATE orders SET status='archived' WHERE id IN ({placeholders}) "
+                f"AND status='paid'", ids)
+            return {"count": cur.rowcount, "sum": total, "ids": ids}
+
+
 async def get_orders_needing_admin(days: int = 3, limit: int = 30):
     """
     Фармоишҳое, ки ВОҚЕАН кӯмаки админро мехоҳанд:
@@ -1147,6 +1188,7 @@ async def get_system_health(hours: int = 24, watch_since=None, recent_days: int 
         "confirmed": 0, "failed": 0, "uncertain": 0, "rejected": 0,
         "avg_minutes": None, "stuck_now": 0, "waiting_admin": 0,
         "waiting_admin_old": 0, "donating_now": 0, "success_rate": None,
+        "paid_window": 0, "service_rate": None,
     }
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -1162,6 +1204,10 @@ async def get_system_health(hours: int = 24, watch_since=None, recent_days: int 
                     out["failed"] = int(row["c"])
                 elif st == "rejected":
                     out["rejected"] = int(row["c"])
+                elif st == "paid":
+                    # 'пардохтшуда'-и ҳамин равзанаи вақт — барои фоизи
+                    # хизматрасонӣ (на рӯйхати умумии 3-рӯза)
+                    out["paid_window"] = int(row["c"])
 
             await cur.execute(
                 "SELECT COUNT(*) AS c FROM orders "
@@ -1213,9 +1259,21 @@ async def get_system_health(hours: int = 24, watch_since=None, recent_days: int 
             row = await cur.fetchone()
             out["donating_now"] = int((row["c"] if row else 0) or 0)
 
+    # Фоизи ТЕХНИКӢ — мошини донат чӣ хел кор мекунад
     total = out["confirmed"] + out["failed"]
     if total > 0:
         out["success_rate"] = round(out["confirmed"] * 100.0 / total, 1)
+
+    # Фоизи ХИЗМАТРАСОНӢ — аз ҳар 100 мизоҷе, ки ПУЛ ДОД, чандто хизмат
+    # гирифт. Фармоишҳои ҳанӯз ҳалнашуда (интизори тасдиқ) низ ҳисоб
+    # мешаванд, чунки барои мизоҷ онҳо "нагирифтам" маъно доранд.
+    # Радшудаҳо (чеки қалбакӣ ва ғ.) ба ҳисоб намераванд — онҳо
+    # хатогии хизматрасонӣ нестанд.
+    served_total = out["confirmed"] + out["failed"] + out["paid_window"]
+    if served_total > 0:
+        out["service_rate"] = round(out["confirmed"] * 100.0 / served_total, 1)
+    else:
+        out["service_rate"] = None
     return out
 
 

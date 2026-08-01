@@ -1649,6 +1649,67 @@ async def quiet_digest_loop(bot: Bot, interval_seconds: int = 300):
         await asyncio.sleep(interval_seconds)
 
 
+AUTO_ARCHIVE_DEFAULT_DAYS = 7
+ARCHIVE_HOUR = 9  # соати ҷамъбасти рӯзона
+
+
+async def auto_archive_loop(bot: Bot, interval_seconds: int = 300):
+    """
+    ХУДКОР БАСТАНИ ФАРМОИШҲОИ ФАРОМӮШШУДА.
+
+    Ҳар рӯз соати 09:00 фармоишҳои 'пардохтшуда'-ро, ки N рӯз (пешфарз 7)
+    боз касе ба онҳо даст нарасондааст, ба ҳолати 'archived' мегузаронад
+    ва ба админ рӯйхаташонро мефиристад.
+
+    Чаро лозим: чунин фармоишҳо абадӣ ҷамъ мешаванд (дар ин сервер 800+)
+    ва рақамҳои панелро вайрон мекунанд. 'archived' статуси НАВ аст —
+    ҳељ як ҳисобот ва ҳисоби фоида онро намегирад, пул гум намешавад.
+    """
+    await asyncio.sleep(90)
+    while True:
+        try:
+            if (await db.get_setting("auto_archive") or "1") == "1":
+                now = datetime.now()
+                today_key = now.strftime("%Y-%m-%d")
+                last = await db.get_setting("auto_archive_last") or ""
+                if now.hour >= ARCHIVE_HOUR and last != today_key:
+                    await db.set_setting("auto_archive_last", today_key)
+                    days = int(await db.get_setting("auto_archive_days")
+                               or str(AUTO_ARCHIVE_DEFAULT_DAYS))
+                    res = await db.archive_stale_paid_orders(days)
+                    if res["count"]:
+                        logger.info(
+                            f"auto_archive_loop: {res['count']} фармоиши "
+                            f"фаромӯшшуда (аз {days} рӯз кӯҳнатар) баста шуд"
+                        )
+                        ids = res["ids"]
+                        shown = ", ".join(f"#{i}" for i in ids[:25])
+                        more = (f" ва боз {len(ids) - 25}-то"
+                                if len(ids) > 25 else "")
+                        for admin_id in config.ADMIN_IDS:
+                            try:
+                                await bot.send_message(
+                                    admin_id,
+                                    f"🧹 <b>Тозакунии худкор</b>\n\n"
+                                    f"<b>{res['count']}</b> фармоиш аз "
+                                    f"<b>{days} рӯз</b> зиёд бе ҷавоб монда "
+                                    f"буд — ба архив гузаронида шуд "
+                                    f"(ҷамъан {res['sum']:.2f} сом).\n\n"
+                                    f"🔒 Ҳељ чиз нест нашуд — пул, чек ва "
+                                    f"таърих ҷойи худ. Онҳо танҳо аз "
+                                    f"рӯйхати «Кор барои ман» баромаданд.\n\n"
+                                    f"🆔 {shown}{more}",
+                                    parse_mode="HTML"
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"Хабари тозакунӣ ба {admin_id} нарасид: {e}")
+        except Exception as e:
+            logger.error(f"Хатогӣ дар auto_archive_loop: {e}")
+
+        await asyncio.sleep(interval_seconds)
+
+
 async def giveaway_loop(bot: Bot, interval_seconds: int = 60):
     """
     Ҳар дақиқа шумораи умумии фармоишҳои тасдиқшударо месанҷад. Ҳар боре,

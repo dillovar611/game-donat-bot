@@ -1268,6 +1268,8 @@ async def main():
     asyncio.create_task(autopay.recheck_loop(bot))
     # Ҷамъбасти субҳ баъд аз реҷаи хомӯшии шабона
     asyncio.create_task(autopay.quiet_digest_loop(bot))
+    # Худкор бастани фармоишҳои фаромӯшшуда — ҳар рӯз соати 09:00
+    asyncio.create_task(autopay.auto_archive_loop(bot))
     await dp.start_polling(bot)
 
 
