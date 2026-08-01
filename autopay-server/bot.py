@@ -1154,6 +1154,8 @@ async def main():
     asyncio.create_task(_stale_paid_orders_loop(bot))
     # Тӯҳфаи тасодуфӣ — ҳар N фармоиши тасдиқшуда
     asyncio.create_task(autopay.giveaway_loop(bot))
+    # Тафтишгари худкори фармоишҳои "овезон" — ҳар 3 дақиқа (танҳо мехонад)
+    asyncio.create_task(autopay.recheck_loop(bot))
     await dp.start_polling(bot)
 
 

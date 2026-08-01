@@ -345,15 +345,30 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
 
         if result.get("ok") and api_order_id:
             ever_confirmed = False  # оё ягон бор ҷавоби воқеии FazerCards гирифтем
+            last_status = ""
+            unknown_logged = 0
             for _ in range(60):
                 await asyncio.sleep(10)
                 status_data = await _fazer_status(api_order_id)
                 status = ""
                 if isinstance(status_data, dict):
-                    if status_data.get("ok") is True:
-                        ever_confirmed = True
                     status = (status_data.get("order") or {}).get("status") \
                         or status_data.get("status") or ""
+                    # Ҷавоби ВОҚЕИИ FazerCards гирифтем, агар ё "ok": true
+                    # омада бошад, ё ҳолати хондашаванда. Баъзе версияҳои API
+                    # дар GET /orders/{id} калиди "ok"-ро НАМЕфиристанд —
+                    # пештар аз ҳамин сабаб ҲАР фармоиш "номаълум" эълон
+                    # мешуд, ҳарчанд FazerCards дуруст ҷавоб медод.
+                    if status_data.get("ok") is True or status:
+                        ever_confirmed = True
+                    if status:
+                        last_status = status
+                    elif unknown_logged < 3:
+                        unknown_logged += 1
+                        logger.warning(
+                            f"[STATUS-DEBUG] {api_order_id}: ҳолат хонда нашуд, "
+                            f"ҷавоби хом: {status_data}"
+                        )
                 if status == "completed":
                     final_cost = cost_usd or _extract_cost_usd(status_data)
                     logger.info(f"[COST-DEBUG] auto_donate: completed, cost_usd={cost_usd!r} status_data_cost={_extract_cost_usd(status_data)!r} final_cost={final_cost!r}")
@@ -364,6 +379,11 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
                 # 10 дақиқа гузашт, ҳанӯз "processing" (ё ҳамеша таймаут) —
                 # мунтазир мемонем, ба MooGold нагузарем (то дучандон
                 # фармоиш нашавад)
+                logger.warning(
+                    f"auto_donate: {api_order_id} баъд аз 10 дақиқа тамом нашуд "
+                    f"(ҳолати охирин: {last_status or 'ҷавоб нест'}, "
+                    f"алоқа бо FazerCards: {'ҲА' if ever_confirmed else 'НЕ'})"
+                )
                 return False, api_order_id, not ever_confirmed, cost_usd
         else:
             logger.warning(f"FazerCards фармоиш нашуд, MooGold-ро санҷем: {result}")
@@ -373,6 +393,44 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
     # ---- Кӯшиши 2: MooGold (fallback) — арзиши воқеӣ маълум нест ----
     success, tagged = await _moogold_fallback(offer_id, player_id)
     return success, tagged, False, None
+
+
+async def peek_order_status(api_order_id: str):
+    """
+    ТАНҲО ҳолати фармоиши мавҷударо мехонад — ҲЕҶ ГОҲ фармоиши нав
+    намесозад ва ҳеҷ пул харҷ намекунад. Барои тафтишгари худкори
+    фармоишҳои "овезон" (recheck_loop) сохта шудааст.
+
+    Бармегардонад: (state, cost_usd)
+      state: "completed" | "processing" | "failed" | "" (ҷавоб нест)
+    """
+    if not api_order_id:
+        return "", None
+
+    # Фармоиши MooGold
+    if api_order_id.startswith("moo:"):
+        ok, _tagged = await _moogold_check(api_order_id[4:])
+        if ok is True:
+            return "completed", None
+        if ok is None:
+            return "processing", None
+        return "failed", None
+
+    if not config.FAZER_KEY:
+        return "", None
+
+    status_data = await _fazer_status(api_order_id)
+    status = ""
+    if isinstance(status_data, dict):
+        status = (status_data.get("order") or {}).get("status") \
+            or status_data.get("status") or ""
+    if not status:
+        return "", None
+    if status == "completed":
+        return "completed", _extract_cost_usd(status_data)
+    if status in _FAZER_FAILED:
+        return "failed", None
+    return "processing", None
 
 
 # ==================== FREE FIRE INDONESIA ====================

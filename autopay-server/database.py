@@ -1023,6 +1023,40 @@ async def set_order_cost(order_id: int, cost_tjs: float):
             await cur.execute("UPDATE orders SET cost_tjs=%s WHERE id=%s", (cost_tjs, order_id))
 
 
+async def get_stuck_donate_orders(hours: int = 24, limit: int = 30):
+    """
+    Фармоишҳое, ки 'ноком' эълон шудаанд, ВАЛЕ дар FazerCards/MooGold
+    ID-и воқеӣ доранд — яъне шояд дар асл иҷро шуда бошанд ё ҳанӯз дар
+    ҷараён бошанд. Тафтишгари худкор (recheck_loop) онҳоро мехонад.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders "
+                "WHERE status='failed' AND api_order_id IS NOT NULL "
+                "AND api_order_id <> '' "
+                "AND created_at >= DATE_SUB(NOW(), INTERVAL %s HOUR) "
+                "ORDER BY id DESC LIMIT %s",
+                (hours, limit)
+            )
+            return await cur.fetchall()
+
+
+async def claim_stuck_order_confirmed(order_id: int) -> bool:
+    """
+    Фармоиши 'ноком'-ро атомикӣ ба 'confirmed' мегузаронад — танҳо агар
+    он ҳанӯз 'failed' бошад. Барои он ки агар админ дар ҳамин лаҳза дастӣ
+    тасдиқ кунад, ду бор паём/мукофот нашавад.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET status='confirmed' WHERE id=%s AND status='failed'",
+                (order_id,)
+            )
+            return cur.rowcount > 0
+
+
 async def flag_order_uncertain(order_id: int):
     """Аломат мегузорад, ки ин фармоиш бо сабаби таймаути шабака (на радди
     воқеӣ) 'нашуд' гуфта шудааст — барои гузориши шабона."""

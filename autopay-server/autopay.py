@@ -443,9 +443,13 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
         warning_line = (
             f"\n⚠️⚠️ <b>ДИҚҚАТ: ин на радди воқеӣ аст — шабака ба FazerCards "
             f"такроран таймаут задааст ва мо ҲОЛАТИ НИҲОИИ ВОҚЕИРО намедонем!</b>\n"
-            f"Фармоиш дар FazerCards (ID боло) шояд АЛЛАКАЙ иҷро шуда бошад. "
-            f"Пеш аз «Дубора донат», ҳатман дар FazerCards санҷед — вагарна "
-            f"ду бор донат мешавад!\n"
+            f"Фармоиш дар FazerCards (ID боло) шояд АЛЛАКАЙ иҷро шуда бошад.\n\n"
+            f"🤖 <b>ХОЗИР ЧИЗЕ НАКУНЕД.</b> Тафтишгари худкор ҳар 3 дақиқа "
+            f"худаш FazerCards-ро мепурсад. Агар фармоиш дар асл иҷро шуда "
+            f"бошад, бот худаш онро тасдиқ мекунад ва ба шумо хабар медиҳад — "
+            f"ҳеҷ кори дастӣ лозим намешавад.\n"
+            f"Танҳо агар 20-30 дақиқа гузарад ва ҳеҷ хабар наояд, «Дубора "
+            f"донат»-ро пахш кунед.\n"
         )
     else:
         warning_line = ""
@@ -1253,6 +1257,122 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
                 )
             except Exception as e:
                 logger.error(f"Огоҳии хатои тӯҳфа ба админ {admin_id} нарасид: {e}")
+
+
+# Фармоишҳое, ки FazerCards ВОҚЕАН "ноком" гуфтааст — дигар напурсем
+_recheck_settled: set = set()
+
+
+async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost_usd):
+    """Фармоише, ки тафтишгари худкор онро иҷрошуда ёфт — расман анҷом медиҳад."""
+    order_id = order["id"]
+    user_id = order["user_id"]
+
+    await db.set_confirmed_at(order_id)
+    if cost_usd:
+        try:
+            await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
+        except Exception as e:
+            logger.error(f"set_order_cost барои #{order_id} нашуд: {e}")
+
+    # Мукофоти реферралӣ (агар ҳанӯз дода нашуда бошад — худаш атомикӣ аст)
+    try:
+        reward, referrer_id = await db.credit_referral_for_order(order_id)
+        if reward and referrer_id:
+            await bot.send_message(
+                referrer_id,
+                f"🤝 <b>Мукофоти реферралӣ!</b>\n\n"
+                f"💰 Дусти шумо фармоиш дод ва шумо <b>{reward:.2f} сом</b> "
+                f"ба балансаи худ гирифтед!",
+                parse_mode="HTML"
+            )
+    except Exception as e:
+        logger.error(f"credit_referral (recheck) барои #{order_id} хато: {e}")
+
+    try:
+        await bot.send_message(
+            user_id,
+            f"🎉 <b>Хушхабар — донати шумо анҷом ёфт!</b>\n\n"
+            f"🆔 Фармоиш: #{order_id}\n"
+            f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
+            f"Каме таъхир шуд, вале ҳама чиз дуруст расид. "
+            f"Аккаунтатонро санҷед. 🙏\n\n"
+            f"⭐ Лутфан отзив гузоред:",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🧾 Чеки муваффақ", callback_data=f"receipt_{order_id}")],
+                [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
+            ]),
+            parse_mode="HTML"
+        )
+    except Exception as e:
+        logger.error(f"Паёми барқароршуда ба {user_id} нарасид: {e}")
+
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(
+                admin_id,
+                f"✅ <b>Худкор ҲАЛ ШУД — кори дастӣ ЛОЗИМ НЕСТ!</b>\n\n"
+                f"🆔 Фармоиш: #{order_id}\n"
+                f"🆔 ID FazerCards: <code>{api_order_id}</code>\n"
+                f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
+                f"Тафтишгари худкор санҷид: ин фармоиш дар асл ИҶРО ШУДААСТ "
+                f"(таймаути шабака гумроҳ карда буд). Фармоиш тасдиқ шуд ва "
+                f"ба мизоҷ хабар дода шуд.",
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Огоҳии барқарорсозӣ ба админ {admin_id} нарасид: {e}")
+
+
+async def recheck_loop(bot: Bot, interval_seconds: int = 180):
+    """
+    ТАФТИШГАРИ ХУДКОРИ ФАРМОИШҲОИ «ОВЕЗОН».
+
+    Ҳар 3 дақиқа фармоишҳои 'failed'-ро, ки дар FazerCards/MooGold ID-и
+    воқеӣ доранд, аз нав мепурсад:
+      • completed  → худкор тасдиқ мекунад, ба мизоҷ ва админ хабар медиҳад
+      • processing → ҳоло чизе намекунад, дафъаи оянда боз мепурсад
+      • failed     → дигар намепурсад (админ дастӣ ҳал мекунад)
+
+    МУҲИМ: ин ҳалқа ТАНҲО МЕХОНАД — ҳеҷ гоҳ фармоиши НАВ намесозад ва
+    ҳеҷ пул харҷ намекунад, пас дучандон донат ғайриимкон аст.
+    """
+    await asyncio.sleep(45)  # то боти асосӣ пурра сар шавад
+    while True:
+        try:
+            orders = await db.get_stuck_donate_orders()
+            for order in orders:
+                order_id = order["id"]
+                if order_id in _recheck_settled:
+                    continue
+                api_order_id = (order.get("api_order_id") or "").strip()
+                if not api_order_id:
+                    continue
+
+                state, cost_usd = await ff_api.peek_order_status(api_order_id)
+
+                if state == "completed":
+                    # Атомикӣ — то агар админ маҳз ҳамин лаҳза дастӣ тасдиқ
+                    # кунад, ду бор паём/мукофот нашавад
+                    if not await db.claim_stuck_order_confirmed(order_id):
+                        _recheck_settled.add(order_id)
+                        continue
+                    logger.info(
+                        f"recheck_loop: фармоиши #{order_id} ({api_order_id}) "
+                        f"дар асл ИҶРО шудааст — худкор тасдиқ шуд"
+                    )
+                    _recheck_settled.add(order_id)
+                    await _finish_recovered_order(bot, order, api_order_id, cost_usd)
+
+                elif state == "failed":
+                    # Ҷавоби ВОҚЕИИ "ноком" — дигар напурсем
+                    _recheck_settled.add(order_id)
+
+                await asyncio.sleep(1)  # ба API фишор наорем
+        except Exception as e:
+            logger.error(f"Хатогӣ дар recheck_loop: {e}")
+
+        await asyncio.sleep(interval_seconds)
 
 
 async def giveaway_loop(bot: Bot, interval_seconds: int = 60):
