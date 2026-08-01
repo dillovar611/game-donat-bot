@@ -296,15 +296,25 @@ def _wheel_parts(names, winner_idx, win, view):
                     fill=GOLD + (255,), width=int(3.4 * SS))
         ld.arc(box, winner_idx * seg, winner_idx * seg + seg, fill=GOLD + (255,), width=int(4.5 * SS))
 
-    # Андозаи ҳарф ба шумораи секторҳо ва дарозии ном мутобиқ мешавад
+    # Андозаи ҳарф ба шумораи секторҳо ва дарозии ном мутобиқ мешавад.
+    # Матн дар радиуси rad МАРКАЗ мешавад, пас нимаи бари он ба ҳар ду
+    # тараф меравад: rad + max_w/2 набояд ба ҳалқаи берунӣ расад.
     base_fs = int(min(34, max(16, 380 / n)) * SS)
+    max_w = r * .54
+    rad = r * .58
+    probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
     for i, nm in enumerate(names):
         mid = i * seg + seg / 2
         fs = base_fs
-        probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
-        while fs > int(8 * SS) and probe.textbbox((0, 0), nm, font=_font(fs))[2] > r * .58:
+        while fs > int(11 * SS) and probe.textbbox((0, 0), nm, font=_font(fs))[2] > max_w:
             fs -= SS
         fnt = _font(fs)
+        # Ҳарфи хурдтарин ҳам нарасид — номро мебурем. Бе ин, номи дароз
+        # аз чарх мебарояд ва ба ҳалқа ва ҳамсояаш медарояд.
+        if probe.textbbox((0, 0), nm, font=fnt)[2] > max_w:
+            while len(nm) > 3 and probe.textbbox((0, 0), nm + "…", font=fnt)[2] > max_w:
+                nm = nm[:-1]
+            nm += "…"
         col = (255, 255, 255) if (win and i == winner_idx) else WHITE
         tl = Image.new("RGBA", (int(300 * SS), int(64 * SS)), (0, 0, 0, 0))
         td = ImageDraw.Draw(tl)
@@ -318,7 +328,6 @@ def _wheel_parts(names, winner_idx, win, view):
         # чархи воқеӣ аз поён ба боло хонда шавад.
         flip = 90 <= ((mid - view) % 360) <= 270
         rot = tl.rotate(-(mid + 180) if flip else -mid, expand=True, resample=Image.BICUBIC)
-        rad = r * .62
         ln.alpha_composite(rot, (int(c + math.cos(math.radians(mid)) * rad - rot.width / 2),
                                  int(c + math.sin(math.radians(mid)) * rad - rot.height / 2)))
     sz = R * 2 + 20
