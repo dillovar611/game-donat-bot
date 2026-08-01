@@ -845,7 +845,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
             f"⚡ Пас аз фиристодани чек, системаи мо пардохти шуморо "
             f"<b>худкор</b> тафтиш мекунад ва алмазҳо худкор фиристода "
             f"мешаванд — интизории админ лозим нест!\n\n"
-            f"⏳ Шумо <b>15 дақиқа</b> вақт доред.",
+            f"⏳ Шумо <b>20 дақиқа</b> вақт доред.",
             kb
         )
         await state.set_state(BuyState.wait_check)
@@ -2849,7 +2849,7 @@ async def topup_choose_method(call: CallbackQuery, state: FSMContext):
         f"⚡ Пас аз фиристодани чек, системаи мо пардохти шуморо "
         f"<b>худкор</b> тафтиш мекунад ва баланс худкор пур мешавад — "
         f"интизории админ лозим нест!\n\n"
-        f"⏳ Шумо <b>15 дақиқа</b> вақт доред.",
+        f"⏳ Шумо <b>20 дақиқа</b> вақт доред.",
         kb
     )
     await state.set_state(TopupState.wait_check)

@@ -746,6 +746,7 @@ _PM_LABELS_REPORT = {
     "alif": "💳 Алиф",
     "eskhata": "🏦 Эсхата",
     "referral_balance": "💰 Аз баланс",
+    "giveaway": "🎁 Тӯҳфаи ройгон",
 }
 
 _WEEKDAY_SHORT_TJ = ["Дш", "Сш", "Чш", "Пш", "Ҷм", "Шн", "Яш"]

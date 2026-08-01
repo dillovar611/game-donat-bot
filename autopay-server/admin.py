@@ -1039,6 +1039,7 @@ _PM_LABELS = {
     "alif": "💳 Алиф",
     "eskhata": "🏦 Эсхата",
     "referral_balance": "💰 Аз баланс",
+    "giveaway": "🎁 Тӯҳфаи ройгон",
 }
 
 
@@ -2207,6 +2208,7 @@ async def a_order_search_show(message: Message, state: FSMContext):
         "alif": "💳 Алиф",
         "eskhata": "🏦 Эсхата",
         "referral_balance": "💰 Аз баланс",
+        "giveaway": "🎁 Тӯҳфаи ройгон",
     }
     pm_text = pm_labels.get(order.get("payment_method"), order.get("payment_method") or "—")
 

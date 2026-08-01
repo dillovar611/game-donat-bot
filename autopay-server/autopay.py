@@ -920,9 +920,14 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
                     await bot.send_message(
                         order["user_id"],
                         f"⏳ <b>Вақти пардохти фармоиши #{order['id']} гузашт.</b>\n\n"
-                        f"Агар аллакай пардохт карда бошед, расми чекро ҳозир ҳам ба ин "
-                        f"чат фиристед — системаи мо боз ҳам кӯшиш мекунад худкор донат кунад.\n"
-                        f"Агар пардохт накарда бошед, метавонед фармоиши нав созед.",
+                        f"💳 Агар аллакай пардохт карда бошед — расми чекро ҳозир ҳам "
+                        f"фиристед, системаи мо худкор тафтиш мекунад ва донат мешавад.\n\n"
+                        f"🛒 Агар пардохт накарда бошед — хавотир нашавед, ҳељ пуле кам "
+                        f"нашуд. Барои харид тугмаи поёнро пахш кунед 👇",
+                        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="🛒 Харидро давом додан", callback_data="back_main")],
+                            [InlineKeyboardButton(text="🆘 Дастгирӣ", url=config.SUPPORT_URL)],
+                        ]),
                         parse_mode="HTML"
                     )
                 except Exception as e:
