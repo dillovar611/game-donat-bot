@@ -296,12 +296,14 @@ def _wheel_parts(names, winner_idx, win, view):
                     fill=GOLD + (255,), width=int(3.4 * SS))
         ld.arc(box, winner_idx * seg, winner_idx * seg + seg, fill=GOLD + (255,), width=int(4.5 * SS))
 
-    # Андозаи ҳарф ба шумораи секторҳо ва дарозии ном мутобиқ мешавад.
-    # Матн дар радиуси rad МАРКАЗ мешавад, пас нимаи бари он ба ҳар ду
-    # тараф меравад: rad + max_w/2 набояд ба ҳалқаи берунӣ расад.
+    # Ҳамаи номҳо аз ЯК хатти доиравии назди ҳалқа сар шуда, ба тарафи
+    # марказ мераванд. Бо ин чарх пур ба назар мерасад (дар канор ҷои
+    # холӣ намемонад), вале ҳеҷ ном аз ҳалқа намебарояд — дарозиаш ҳар
+    # қадар бошад, танҳо ба дарун дарозтар мешавад.
     base_fs = int(min(34, max(16, 380 / n)) * SS)
-    max_w = r * .54
-    rad = r * .58
+    r_out = r * .88          # нӯги берунии ҳар ном
+    r_in = r * .30           # аз мағзи чарх наздиктар нашавад
+    max_w = r_out - r_in
     probe = ImageDraw.Draw(Image.new("RGB", (8, 8)))
     for i, nm in enumerate(names):
         mid = i * seg + seg / 2
@@ -328,6 +330,9 @@ def _wheel_parts(names, winner_idx, win, view):
         # чархи воқеӣ аз поён ба боло хонда шавад.
         flip = 90 <= ((mid - view) % 360) <= 270
         rot = tl.rotate(-(mid + 180) if flip else -mid, expand=True, resample=Image.BICUBIC)
+        # Нӯги берунӣ дар r_out мемонад, пас маркази матн ба дарозии
+        # ҳамон ном вобаста аст — номи дароз ба дарун дарозтар меравад
+        rad = r_out - tw / 2.0
         ln.alpha_composite(rot, (int(c + math.cos(math.radians(mid)) * rad - rot.width / 2),
                                  int(c + math.sin(math.radians(mid)) * rad - rot.height / 2)))
     sz = R * 2 + 20
