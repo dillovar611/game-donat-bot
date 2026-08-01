@@ -475,10 +475,17 @@ def dump_text(user_id: int) -> str:
 
 
 # ==================== СКРИНШОТ ====================
-W = 900                     # бари расм
-PAD = 18
-BUBBLE_MAX = 620
-MAX_H = 3800                # аз ин баландтар шавад — ба саҳифаи нав мегузарад
+# Расм ДУЧАНД калон кашида мешавад. Экрани телефон ~1080 пиксел аст;
+# агар расмро 900 пиксел кашем, Telegram онро КАЛОН мекунад ва матн хира
+# мебарояд. Дар 1800 пиксел бошад, телефон онро хурд мекунад — матн тез
+# ва хоно мемонад.
+S = 2
+W = 900 * S                 # бари расм
+PAD = 18 * S
+BUBBLE_MAX = 620 * S
+MAX_H = 3800 * S            # аз ин баландтар шавад — ба саҳифаи нав мегузарад
+LH = 27 * S                 # баландии сатри матн
+LH_SM = 21 * S              # баландии сатри қайд
 
 BG = (17, 20, 26)
 BUB_CLIENT = (38, 42, 51)
@@ -519,13 +526,13 @@ def _wrap(d, text, fnt, max_w):
 
 def _blocks(thread, probe):
     """Ҳар паёмро ба «блок»-и тайёр бо баландии ҳисобшуда табдил медиҳад."""
-    f_txt, f_sm, f_nm = _font(20), _font(15), _font(16, True)
+    f_txt, f_sm, f_nm = _font(20 * S), _font(15 * S), _font(16 * S, True)
     out = []
     last_day = None
     for m in thread:
         day = datetime.fromtimestamp(m["ts"]).strftime("%d.%m.%Y")
         if day != last_day:
-            out.append({"kind": "day", "text": day, "h": 46})
+            out.append({"kind": "day", "text": day, "h": 46 * S})
             last_day = day
         body = _drawable(m["text"])
         lines = _wrap(probe, body, f_txt, BUBBLE_MAX - 2 * PAD) if body else []
@@ -534,12 +541,12 @@ def _blocks(thread, probe):
         if m["photo"]:
             p = m.get("_photo_path")
             if p and os.path.isfile(p):
-                img_h = 230
+                img_h = 230 * S
             else:
                 lines = ["[расм]"] + lines
         if m["file"]:
             lines = [_drawable(m["file"])] + lines
-        th += len(lines) * 27
+        th += len(lines) * LH
         # Дар қайдҳо эмоҷӣ намегузорем — шрифт онро надорад ва ба ҷои он
         # чоркунҷа мебарояд. Ранг худаш фарқро нишон медиҳад.
         notes = []
@@ -554,36 +561,37 @@ def _blocks(thread, probe):
         for nt, col in notes:
             nl = _wrap(probe, nt, f_sm, BUBBLE_MAX - 2 * PAD)
             note_lines.append((nl, col))
-            nh += len(nl) * 21 + 6
-        h = PAD + 22 + img_h + th + nh + PAD + 12
+            nh += len(nl) * LH_SM + 6 * S
+        h = PAD + 22 * S + img_h + th + nh + PAD + 12 * S
         out.append({"kind": "msg", "m": m, "lines": lines, "note_lines": note_lines,
                     "img_h": img_h, "h": h})
     return out
 
 
 def _draw_page(blocks, header, page_no, pages, out_path):
-    f_txt, f_sm, f_nm = _font(20), _font(15), _font(16, True)
-    f_h1, f_h2 = _font(26, True), _font(16)
-    head_h = 96
-    total = head_h + sum(b["h"] for b in blocks) + 40
+    f_txt, f_sm, f_nm = _font(20 * S), _font(15 * S), _font(16 * S, True)
+    f_h1, f_h2 = _font(26 * S, True), _font(16 * S)
+    head_h = 96 * S
+    total = head_h + sum(b["h"] for b in blocks) + 40 * S
     im = Image.new("RGB", (W, total), BG)
     d = ImageDraw.Draw(im)
 
-    d.rectangle((0, 0, W, head_h - 8), fill=(11, 14, 19))
-    d.text((PAD, 16), _drawable(header["title"]), font=f_h1, fill=TXT)
-    d.text((PAD, 52), _drawable(header["sub"]), font=f_h2, fill=DIM)
+    d.rectangle((0, 0, W, head_h - 8 * S), fill=(11, 14, 19))
+    d.text((PAD, 16 * S), _drawable(header["title"]), font=f_h1, fill=TXT)
+    d.text((PAD, 52 * S), _drawable(header["sub"]), font=f_h2, fill=DIM)
     if pages > 1:
         pg = f"саҳифаи {page_no} аз {pages}"
-        d.text((W - PAD - d.textlength(pg, font=f_h2), 52), pg, font=f_h2, fill=DIM)
-    d.line((0, head_h - 8, W, head_h - 8), fill=(46, 52, 62), width=2)
+        d.text((W - PAD - d.textlength(pg, font=f_h2), 52 * S), pg, font=f_h2, fill=DIM)
+    d.line((0, head_h - 8 * S, W, head_h - 8 * S), fill=(46, 52, 62), width=2 * S)
 
     y = head_h
     for b in blocks:
         if b["kind"] == "day":
             tw = d.textlength(b["text"], font=f_sm)
-            d.rounded_rectangle((W // 2 - tw // 2 - 14, y + 8, W // 2 + tw // 2 + 14, y + 34),
-                                radius=13, fill=(30, 34, 42))
-            d.text((W // 2 - tw // 2, y + 12), b["text"], font=f_sm, fill=DIM)
+            d.rounded_rectangle((W // 2 - tw // 2 - 14 * S, y + 8 * S,
+                                 W // 2 + tw // 2 + 14 * S, y + 34 * S),
+                                radius=13 * S, fill=(30, 34, 42))
+            d.text((W // 2 - tw // 2, y + 12 * S), b["text"], font=f_sm, fill=DIM)
             y += b["h"]
             continue
 
@@ -592,28 +600,28 @@ def _draw_page(blocks, header, page_no, pages, out_path):
         widths = [d.textlength(l, font=f_txt) for l in b["lines"]] or [0]
         for nl, _c in b["note_lines"]:
             widths += [d.textlength(l, font=f_sm) for l in nl]
-        bw = int(max(widths + ([300] if b["img_h"] else [0])) + 2 * PAD)
-        bw = max(150, min(BUBBLE_MAX, bw))
+        bw = int(max(widths + ([300 * S] if b["img_h"] else [0])) + 2 * PAD)
+        bw = max(150 * S, min(BUBBLE_MAX, bw))
         x0 = PAD if client else W - PAD - bw
         col = BUB_DEL if m["deleted"] else (BUB_CLIENT if client else BUB_OWNER)
-        d.rounded_rectangle((x0, y, x0 + bw, y + b["h"] - 12), radius=16, fill=col)
+        d.rounded_rectangle((x0, y, x0 + bw, y + b["h"] - 12 * S), radius=16 * S, fill=col)
         if m["deleted"]:
-            d.rounded_rectangle((x0, y, x0 + bw, y + b["h"] - 12), radius=16,
-                                outline=RED, width=2)
+            d.rounded_rectangle((x0, y, x0 + bw, y + b["h"] - 12 * S), radius=16 * S,
+                                outline=RED, width=2 * S)
 
         who = _drawable(m["name"]) if client else "Мо"
         tstr = datetime.fromtimestamp(m["ts"]).strftime("%H:%M")
-        d.text((x0 + PAD, y + 8), who or "Мизоҷ", font=f_nm,
+        d.text((x0 + PAD, y + 8 * S), who or "Мизоҷ", font=f_nm,
                fill=ACC if client else (150, 210, 255))
-        d.text((x0 + bw - PAD - d.textlength(tstr, font=f_sm), y + 10),
+        d.text((x0 + bw - PAD - d.textlength(tstr, font=f_sm), y + 10 * S),
                tstr, font=f_sm, fill=DIM)
-        ty = y + 34
+        ty = y + 34 * S
 
         if b["img_h"]:
             p = m.get("_photo_path")
             try:
                 th_im = Image.open(p).convert("RGB")
-                sc = min((bw - 2 * PAD) / th_im.width, 210 / th_im.height)
+                sc = min((bw - 2 * PAD) / th_im.width, 210 * S / th_im.height)
                 th_im = th_im.resize((max(1, int(th_im.width * sc)),
                                       max(1, int(th_im.height * sc))), Image.LANCZOS)
                 im.paste(th_im, (x0 + PAD, ty))
@@ -623,12 +631,12 @@ def _draw_page(blocks, header, page_no, pages, out_path):
 
         for l in b["lines"]:
             d.text((x0 + PAD, ty), l, font=f_txt, fill=TXT)
-            ty += 27
+            ty += LH
         for nl, ncol in b["note_lines"]:
             for l in nl:
                 d.text((x0 + PAD, ty), l, font=f_sm, fill=ncol)
-                ty += 21
-            ty += 6
+                ty += LH_SM
+            ty += 6 * S
         y += b["h"]
 
     im.save(out_path, "PNG", optimize=True)
