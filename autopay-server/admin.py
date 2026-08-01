@@ -3287,7 +3287,7 @@ async def order_confirm_stars(call: CallbackQuery):
 
     success, api_order_id, uncertain, cost_usd = await _run_with_live_progress(
         call.message, header,
-        ff_api.buy_telegram_stars(tg_username, order["amount"], order_id)
+        ff_api.buy_telegram_stars(tg_username, order["amount"], order_id, order.get("api_order_id") or "")
     )
 
     if api_order_id:
@@ -3386,7 +3386,7 @@ async def order_confirm_premium(call: CallbackQuery):
 
     success, api_order_id, uncertain, cost_usd = await _run_with_live_progress(
         call.message, header,
-        ff_api.buy_telegram_premium(tg_username, order["amount"], order_id)
+        ff_api.buy_telegram_premium(tg_username, order["amount"], order_id, order.get("api_order_id") or "")
     )
 
     if api_order_id:

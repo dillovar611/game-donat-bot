@@ -94,15 +94,34 @@ async def _nickname_fazer(player_id: str) -> str:
 
 
 # ==================== ДОНАТИ ХУДКОР (FazerCards) ====================
-async def _fazer_order(offer_id: str, player_id: str, order_id: int | str = "") -> dict:
+def _idem_key(prefix: str, order_id, retry_tag: str = "") -> str:
+    """
+    Калиди Idempotency месозад. Барои ҳар фармоиш собит аст (то такрори
+    шабакавӣ фармоиши дуюм насозад), вале агар кӯшиши қаблӣ ноком шуда
+    бошад ва мо кӯшиши НАВ кунем (retry_tag = ID-и кӯшиши қаблӣ),
+    калид фарқ мекунад — то FazerCards воқеан фармоиши нав созад.
+    """
+    if not order_id:
+        return str(uuid.uuid4())
+    base = f"{prefix}-{order_id}"
+    return f"{base}-r{retry_tag}" if retry_tag else base
+
+
+async def _fazer_order(offer_id: str, player_id: str, order_id: int | str = "",
+                       retry_tag: str = "") -> dict:
     """Фармоиш ба FazerCards мефиристад."""
     headers = {
         "X-API-Key": config.FAZER_KEY,
         "Content-Type": "application/json",
         # Калиди собит (аз рӯи order_id-и худамон), на тасодуфӣ — то агар
-        # "Дубора донат" зада шавад, FazerCards дархостро такрорӣ шинохта,
-        # фармоиши ДУЮМ насозад (зидди дучандон харҷ)
-        "Idempotency-Key": f"donate-{order_id}" if order_id else str(uuid.uuid4()),
+        # дархост дар шабака гум шавад ва бот такрор фиристад, FazerCards
+        # онро такрорӣ шинохта, фармоиши ДУЮМ насозад (зидди дучандон харҷ).
+        # retry_tag: вақте фармоиши пешина ВОҚЕАН ноком шуд ва мо кӯшиши
+        # НАВ мекунем, калид бояд ФАРҚ кунад — вагарна FazerCards ҳамон
+        # натиҷаи кӯҳнаи нокомро бармегардонад ва "Дубора донат" кор
+        # намекунад. Калид ҳанӯз собит аст (аз рӯи ID-и кӯшиши қаблӣ),
+        # пас такрори шабакавии ҲАМИН кӯшиш бехатар мемонад.
+        "Idempotency-Key": _idem_key("donate", order_id, retry_tag),
     }
     payload = {
         "category_id": config.FF_CATEGORY_ORDER,
@@ -265,6 +284,11 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
     cost_usd — арзиши воқеии USD-и FazerCards барои ин фармоиш (агар
     маълум бошад) — барои ҳисоби фоидаи холис.
     """
+    # retry_tag — ID-и кӯшиши ҚАБЛӢ (агар он воқеан ноком шуда бошад).
+    # Ба калиди Idempotency илова мешавад, то "Дубора донат" воқеан
+    # фармоиши нав созад, на натиҷаи кӯҳнаи нокомро баргардонад.
+    retry_tag = ""
+
     # Агар фармоиши пешина ба MooGold тааллуқ дошта бошад
     if existing_order_id.startswith("moo:"):
         ok, tagged = await _moogold_check(existing_order_id[4:])
@@ -272,6 +296,7 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
             return True, tagged, False, None
         if ok is None:
             return False, tagged, False, None  # ҳанӯз дар ҷараён — мунтазир мемонем
+        retry_tag = existing_order_id[4:]
         existing_order_id = ""  # ноком — аз нав кӯшиш мекунем
 
     # Агар фармоиши пешина ба FazerCards тааллуқ дошта бошад
@@ -285,7 +310,8 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
             return True, existing_order_id, False, _extract_cost_usd(status_data)
         if status == "processing":
             return False, existing_order_id, False, None
-        # failed/cancelled/error — поён фармоиши нав месозем
+        # failed/cancelled/error — поён фармоиши НАВ месозем (бо калиди нав)
+        retry_tag = existing_order_id
 
     if not offer_id:
         logger.error("auto_donate: offer_id холист")
@@ -293,7 +319,7 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
 
     # ---- Кӯшиши 1: FazerCards ----
     if config.FAZER_KEY:
-        result = await _fazer_order(offer_id, player_id, order_id)
+        result = await _fazer_order(offer_id, player_id, order_id, retry_tag)
         api_order_id = ""
         if isinstance(result, dict):
             order_block = result.get("order") or {}
@@ -379,6 +405,7 @@ async def get_nickname_ffid(player_id: str) -> str:
 
 async def auto_donate_ffid(player_id: str, offer_id: str, existing_order_id: str = "", order_id: int | str = ""):
     """Донати худкор барои Free Fire Indonesia."""
+    retry_tag = ""
     # Агар фармоиши пешина мавҷуд бошад — аввал ҳолатро тафтиш кунем
     if existing_order_id:
         status_data = await _fazer_status(existing_order_id)
@@ -390,6 +417,8 @@ async def auto_donate_ffid(player_id: str, offer_id: str, existing_order_id: str
             return True, existing_order_id
         if status == "processing":
             return False, existing_order_id
+        # ноком — кӯшиши НАВ бо калиди дигар (ниг. изоҳи _idem_key)
+        retry_tag = existing_order_id
 
     if not offer_id or not config.FAZER_KEY:
         return False, ""
@@ -400,7 +429,7 @@ async def auto_donate_ffid(player_id: str, offer_id: str, existing_order_id: str
         # Калиди собит (аз order_id-и худамон), на тасодуфӣ — то агар
         # даъвати такрорӣ шавад (масалан такроран пас аз таймаути шабака),
         # FazerCards онро ҳамон дархост шиносад, на фармоиши дуюм насозад
-        "Idempotency-Key": f"ffid-{order_id}" if order_id else str(uuid.uuid4()),
+        "Idempotency-Key": _idem_key("ffid", order_id, retry_tag),
     }
     payload = {
         "category_id": config.FFID_CATEGORY_ORDER,
@@ -446,6 +475,7 @@ async def auto_donate_ffid(player_id: str, offer_id: str, existing_order_id: str
 # ==================== PUBG MOBILE ====================
 async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str = "", order_id: int | str = ""):
     """Донати худкор барои PUBG Mobile (category: pubg_mobile_auto)."""
+    retry_tag = ""
     if existing_order_id:
         status_data = await _fazer_status(existing_order_id)
         status = ""
@@ -456,6 +486,8 @@ async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str
             return True, existing_order_id
         if status == "processing":
             return False, existing_order_id
+        # ноком — кӯшиши НАВ бо калиди дигар (ниг. изоҳи _idem_key)
+        retry_tag = existing_order_id
 
     if not offer_id or not config.FAZER_KEY:
         return False, ""
@@ -463,8 +495,8 @@ async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str
     headers = {
         "X-API-Key": config.FAZER_KEY,
         "Content-Type": "application/json",
-        # Калиди собит — ниг. изоҳи auto_donate_ffid
-        "Idempotency-Key": f"pubg-{order_id}" if order_id else str(uuid.uuid4()),
+        # Калиди собит — ниг. изоҳи _idem_key
+        "Idempotency-Key": _idem_key("pubg", order_id, retry_tag),
     }
     payload = {
         "category_id": "pubg_mobile_auto",
@@ -508,7 +540,8 @@ async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str
 
 
 # ==================== TELEGRAM STARS / PREMIUM ====================
-async def buy_telegram_stars(username: str, quantity: int, order_id: int | str = ""):
+async def buy_telegram_stars(username: str, quantity: int, order_id: int | str = "",
+                              existing_order_id: str = ""):
     """
     Харидани Telegram Stars.
     Бармегардонад: (success: bool, order_id: str, uncertain: bool, cost_usd: float | None)
@@ -518,14 +551,26 @@ async def buy_telegram_stars(username: str, quantity: int, order_id: int | str =
     """
     if not config.FAZER_KEY:
         return False, "", False, None
+    retry_tag = ""
+    # Агар кӯшиши қаблӣ ID дошта бошад — аввал ҳолати ВОҚЕИИ онро месанҷем,
+    # то фармоиши муваффақро дубора нахарем (зидди дучандон харҷ)
+    if existing_order_id:
+        status_data = await _fazer_status(existing_order_id)
+        status = ""
+        if isinstance(status_data, dict):
+            status = (status_data.get("order") or {}).get("status") \
+                or status_data.get("status") or ""
+        if status == "completed":
+            return True, existing_order_id, False, _extract_cost_usd(status_data)
+        if status == "processing":
+            return False, existing_order_id, False, None
+        retry_tag = existing_order_id
     username = username.lstrip("@")
     headers = {
         "X-API-Key": config.FAZER_KEY,
         "Content-Type": "application/json",
-        # Калиди собит (аз рӯи order_id-и худамон), на тасодуфӣ — то агар
-        # "Дубора кӯшиш" зада шавад, FazerCards ҳамон дархостро такрорӣ
-        # шинохта, ФАРМОИШИ ДУЮМ насозад (зидди дучандон харҷ)
-        "Idempotency-Key": f"stars-{order_id}" if order_id else str(uuid.uuid4()),
+        # Калиди собит — ниг. изоҳи _idem_key
+        "Idempotency-Key": _idem_key("stars", order_id, retry_tag),
     }
     payload = {"telegram_username": username, "quantity": quantity}
     result = None
@@ -557,7 +602,8 @@ async def buy_telegram_stars(username: str, quantity: int, order_id: int | str =
     return False, "", False, None
 
 
-async def buy_telegram_premium(username: str, months: int, order_id: int | str = ""):
+async def buy_telegram_premium(username: str, months: int, order_id: int | str = "",
+                                existing_order_id: str = ""):
     """
     Харидани Telegram Premium.
     Бармегардонад: (success: bool, order_id: str, uncertain: bool, cost_usd: float | None)
@@ -565,11 +611,24 @@ async def buy_telegram_premium(username: str, months: int, order_id: int | str =
     """
     if not config.FAZER_KEY:
         return False, "", False, None
+    retry_tag = ""
+    if existing_order_id:
+        status_data = await _fazer_status(existing_order_id)
+        status = ""
+        if isinstance(status_data, dict):
+            status = (status_data.get("order") or {}).get("status") \
+                or status_data.get("status") or ""
+        if status == "completed":
+            return True, existing_order_id, False, _extract_cost_usd(status_data)
+        if status == "processing":
+            return False, existing_order_id, False, None
+        retry_tag = existing_order_id
     username = username.lstrip("@")
     headers = {
         "X-API-Key": config.FAZER_KEY,
         "Content-Type": "application/json",
-        "Idempotency-Key": f"premium-{order_id}" if order_id else str(uuid.uuid4()),
+        # Калиди собит — ниг. изоҳи _idem_key
+        "Idempotency-Key": _idem_key("premium", order_id, retry_tag),
     }
     payload = {"telegram_username": username, "months": months}
     result = None

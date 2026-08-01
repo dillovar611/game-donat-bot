@@ -803,12 +803,12 @@ async def run_donate_from_balance(bot: Bot, order: dict):
             elif game_id.startswith("STARS:"):
                 tg_username = game_id.replace("STARS:", "")
                 success, api_order_id, uncertain, cost_usd = await ff_api.buy_telegram_stars(
-                    tg_username, order["amount"], order_id
+                    tg_username, order["amount"], order_id, order.get("api_order_id") or ""
                 )
             elif game_id.startswith("PREMIUM:"):
                 tg_username = game_id.replace("PREMIUM:", "")
                 success, api_order_id, uncertain, cost_usd = await ff_api.buy_telegram_premium(
-                    tg_username, order["amount"], order_id
+                    tg_username, order["amount"], order_id, order.get("api_order_id") or ""
                 )
             else:
                 success, api_order_id, uncertain, cost_usd = await ff_api.auto_donate(
