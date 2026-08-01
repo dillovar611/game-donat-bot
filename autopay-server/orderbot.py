@@ -594,6 +594,26 @@ async def cmd_chat(message: Message):
     except Exception as e:
         logger.error(f"файли матн нарафт: {e}")
 
+    # Овоз/видео/файлҳо — дар скриншот дида намешаванд, пас алоҳида
+    # мефиристем. Вагарна паёми овозии мизоҷ танҳо дар сервер мемонад.
+    media = [m for m in thread if m.get("fpath")]
+    if media:
+        d = os.path.join(chatlog.BASE, str(uid), "media")
+        await message.answer(f"🎤 Боз {len(media)} файл (овоз/видео) дар ин сӯҳбат:")
+        for m in media[-10:]:
+            p = os.path.join(d, m["fpath"])
+            if not os.path.isfile(p):
+                continue
+            when = datetime.fromtimestamp(m["ts"]).strftime("%d.%m %H:%M")
+            who = "мизоҷ" if m["who"] == "client" else "мо"
+            cap = f"{m['file']} · {who} · {when}"
+            if m["deleted"]:
+                cap += "\n❌ ИН ПАЁМ НЕСТ КАРДА ШУД"
+            try:
+                await message.answer_document(FSInputFile(p), caption=cap)
+            except Exception as e:
+                logger.error(f"файли {p} нарафт: {e}")
+
 
 @dp.message(F.text.startswith("/find"))
 async def cmd_find(message: Message):

@@ -175,15 +175,26 @@ async def record(bot, message, chat_id: int, who: str, name: str, username: str 
             "text": text,
         }
         if message.photo:
-            entry["photo"] = await _save_photo(bot, message, chat_id)
-        elif message.document:
-            entry["file"] = message.document.file_name or "файл"
-        elif message.voice:
-            entry["file"] = "🎤 паёми овозӣ"
-        elif message.video or message.video_note:
-            entry["file"] = "🎬 видео"
+            entry["photo"] = await _save_media(
+                bot, message.photo[-1].file_id, chat_id,
+                "photos", f"{message.message_id}_{int(time.time())}.jpg")
+            if not entry["photo"]:
+                # Худи расм наомад — вале паём набояд ХОЛӢ намояд,
+                # вагарна дар бойгонӣ гӯё чизе нафиристода бошад
+                entry["file"] = "📸 расм"
         elif message.sticker:
             entry["text"] = text or f"[стикер {message.sticker.emoji or ''}]".strip()
+        else:
+            # Овоз, видео, файл — ҳамааш ҲАМЧУН ФАЙЛ захира мешавад, на
+            # танҳо навишта. Агар мизоҷ дар паёми овозӣ чизе гӯяд ва
+            # баъд онро нест кунад, худи овоз дар сервер боқӣ мемонад.
+            got = _media_of(message)
+            if got:
+                kind, file_id, ext, label = got
+                entry["file"] = label
+                entry["fpath"] = await _save_media(
+                    bot, file_id, chat_id, "media",
+                    f"{message.message_id}_{int(time.time())}{ext}")
         _append(chat_id, entry)
         if who == "client":
             _save_info(chat_id, name=name, username=username)
@@ -193,16 +204,48 @@ async def record(bot, message, chat_id: int, who: str, name: str, username: str 
         logger.error(f"chatlog.record хато ({chat_id}): {e}")
 
 
-async def _save_photo(bot, message, chat_id: int) -> str:
-    """Расмро ба папкаи мизоҷ бор мекунад ва номи файлро бармегардонад."""
+def _media_of(message):
+    """
+    Кадом навъи файл дар паём аст: (навъ, file_id, пасванд, навишта).
+    Агар паём танҳо матн бошад — None.
+    """
+    if message.voice:
+        return "voice", message.voice.file_id, ".ogg", "🎤 паёми овозӣ"
+    if message.video_note:
+        return "video_note", message.video_note.file_id, ".mp4", "⭕️ видео-доира"
+    if message.video:
+        return "video", message.video.file_id, ".mp4", "🎬 видео"
+    if message.audio:
+        return "audio", message.audio.file_id, ".mp3", "🎵 аудио"
+    if message.animation:
+        return "animation", message.animation.file_id, ".mp4", "🎞 GIF"
+    if message.document:
+        d = message.document
+        ext = os.path.splitext(d.file_name or "")[1] or ".bin"
+        return "document", d.file_id, ext, f"📎 {d.file_name or 'файл'}"
+    return None
+
+
+async def _save_media(bot, file_id: str, chat_id: int, sub: str, fname: str) -> str:
+    """
+    Файлро ба папкаи мизоҷ бор мекунад ва номашро бармегардонад.
+    Агар нашавад — сатри холӣ, вале дар лог сабаби АНИҚ навишта мешавад
+    (вагарна маълум намешавад, ки чаро расм дар бойгонӣ нест).
+    """
     try:
-        ph = message.photo[-1]
-        fname = f"{message.message_id}_{int(time.time())}.jpg"
-        dest = os.path.join(_udir(chat_id), "photos", fname)
-        await bot.download(ph.file_id, destination=dest)
+        d = os.path.join(_udir(chat_id), sub)
+        os.makedirs(d, exist_ok=True)
+        dest = os.path.join(d, fname)
+        await bot.download(file_id, destination=dest)
+        size = os.path.getsize(dest)
+        if size <= 0:
+            logger.error(f"chatlog: файли холӣ бор шуд ({chat_id}/{sub}/{fname})")
+            return ""
+        logger.info(f"chatlog: захира шуд {chat_id}/{sub}/{fname} ({size // 1024} КБ)")
         return fname
     except Exception as e:
-        logger.error(f"chatlog: расм бор нашуд ({chat_id}): {e}")
+        logger.error(f"chatlog: файл бор НАШУД ({chat_id}/{sub}/{fname}): "
+                     f"{type(e).__name__}: {e}")
         return ""
 
 
@@ -267,7 +310,8 @@ def build_thread(user_id: int) -> list:
                 msgs[mid] = {"mid": mid, "ts": ev.get("ts", 0),
                              "who": ev.get("who", "?"), "name": ev.get("name", ""),
                              "text": ev.get("text", ""), "photo": ev.get("photo", ""),
-                             "file": ev.get("file", ""), "edited": [], "deleted": False}
+                             "file": ev.get("file", ""), "fpath": ev.get("fpath", ""),
+                             "edited": [], "deleted": False}
         elif t == "edit" and mid in msgs:
             m = msgs[mid]
             m["edited"].append({"old": m["text"], "new": ev.get("text", ""),
@@ -410,7 +454,8 @@ def dump_text(user_id: int) -> str:
         if m["photo"]:
             lines.append(f"    📸 расм: photos/{m['photo']}")
         if m["file"]:
-            lines.append(f"    📎 {m['file']}")
+            where = f": media/{m['fpath']}" if m.get("fpath") else " (файл захира нашуд)"
+            lines.append(f"    {m['file']}{where}")
         if m["text"]:
             for l in m["text"].split("\n"):
                 lines.append(f"    {l}")
