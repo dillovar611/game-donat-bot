@@ -269,8 +269,16 @@ async def add_user(user_id: int, username: str, full_name: str) -> bool:
     """
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
+            # ON DUPLICATE KEY UPDATE id=id ба ҷои INSERT IGNORE:
+            # INSERT IGNORE ҳар бор дар лог "Warning: Duplicate entry ...
+            # for key 'PRIMARY'" менависад — ва азбаски ин функсия дар ҳар
+            # ҳаракати ҳар корбар даъват мешавад, лог пур аз огоҳии беҳуда
+            # мешуд ва хатоҳои ВОҚЕӢ дар байнашон гум мешуданд.
+            # Маънои rowcount бетағйир аст: 1 = корбари НАВ сабт шуд,
+            # 0 = аллакай буд (чунки id=id ҳељ чизро иваз намекунад).
             await cur.execute(
-                "INSERT IGNORE INTO users (id, username, full_name) VALUES (%s,%s,%s)",
+                "INSERT INTO users (id, username, full_name) VALUES (%s,%s,%s) "
+                "ON DUPLICATE KEY UPDATE id=id",
                 (user_id, username, full_name)
             )
             return cur.rowcount > 0
