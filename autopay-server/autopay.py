@@ -701,7 +701,7 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n"
-                f"🎁 Шумо ҳоло дар қуръакашии тӯҳфаи ройгон ҳастед — шояд навбати шумо расад! 🍀\n\n"
+                f"🎁 Шумо ҳоло дар рӯйхати тӯҳфаи ройгон ҳастед — шояд навбати шумо расад! 🍀\n\n"
                 f"⭐ Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🧾 Чеки муваффақ", callback_data=f"receipt_{order_id}")],
@@ -1236,12 +1236,20 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
         await db.set_confirmed_at(order_id)
         if cost_usd:
             await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
+        # Мизоҷ бояд бидонад ба КАДОМ аккаунт тӯҳфа рафт — вагарна
+        # намефаҳмад куҷоро санҷад (баъзеҳо чанд ID доранд)
+        _nick = (player.get("nickname") or "").strip()
+        nick_line = f"👤 Ном: <b>{esc(_nick)}</b>\n" if _nick else ""
         try:
             await bot.send_message(
                 winner_id,
-                f"🎉🎁 <b>Муборак! Шумо барандаи тӯҳфаи ройгон шудед!</b>\n\n"
-                f"Ҳамчун ташаккур барои харидатон, системаи мо тасодуфан шуморо "
-                f"интихоб кард ва <b>{label}</b> ба ҳисоби шумо БЕПУЛ фиристод! 🎊\n\n"
+                f"🎉🎁 <b>Муборак! Шумо тӯҳфаи ройгон гирифтед!</b>\n\n"
+                f"Ҳамчун ташаккур барои харидатон, мағозаи мо тасодуфан шуморо "
+                f"интихоб кард ва тӯҳфаро БЕПУЛ фиристод! 🎊\n\n"
+                f"🎁 Тӯҳфа: <b>{label}</b>\n"
+                f"🆔 Ба ин ID фиристода шуд: <code>{player['player_id']}</code>\n"
+                f"{nick_line}"
+                f"\n📲 Ҳоло аккаунти худро санҷед — тӯҳфа он ҷост.\n\n"
                 f"🙏 Ташаккур, ки бо мо ҳастед!",
                 parse_mode="HTML"
             )
@@ -1252,7 +1260,7 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
 
         # Эълони ҷамъиятӣ дар канали асосӣ — бо НОМ, вале БЕ юзернейм.
         # Ҳар бор шарҳи механизм илова мешавад — то мизоҷон "чӣ хел дигарон
-        # ройгон гирифтанд?" напурсанд (қуръаи возеҳ, на дархост/VIP)
+        # ройгон гирифтанд?" напурсанд (тӯҳфаи возеҳ, на дархост/VIP)
         try:
             every_n = int(await db.get_setting("giveaway_every_n") or str(GIVEAWAY_DEFAULT_EVERY_N))
             display_name = winner_name if winner_name != "—" else "Яке аз мизоҷони мо"
@@ -1263,8 +1271,8 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
                 f"🎁 <b>{label}</b> — БЕПУЛ! 🍀\n\n"
                 f"━━━━━━━━━━━━━━\n\n"
                 f"🎲 <b>ИН ЧӢ АСТ?</b>\n\n"
-                f"Ин <b>лотереяи мағозаи мо</b>. Ҳар мизоҷе, ки фармоиш "
-                f"медиҳад, ХУДКОР ба он дохил мешавад.\n\n"
+                f"Ин <b>тӯҳфаи миннатдории мағозаи мо</b> ба мизоҷон. "
+                f"Ҳар харидор ХУДКОР ба рӯйхат дохил мешавад.\n\n"
                 f"<b>Чӣ хел кор мекунад:</b>\n"
                 f"1️⃣ Шумо фармоиши <b>оддӣ</b> медиҳед\n"
                 f"2️⃣ Мағоза {every_n} фармоишро ҷамъ мекунад\n"
@@ -1275,7 +1283,8 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int):
                 f"❗️ <b>Пули иловагӣ додан лозим НЕСТ</b>\n"
                 f"❗️ Ҳеҷ кас VIP нест — ҳама <b>баробар</b>\n\n"
                 f"🏆 То ҳол <b>{total_wins} нафар</b> ройгон гирифтаанд!\n\n"
-                f"💎 Фармоиш диҳед — шояд навбати шумо расад!",
+                f"💎 Фармоиш диҳед — шояд навбати шумо расад!\n\n"
+                f"🤖 Боти мо: @{config.BOT_USERNAME}",
                 parse_mode="HTML"
             )
         except Exception as e:
