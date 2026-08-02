@@ -107,6 +107,34 @@ async def _nickname_fazer(player_id: str) -> str:
 _FAZER_FAILED = {"failed", "cancelled", "canceled", "error", "rejected",
                  "refund", "refunded", "returned", "reversed", "chargeback"}
 
+# Ҳолатҳои ОДДИИ «ҳанӯз дар ҷараён». Ҳар ҳолате, ки на дар ин рӯйхат
+# аст, на дар _FAZER_FAILED ва на "completed" — НОШИНОС ҳисоб мешавад.
+_FAZER_PROCESSING = {"processing", "pending", "created", "new", "queued",
+                     "waiting", "in_progress", "in progress", "accepted"}
+
+# Ҳолатҳои ношиноси то ҳол дидашуда: {ҳолат: {"count", "order", "reported"}}
+# Ин ҷо ҷамъ мешаванд, вале ХАБАР аз autopay.py меравад — ин файл боти
+# Telegram надорад ва набояд дошта бошад.
+#
+# Сабаби пайдоиш: як бор FazerCards барои «Возврат» калимаи 'refund'
+# фиристод, вале дар рӯйхат 'refunded' буд. Бот онро нашинохт, фармоишҳо
+# овезон монданд ва ин танҳо баъди шикояти мизоҷ маълум шуд. Акнун ҳар
+# калимаи нави ношинос ҲАМОН РӮЗ ба соҳиб хабар медиҳад.
+UNKNOWN_STATUSES: dict = {}
+
+
+def note_unknown_status(status: str, order_id: str = ""):
+    """Ҳолати ношиносро сабт мекунад, то autopay.py ба соҳиб хабар диҳад."""
+    s = (status or "").strip().lower()
+    if not s or s == "completed" or s in _FAZER_FAILED or s in _FAZER_PROCESSING:
+        return
+    rec = UNKNOWN_STATUSES.setdefault(
+        s, {"count": 0, "order": order_id, "reported": False})
+    rec["count"] += 1
+    if order_id:
+        rec["order"] = order_id
+    logger.warning(f"ҲОЛАТИ НОШИНОСИ провайдер: {s!r} (фармоиш {order_id})")
+
 
 def _idem_key(prefix: str, order_id, retry_tag: str = "") -> str:
     """
@@ -329,6 +357,7 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
             # Ҳолати ВОҚЕӢ номаълум (шабака ҷавоб надод) — фармоиши НАВ
             # НАМЕСОЗЕМ, вагарна агар он воқеан иҷро шуда бошад, дучандон
             # харҷ мешавад. Ба админ ҳамчун "номуайян" бармегардонем.
+            note_unknown_status(status, existing_order_id)
             logger.warning(
                 f"auto_donate: ҳолати фармоиши {existing_order_id} номаълум "
                 f"({status!r}) — кӯшиши нав НАШУД (зидди дучандон харҷ)"
@@ -438,6 +467,9 @@ async def peek_order_status(api_order_id: str):
         return "completed", _extract_cost_usd(status_data)
     if status in _FAZER_FAILED:
         return "failed", None
+    # Ҳолати ношинос — интизор мешавем (бехатартар аз донати такрорӣ),
+    # вале соҳиб бояд ҲАМИН РӮЗ бидонад, на баъди шикояти мизоҷ
+    note_unknown_status(status, api_order_id)
     return "processing", None
 
 

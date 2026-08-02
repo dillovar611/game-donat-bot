@@ -1610,6 +1610,39 @@ async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost
             logger.error(f"Огоҳии барқарорсозӣ ба админ {admin_id} нарасид: {e}")
 
 
+async def _report_unknown_statuses(bot: Bot):
+    """
+    Агар провайдер ҳолати НАВЕ фиристад, ки бот онро намешиносад — ҳамон
+    рӯз ба соҳиб хабар медиҳад.
+
+    Чаро ин лозим шуд: FazerCards барои «Возврат» калимаи 'refund'
+    фиристод, вале дар рӯйхати бот 'refunded' буд. Бот онро «ҳанӯз дар
+    ҷараён» ҳисоб кард, фармоишҳо овезон монданд ва ин танҳо баъди
+    шикояти мизоҷ маълум шуд. Ҳар ҳолати нав танҳо ЯК бор хабар дода
+    мешавад — то ҳар 3 дақиқа такрор нашавад.
+    """
+    for status, rec in list(ff_api.UNKNOWN_STATUSES.items()):
+        if rec.get("reported"):
+            continue
+        rec["reported"] = True
+        text = (
+            f"⚠️ <b>Провайдер ҳолати НОШИНОС фиристод!</b>\n\n"
+            f"🔤 Ҳолат: <code>{esc(status)}</code>\n"
+            f"🆔 Фармоиш: <code>{esc(rec.get('order') or '—')}</code>\n"
+            f"🔁 Чанд бор дучор шуд: {rec.get('count', 1)}\n\n"
+            f"Бот ин калимаро намешиносад, пас фармоишро «ҳанӯз дар ҷараён» "
+            f"ҳисоб мекунад ва интизор мешавад.\n\n"
+            f"❗️ Агар ин ҳолати НИҲОӢ бошад (мисли «Возврат»), фармоиш "
+            f"абадан овезон мемонад ва «Дубора донат» кор намекунад. "
+            f"Инро ба ман нависед — ман як сатр илова мекунам ва ҳал мешавад."
+        )
+        for admin_id in config.ADMIN_IDS:
+            try:
+                await bot.send_message(admin_id, text, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"Огоҳии ҳолати ношинос ба {admin_id} нарасид: {e}")
+
+
 async def recheck_loop(bot: Bot, interval_seconds: int = 180):
     """
     ТАФТИШГАРИ ХУДКОРИ ФАРМОИШҲОИ «ОВЕЗОН».
@@ -1695,6 +1728,8 @@ async def recheck_loop(bot: Bot, interval_seconds: int = 180):
                             )
 
                 await asyncio.sleep(1)  # ба API фишор наорем
+
+            await _report_unknown_statuses(bot)
         except Exception as e:
             logger.error(f"Хатогӣ дар recheck_loop: {e}")
 
