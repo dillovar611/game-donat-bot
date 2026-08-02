@@ -1497,6 +1497,82 @@ async def mark_nudge_sent(user_id: int):
             )
 
 
+# ==================== МАЪЛУМОТ БАРОИ ОГОҲИҲОИ ХУДКОР ====================
+async def get_loss_orders(hours: int = 24, limit: int = 20) -> list:
+    """
+    Фармоишҳои тасдиқшуда, ки арзиши хариди онҳо аз нархи фурӯш БАЛАНД
+    ё БАРОБАР аст — яъне мо ба зарар ё бе фоида фурӯхтем.
+
+    Пештар инро танҳо дар ҳисоботи шаб мешуд дид — то он вақт як рӯзи
+    пурра ба зарар фурӯхта мешуд.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, user_id, label, price, cost_tjs FROM orders "
+                "WHERE status='confirmed' AND cost_tjs IS NOT NULL "
+                "AND price > 0 AND cost_tjs >= price "
+                "AND confirmed_at >= NOW() - INTERVAL %s HOUR "
+                "ORDER BY id DESC LIMIT %s",
+                (hours, limit)
+            )
+            return await cur.fetchall()
+
+
+async def get_repeat_rejected_users(days: int = 7, min_count: int = 3) -> list:
+    """Мизоҷоне, ки дар N рӯзи охир чанд фармоиши РАДШУДА доранд."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT user_id, COUNT(*) AS n, MAX(id) AS last_id FROM orders "
+                "WHERE status='rejected' AND created_at >= NOW() - INTERVAL %s DAY "
+                "GROUP BY user_id HAVING n >= %s ORDER BY n DESC LIMIT 10",
+                (days, min_count)
+            )
+            return await cur.fetchall()
+
+
+async def get_multi_id_users(days: int = 30, min_ids: int = 5) -> list:
+    """
+    Мизоҷоне, ки ба ID-ҳои ЗИЁДИ ГУНОГУНИ бозӣ донат кардаанд.
+    Эҳтимол онҳо худашон фурӯш мекунанд — шояд нархи чакана лозим бошад.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT user_id, COUNT(DISTINCT game_id) AS ids, COUNT(*) AS n, "
+                "COALESCE(SUM(price),0) AS total FROM orders "
+                "WHERE status='confirmed' AND game_id<>'' "
+                "AND created_at >= NOW() - INTERVAL %s DAY "
+                "GROUP BY user_id HAVING ids >= %s ORDER BY ids DESC LIMIT 10",
+                (days, min_ids)
+            )
+            return await cur.fetchall()
+
+
+async def payment_feed_health(quiet_minutes: int = 30) -> dict:
+    """
+    Оё пардохтҳо умуман меоянд? Бармегардонад:
+      waiting  — чанд фармоиш пардохти худкорро интизор аст
+      last_min — чанд дақиқа пеш охирин пардохт омад (None = ҳељ гоҳ)
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT COUNT(*) AS n FROM orders "
+                "WHERE status IN ('autopay_search','awaiting_autopay') "
+                "AND created_at >= NOW() - INTERVAL %s MINUTE",
+                (quiet_minutes,)
+            )
+            waiting = (await cur.fetchone())["n"]
+            await cur.execute(
+                "SELECT TIMESTAMPDIFF(MINUTE, MAX(received_at), NOW()) AS m "
+                "FROM dc_kods"
+            )
+            row = await cur.fetchone()
+    return {"waiting": waiting, "last_min": row["m"] if row else None}
+
+
 async def set_order_api_id(order_id: int, api_id: str):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:

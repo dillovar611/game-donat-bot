@@ -47,6 +47,8 @@ _CARD_RE = re.compile(r"card\D{0,3}(\d{1,10})", re.IGNORECASE)
 MAX_AGE_MINUTES = 20      # мӯҳлати умумии фармоиши автопардохт
 SEARCH_TIMEOUT_MIN = 10   # чек омад, вале пардохт то ин дақиқа ёфт нашуд → ба админ
 EXPIRY_WARN_BEFORE_MIN = 3  # чанд дақиқа пеш аз итмоми мӯҳлат огоҳ кунем
+FEED_QUIET_MIN = 30       # чанд дақиқа бе ягон пардохт — аломати мушкил
+FEED_MIN_WAITING = 2      # ва ҳадди ақал чанд мизоҷ бояд интизор бошад
 NUDGE_AFTER_HOURS = 3     # баъди чанд соат ба фармоиши нотамом ёдоварӣ кунем
 NUDGE_UNTIL_HOURS = 24    # аз ин кӯҳнатар бошад, дигар ёдоварӣ намекунем
 
@@ -1610,6 +1612,104 @@ async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost
             logger.error(f"Огоҳии барқарорсозӣ ба админ {admin_id} нарасид: {e}")
 
 
+# Ҳар огоҳӣ ТАНҲО ЯК БОР меравад. Дар хотира нигоҳ доштан кофист:
+# агар сервер рестарт шавад ва як огоҳӣ такрор шавад, зараре нест —
+# вале сутуни нав дар база барои ҳар огоҳӣ сохтан лозим намеояд.
+_alerted_loss: set = set()
+_alerted_reject: set = set()
+_alerted_reseller: set = set()
+_last_feed_alert = 0.0
+
+
+async def _alert(bot: Bot, text: str):
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, text, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Огоҳӣ ба админ {admin_id} нарасид: {e}")
+
+
+async def _watch_losses(bot: Bot):
+    """Фурӯш ба зарар — ҳамон рӯз, на дар ҳисоботи шаб."""
+    for o in await db.get_loss_orders():
+        if o["id"] in _alerted_loss:
+            continue
+        _alerted_loss.add(o["id"])
+        price, cost = float(o["price"]), float(o["cost_tjs"])
+        await _alert(bot, (
+            f"📉 <b>Ба ЗАРАР фурӯхта шуд!</b>\n\n"
+            f"🆔 Фармоиш: #{o['id']}\n"
+            f"🎁 {esc(o['label'])}\n"
+            f"💵 Фурӯхтем: <b>{price:.2f} сом</b>\n"
+            f"🏷 Арзиши харид: <b>{cost:.2f} сом</b>\n"
+            f"➖ Зарар: <b>{cost - price:.2f} сом</b>\n\n"
+            f"Эҳтимол нархи провайдер боло рафтааст — нархи худро санҷед."
+        ))
+
+
+async def _watch_payment_feed(bot: Bot):
+    """
+    Пардохтҳо тамоман намеоянд, вале мизоҷон интизоранд — эҳтимол
+    ҳамон ҳолати имрӯзаи «Душанбе Сити кор намекунад».
+    """
+    global _last_feed_alert
+    if time.time() - _last_feed_alert < 3600:
+        return
+    h = await db.payment_feed_health(FEED_QUIET_MIN)
+    last = h.get("last_min")
+    if h["waiting"] < FEED_MIN_WAITING or last is None or last < FEED_QUIET_MIN:
+        return
+    _last_feed_alert = time.time()
+    await _alert(bot, (
+        f"🏦 <b>Пардохтҳо намеоянд!</b>\n\n"
+        f"⏳ Охирин пардохт: <b>{last} дақиқа</b> пеш\n"
+        f"👥 Интизори пардохт: <b>{h['waiting']} фармоиш</b>\n\n"
+        f"Мизоҷон пардохт мекунанд, вале ба система чизе намерасад — "
+        f"эҳтимол мушкили бонк аст.\n"
+        f"Санҷед ва агар лозим бошад, ба мизоҷон эълон диҳед."
+    ))
+
+
+async def _watch_problem_customers(bot: Bot):
+    """Мизоҷе, ки такроран фармоишаш рад мешавад — шояд мушкиле дорад."""
+    for r in await db.get_repeat_rejected_users():
+        key = (r["user_id"], r["last_id"])
+        if key in _alerted_reject:
+            continue
+        _alerted_reject.add(key)
+        u = await db.get_user(r["user_id"])
+        name = esc(u.get("full_name")) if u and u.get("full_name") else "—"
+        uname = f"@{u['username']}" if u and u.get("username") else "—"
+        await _alert(bot, (
+            f"🔁 <b>Мизоҷ такроран рад мешавад</b>\n\n"
+            f"👤 {name} ({esc(uname)})\n"
+            f"🆔 ID: <code>{r['user_id']}</code>\n"
+            f"❌ Дар 7 рӯзи охир: <b>{r['n']} фармоиши радшуда</b>\n\n"
+            f"Шояд ӯ чизеро нафаҳмидааст ё мушкиле дорад — "
+            f"агар худатон нависед, шояд мизоҷи доимӣ шавад."
+        ))
+
+
+async def _watch_resellers(bot: Bot):
+    """Як мизоҷ ба ID-ҳои зиёди гуногун донат мекунад — эҳтимол фурӯшанда."""
+    for r in await db.get_multi_id_users():
+        if r["user_id"] in _alerted_reseller:
+            continue
+        _alerted_reseller.add(r["user_id"])
+        u = await db.get_user(r["user_id"])
+        name = esc(u.get("full_name")) if u and u.get("full_name") else "—"
+        uname = f"@{u['username']}" if u and u.get("username") else "—"
+        await _alert(bot, (
+            f"🏪 <b>Эҳтимол фурӯшандаи хурд</b>\n\n"
+            f"👤 {name} ({esc(uname)})\n"
+            f"🆔 ID: <code>{r['user_id']}</code>\n"
+            f"🎮 Ба <b>{r['ids']} ID-и гуногун</b> донат кардааст\n"
+            f"🛒 {r['n']} фармоиш · <b>{float(r['total']):.2f} сом</b> дар 30 рӯз\n\n"
+            f"Ин мизоҷ эҳтимол худаш ба дигарон мефурӯшад. "
+            f"Нархи шахсӣ пешниҳод кунед — то ба ҷои дигар наравад."
+        ))
+
+
 async def _report_unknown_statuses(bot: Bot):
     """
     Агар провайдер ҳолати НАВЕ фиристад, ки бот онро намешиносад — ҳамон
@@ -1730,6 +1830,14 @@ async def recheck_loop(bot: Bot, interval_seconds: int = 180):
                 await asyncio.sleep(1)  # ба API фишор наорем
 
             await _report_unknown_statuses(bot)
+
+            # Огоҳиҳои дигар — ҳар кадом ҷудо, то хатои яке бақияро нахобонад
+            for watch in (_watch_losses, _watch_payment_feed,
+                          _watch_problem_customers, _watch_resellers):
+                try:
+                    await watch(bot)
+                except Exception as e:
+                    logger.error(f"Огоҳии {watch.__name__} нашуд: {e}")
         except Exception as e:
             logger.error(f"Хатогӣ дар recheck_loop: {e}")
 
