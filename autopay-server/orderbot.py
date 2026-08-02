@@ -508,17 +508,31 @@ async def handle_deleted_business_messages(event: BusinessMessagesDeleted):
     """
     chat_id = event.chat.id
     rows = chatlog.record_delete(chat_id, list(event.message_ids or []))
-    rows = [r for r in rows if r[2] != "owner"]   # несткунии худи соҳиб не
+    rows = [r for r in rows if r["who"] != "owner"]   # несткунии худи соҳиб не
     if not rows:
         return
     name = (event.chat.full_name or event.chat.first_name
             or event.chat.username or str(chat_id))
-    body = "\n\n".join(f"«{_short(t, 300)}»" for _, t, _ in rows)
+    parts = []
+    for r in rows:
+        if not r["known"]:
+            parts.append("• (ин паём пеш аз оғози бойгонӣ фиристода шуда буд — "
+                         "матнаш дар даст нест)")
+        elif r["text"] and r["media"]:
+            parts.append(f"• {r['media']} + «{_short(r['text'], 300)}»")
+        elif r["text"]:
+            parts.append(f"• «{_short(r['text'], 300)}»")
+        elif r["media"]:
+            parts.append(f"• {r['media']} (бе матн) — худи файл дар бойгонӣ ҳаст")
+        else:
+            parts.append("• (паёми бе матн)")
+    known = sum(1 for r in rows if r["known"])
+    tail = (f"\n\n📁 Дар бойгонии сервер боқӣ монд — /chat {chat_id}"
+            if known else "")
     await notify_owner(
         f"❌ Мизоҷ {len(rows)} паёмашро НЕСТ кард!\n\n"
         f"👤 {name} (ID: {chat_id})\n\n"
-        f"Матни несткардашуда:\n{body}\n\n"
-        f"📁 Дар бойгонии сервер боқӣ монд — /chat {chat_id}"
+        f"Матни несткардашуда:\n" + "\n".join(parts) + tail
     )
 
 

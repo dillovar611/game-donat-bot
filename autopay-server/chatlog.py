@@ -269,8 +269,16 @@ def record_edit(chat_id: int, message_id: int, new_text: str):
 
 def record_delete(chat_id: int, message_ids: list):
     """
-    Несткунии паёмҳоро сабт мекунад ва рӯйхати матнҳои несткардашударо
-    бармегардонад: [(message_id, matn, who), ...]
+    Несткунии паёмҳоро сабт мекунад ва бармегардонад:
+      [{mid, text, who, known, media}, ...]
+
+    `known=False` маънои онро дорад, ки ин паём дар бойгонӣ НЕСТ —
+    одатан вақте паём ПЕШ аз оғози сабт фиристода шуда буд. Ин ҳолатро
+    бояд ошкоро гуфт: «матнаш нест» аз матни холии «—» фоиданоктар аст.
+
+    Паёми БЕ матн (овоз, расм, видео) низ бояд навишта шавад — вагарна
+    вақте мизоҷ паёми овозиашро нест мекунад, огоҳӣ холӣ мебарояд, дар
+    ҳоле ки маҳз ҳамон ҳолат аз ҳама муҳим аст.
     """
     out = []
     try:
@@ -279,17 +287,24 @@ def record_delete(chat_id: int, message_ids: list):
             mid = ev.get("mid")
             if ev.get("t") == "msg":
                 state[mid] = {"text": ev.get("text", ""), "who": ev.get("who", "?"),
-                              "photo": ev.get("photo", "")}
+                              "photo": ev.get("photo", ""), "file": ev.get("file", ""),
+                              "fpath": ev.get("fpath", "")}
             elif ev.get("t") == "edit" and mid in state:
                 state[mid]["text"] = ev.get("text", "")
         for mid in message_ids:
-            st = state.get(mid, {})
+            st = state.get(mid)
+            known = st is not None
+            st = st or {}
+            media = ""
+            if st.get("photo"):
+                media = "📸 расм"
+            elif st.get("file"):
+                media = st["file"]
             txt = st.get("text", "")
-            if not txt and st.get("photo"):
-                txt = "📸 (расм)"
-            out.append((mid, txt, st.get("who", "?")))
+            out.append({"mid": mid, "text": txt, "who": st.get("who", "?"),
+                        "known": known, "media": media})
             _append(chat_id, {"t": "del", "mid": mid, "ts": time.time(),
-                              "text": txt, "who": st.get("who", "?")})
+                              "text": txt or media, "who": st.get("who", "?")})
     except Exception as e:
         logger.error(f"chatlog.record_delete хато ({chat_id}): {e}")
     return out
