@@ -98,7 +98,14 @@ async def _nickname_fazer(player_id: str) -> str:
 # ҳолатҳо иҷозат аст фармоиши НАВ созем. Агар ҳолат НОМАЪЛУМ бошад
 # (масалан шабака хато дод ва мо ҷавоб нагирифтем), фармоиши нав
 # САХТАН манъ аст — вагарна фармоиши аллакай иҷрошуда дучандон мешавад.
-_FAZER_FAILED = {"failed", "cancelled", "canceled", "error", "refunded", "rejected"}
+# «refund» — маҳз ҳамин калимаро FazerCards барои «Возврат» мефиристад
+# (дар панел «Возврат», дар API 'refund'). Дар рӯйхат танҳо 'refunded'
+# буд — як ҳарф фарқ, вале оқибаташ вазнин: возврат ҳамчун «ҳанӯз дар
+# ҷараён» шинохта мешуд, тафтишгар абадан интизор мешуд ва тугмаи
+# «Дубора донат» кор намекард (ҳимояи зидди харҷи дучанд онро мебаст).
+# Возврат ҳолати НИҲОӢ аст: пул баргашт, донат нашуд — интизорӣ бефоида.
+_FAZER_FAILED = {"failed", "cancelled", "canceled", "error", "rejected",
+                 "refund", "refunded", "returned", "reversed", "chargeback"}
 
 
 def _idem_key(prefix: str, order_id, retry_tag: str = "") -> str:
@@ -184,7 +191,8 @@ async def _fazer_status(order_id: str) -> dict:
 # фармоиши MooGold бо префикси "moo:" нигоҳ дошта мешаванд, то дар
 # санҷиши такрорӣ бот донад кадом провайдерро пурсад.
 _MOOGOLD_DONE = {"completed", "complete", "delivered", "success", "done"}
-_MOOGOLD_FAILED = {"failed", "cancelled", "canceled", "error", "refunded", "rejected"}
+_MOOGOLD_FAILED = {"failed", "cancelled", "canceled", "error", "rejected",
+                   "refund", "refunded", "returned", "reversed", "chargeback"}
 
 
 async def _moogold_request(api_route: str, payload: dict) -> dict:
