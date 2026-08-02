@@ -6,8 +6,13 @@ games.py — бозиҳои хурд барои вақти интизории м
 дақиқа мегузарад. Дар ин муддат ӯ танҳо ба экран нигоҳ мекунад ва
 асабӣ мешавад — ҳамин ҷо ҳашт бозии хурд пешниҳод мешавад:
 
-  2048 · 4 дар қатор · Пазли 15 · Чароғҳо · Рамзкушоӣ ·
-  Мина 5×5 · Квизи Free Fire · Тик-так-то
+  2048 · 4 дар қатор · Ҷанги баҳрӣ · Калимаро ёб ·
+  Мина 5×5 · Пазли 15 · Квизи Free Fire · Тик-так-то
+
+Ҳамаи онҳо бозиҳои ШИНОХТАанд. Пештар ин ҷо «Чароғҳо» (Lights Out) ва
+«Рамзкушоӣ» (Mastermind) буданд — бозиҳои хубе, вале мизоҷони мо онҳоро
+ҳаргиз надида буданд: мекушоянд, намефаҳманд ва мебанданд. Бозие, ки
+қоидаашро фаҳмондан лозим аст, дар вақти интизорӣ кор намекунад.
 
 Бозиҳое, ки бо БОТ бозӣ мешаванд (тик-так-то, 4 дар қатор), қасдан
 беайб НЕСТАНД. Дар санҷиш боти беайби «4 дар қатор» 30 аз 30 бозиро
@@ -15,10 +20,9 @@ games.py — бозиҳои хурд барои вақти интизории м
 мизоҷро намебандад, вале ғалабаи худашро ҳамеша мегирад. Дар натиҷа
 мизоҷи фикркунанда тақрибан 68% мебарад.
 
-Пазлҳое, ки омехта мешаванд (Пазли 15, Чароғҳо), аз ҳолати ҲАЛШУДА бо
-ҳаракатҳои тасодуфӣ сохта мешаванд — бо ин онҳо ҲАТМАН ҳалшавандаанд.
-Омехтаи тасодуфии оддӣ метавонад ҳолати ҳалнашаванда диҳад ва мизоҷ
-беҳуда вақт сарф мекунад.
+Пазли 15 аз ҳолати ҲАЛШУДА бо ҳаракатҳои тасодуфӣ омехта мешавад — бо
+ин он ҲАТМАН ҳалшаванда мемонад. Омехтаи тасодуфии оддӣ метавонад
+ҳолати ҳалнашаванда диҳад ва мизоҷ беҳуда вақт сарф мекунад.
 
 ҚОИДАИ АСОСӢ: тамоми бозӣ дар ЯК паём мегузарад ва ҳар ҳаракат ҳамон
 паёмро НАВ мекунад, на паёми нав месозад. Вагарна паёми «✅ Тасдиқ шуд»
@@ -78,10 +82,10 @@ def menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔢 2048", callback_data="g:2s"),
          InlineKeyboardButton(text="🔴 4 дар қатор", callback_data="g:4s")],
-        [InlineKeyboardButton(text="🧩 Пазли 15", callback_data="g:ps"),
-         InlineKeyboardButton(text="💡 Чароғҳо", callback_data="g:ls")],
-        [InlineKeyboardButton(text="🎨 Рамзкушоӣ", callback_data="g:Ms"),
-         InlineKeyboardButton(text="💣 Мина 5×5", callback_data="g:ms")],
+        [InlineKeyboardButton(text="🚢 Ҷанги баҳрӣ", callback_data="g:bs"),
+         InlineKeyboardButton(text="🔤 Калимаро ёб", callback_data="g:ws")],
+        [InlineKeyboardButton(text="💣 Мина 5×5", callback_data="g:ms"),
+         InlineKeyboardButton(text="🧩 Пазли 15", callback_data="g:ps")],
         [InlineKeyboardButton(text="🧠 Квизи Free Fire", callback_data="g:qs"),
          InlineKeyboardButton(text="⭕️ Тик-так-то", callback_data="g:ts")],
     ])
@@ -802,171 +806,184 @@ async def g_p15_move(call: CallbackQuery):
     await _show(call, _p15_text(uid), _p15_kb(uid))
 
 
-# ==================== 7) ЧАРОҒҲО (Lights Out) ====================
-_LN = 5
+# ==================== 7) ҶАНГИ БАҲРӢ ====================
+# Бозии ҳамафаҳм: ҳама онро дар дафтар бозӣ кардаанд. Флоти душман
+# пинҳон аст, шумо тир мезанед — 🔥 расид, 🌊 об.
+_BW = 6
+_SHIPS = (3, 2, 2, 1, 1)          # дарозии киштиҳо, ҳамагӣ 9 катак
 
 
-def _lo_toggle(b, i):
-    r, c = divmod(i, _LN)
-    for rr, cc in ((r, c), (r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
-        if 0 <= rr < _LN and 0 <= cc < _LN:
-            b[rr * _LN + cc] ^= 1
+def _bs_place():
+    """Киштиҳоро тасодуфӣ мегузорад, ки ба ҳам нарасанд."""
+    cells = set()
+    for size in _SHIPS:
+        for _ in range(200):
+            horiz = random.random() < 0.5
+            r = random.randrange(_BW if horiz else _BW - size + 1)
+            c = random.randrange(_BW - size + 1 if horiz else _BW)
+            spot = {(r, c + k) if horiz else (r + k, c) for k in range(size)}
+            near = {(rr + dr, cc + dc) for rr, cc in spot
+                    for dr in (-1, 0, 1) for dc in (-1, 0, 1)}
+            if not (near & cells):
+                cells |= spot
+                break
+    return {r * _BW + c for r, c in cells}
 
 
-def _lo_new(uid):
-    old = _st(uid).get("lo") or {}
-    b = [0] * (_LN * _LN)
-    # Аз ҳолати ХОМӮШ пахшҳои тасодуфӣ — пас ҳатман ҳалшаванда мемонад
-    for i in random.sample(range(_LN * _LN), random.randint(4, 8)):
-        _lo_toggle(b, i)
-    if not any(b):
-        _lo_toggle(b, random.randrange(_LN * _LN))
-    _st(uid)["lo"] = {"b": b, "moves": 0, "over": False,
-                      "msg": "Ҳамаи чароғҳоро хомӯш кунед 👇",
-                      "best": old.get("best", 0)}
+def _bs_new(uid):
+    old = _st(uid).get("bs") or {}
+    _st(uid)["bs"] = {"ships": _bs_place(), "shots": set(), "over": False,
+                      "msg": "Оташ кушоед 👇",
+                      "best": old.get("best", 0), "wins": old.get("wins", 0)}
 
 
-def _lo_kb(uid):
-    s = _st(uid)["lo"]
-    rows = [[InlineKeyboardButton(
-        text="💡" if s["b"][r * _LN + c] else "⬛️",
-        callback_data=("g:noop" if s["over"] else f"g:lm:{r * _LN + c}"))
-        for c in range(_LN)] for r in range(_LN)]
-    rows.append([InlineKeyboardButton(text="🔄 Аз нав", callback_data="g:ls")])
+def _bs_kb(uid):
+    s = _st(uid)["bs"]
+    rows = []
+    for r in range(_BW):
+        row = []
+        for c in range(_BW):
+            i = r * _BW + c
+            if i in s["shots"]:
+                ch, cb = ("🔥" if i in s["ships"] else "🌊"), "g:noop"
+            elif s["over"] and i in s["ships"]:
+                ch, cb = "🚢", "g:noop"
+            else:
+                ch, cb = "🟦", ("g:noop" if s["over"] else f"g:bf:{i}")
+            row.append(InlineKeyboardButton(text=ch, callback_data=cb))
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="🔄 Аз нав", callback_data="g:bs")])
     rows.append([_BACK])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _lo_text(uid):
-    s = _st(uid)["lo"]
-    t = _head(uid, "💡 <b>Чароғҳо</b>")
-    best = f" · рекорд: <b>{s['best']}</b>" if s["best"] else ""
-    t += (f"\nҲар пахш чароғи худаш ВА 4 ҳамсояашро дигар мекунад.\n"
-          f"Фурӯзон: <b>{sum(s['b'])}</b> · ҳаракат: <b>{s['moves']}</b>{best}\n\n{s['msg']}")
+def _bs_text(uid):
+    s = _st(uid)["bs"]
+    hit = len(s["shots"] & s["ships"])
+    t = _head(uid, "🚢 <b>Ҷанги баҳрӣ</b>")
+    best = f" · рекорд: <b>{s['best']} тир</b>" if s["best"] else ""
+    t += (f"\nДар баҳр <b>5 киштӣ</b> пинҳон аст (9 катак). Онҳоро ғарқ кунед!\n"
+          f"🔥 расид · 🌊 об\n\n"
+          f"Ғарқшуда: <b>{hit}/9</b> · тир: <b>{len(s['shots'])}</b>{best}\n"
+          f"🏆 Бурд: {s['wins']}\n\n{s['msg']}")
     return t
 
 
-@router.callback_query(F.data == "g:ls")
-async def g_lo_start(call: CallbackQuery):
-    _lo_new(call.from_user.id)
-    await _show(call, _lo_text(call.from_user.id), _lo_kb(call.from_user.id))
+@router.callback_query(F.data == "g:bs")
+async def g_bs_start(call: CallbackQuery):
+    _bs_new(call.from_user.id)
+    await _show(call, _bs_text(call.from_user.id), _bs_kb(call.from_user.id))
 
 
-@router.callback_query(F.data.startswith("g:lm:"))
-async def g_lo_move(call: CallbackQuery):
+@router.callback_query(F.data.startswith("g:bf:"))
+async def g_bs_fire(call: CallbackQuery):
     uid = call.from_user.id
-    s = _st(uid).get("lo")
+    s = _st(uid).get("bs")
     if not s:
-        return await g_lo_start(call)
-    if s["over"]:
+        return await g_bs_start(call)
+    i = int(call.data.split(":")[2])
+    if s["over"] or i in s["shots"]:
         return await call.answer()
-    _lo_toggle(s["b"], int(call.data.split(":")[2]))
-    s["moves"] += 1
-    if not any(s["b"]):
-        s["over"] = True
-        s["msg"] = f"🎉 Ҳамааш хомӯш — {s['moves']} ҳаракат! Офарин!"
-        if not s["best"] or s["moves"] < s["best"]:
-            s["best"] = s["moves"]
+    s["shots"].add(i)
+    if i in s["ships"]:
+        if len(s["shots"] & s["ships"]) >= len(s["ships"]):
+            s["over"] = True
+            s["wins"] += 1
+            n = len(s["shots"])
+            if not s["best"] or n < s["best"]:
+                s["best"] = n
+            s["msg"] = f"🎉 Ҳамаи киштиҳо ғарқ шуданд — бо {n} тир! Офарин!"
+        else:
+            s["msg"] = "🔥 Расид! Давом диҳед 👇"
     else:
-        s["msg"] = "Давом диҳед 👇"
-    await _show(call, _lo_text(uid), _lo_kb(uid))
+        s["msg"] = "🌊 Об... боз кӯшиш кунед 👇"
+    await _show(call, _bs_text(uid), _bs_kb(uid))
 
 
-# ==================== 8) РАМЗКУШОӢ (Mastermind) ====================
-_MM_COLORS = ["🔴", "🟡", "🟢", "🔵", "🟣", "🟠"]
-_MM_LEN, _MM_TRIES = 4, 10
+# ==================== 8) КАЛИМАРО ЁБ ====================
+# «Виселица» — ҳама медонад: ҳарф интихоб мекунед, агар дар калима
+# бошад кушода мешавад, вагарна як ҷон кам мешавад.
+WORDS = [
+    ("АЛМОС", "пули дохилии бозӣ"), ("ДОНАТ", "пур кардани бозӣ"),
+    ("ЧЕК", "расми пардохт"), ("БАЛАНС", "пули шумо дар бот"),
+    ("ТУҲФА", "чизи ройгон"), ("ФАРМОИШ", "чизе, ки шумо мехаред"),
+    ("ГАРЕНА", "ширкати Free Fire"), ("СНАЙПЕР", "силоҳи дурзан"),
+    ("ХАРИТА", "ҷои бозӣ"), ("ПАРАШУТ", "бо он мефуроед"),
+    ("МАШИНА", "бо он мегардед"), ("ТИРАНДОЗ", "касе, ки тир мезанад"),
+    ("ДӮСТ", "ҳамроҳи шумо дар бозӣ"), ("ҒАЛАБА", "Booyah!"),
+    ("ЗИРЕҲ", "шуморо аз тир нигоҳ медорад"), ("ТЕЛЕФОН", "бо он бозӣ мекунед"),
+    ("МАҒОЗА", "ҷои харид"), ("СОМОНӢ", "пули Тоҷикистон"),
+]
+_ALPHA = list("АБВГҒДЕЁЖЗИӢЙКҚЛМНОПРСТУӮФХҲЧҶШЪЭЮЯ")
+_LIVES = 6
 
 
-def _mm_new(uid):
-    old = _st(uid).get("mm") or {}
-    _st(uid)["mm"] = {
-        "code": [random.randrange(len(_MM_COLORS)) for _ in range(_MM_LEN)],
-        "cur": [], "hist": [], "over": False, "won": False,
-        "msg": "4 рангро интихоб кунед 👇", "win": old.get("win", 0),
-        "lose": old.get("lose", 0)}
+def _wd_new(uid):
+    old = _st(uid).get("wd") or {}
+    word, hint = random.choice(WORDS)
+    _st(uid)["wd"] = {"word": word, "hint": hint, "used": set(), "bad": 0,
+                      "over": False, "msg": "Ҳарфро интихоб кунед 👇",
+                      "win": old.get("win", 0), "lose": old.get("lose", 0)}
 
 
-def _mm_score(code, guess):
-    """(дар ҷои дуруст, ранги дуруст вале ҷои нодуруст)"""
-    exact = sum(1 for a, b in zip(code, guess) if a == b)
-    common = sum(min(code.count(c), guess.count(c)) for c in set(guess))
-    return exact, common - exact
+def _wd_shown(s):
+    return " ".join(ch if ch in s["used"] or ch == " " else "_" for ch in s["word"])
 
 
-def _mm_kb(uid):
-    s = _st(uid)["mm"]
+def _wd_kb(uid):
+    s = _st(uid)["wd"]
     rows = []
     if not s["over"]:
-        rows.append([InlineKeyboardButton(text=c, callback_data=f"g:Mc:{i}")
-                     for i, c in enumerate(_MM_COLORS[:3])])
-        rows.append([InlineKeyboardButton(text=c, callback_data=f"g:Mc:{i + 3}")
-                     for i, c in enumerate(_MM_COLORS[3:])])
-        if s["cur"]:
-            rows.append([InlineKeyboardButton(text="⬅️ Пок кардан", callback_data="g:Mu")])
-    rows.append([InlineKeyboardButton(text="🔄 Аз нав", callback_data="g:Ms")])
+        for r in range(0, len(_ALPHA), 7):
+            rows.append([InlineKeyboardButton(
+                text=("·" if ch in s["used"] else ch),
+                callback_data=("g:noop" if ch in s["used"] else f"g:wl:{ch}"))
+                for ch in _ALPHA[r:r + 7]])
+    rows.append([InlineKeyboardButton(text="🔄 Калимаи нав", callback_data="g:ws")])
     rows.append([_BACK])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _mm_text(uid):
-    s = _st(uid)["mm"]
-    t = _head(uid, "🎨 <b>Рамзкушоӣ</b>")
-    t += (f"\n4 ранги пинҳонро ёбед. ⚫ = ранг ва ҷояш дуруст, "
-          f"⚪ = ранг ҳаст, вале ҷояш дигар.\n"
-          f"🏆 Бурд {s['win']} · бохт {s['lose']}\n\n")
-    for g_, ex, half in s["hist"]:
-        t += ("".join(_MM_COLORS[i] for i in g_) + "  "
-              + "⚫" * ex + "⚪" * half + ("▫️" * (_MM_LEN - ex - half)) + "\n")
-    left = _MM_TRIES - len(s["hist"])
-    if not s["over"]:
-        cur = "".join(_MM_COLORS[i] for i in s["cur"]) + "▫️" * (_MM_LEN - len(s["cur"]))
-        t += f"\nҲозир: {cur}\nКӯшиши боқимонда: <b>{left}</b>\n"
-    t += f"\n{s['msg']}"
+def _wd_text(uid):
+    s = _st(uid)["wd"]
+    t = _head(uid, "🔤 <b>Калимаро ёб</b>")
+    t += (f"\nМаслиҳат: <i>{s['hint']}</i>\n\n"
+          f"<code>{_wd_shown(s)}</code>\n\n"
+          f"{'❤️' * (_LIVES - s['bad'])}{'🖤' * s['bad']}\n"
+          f"🏆 Бурд {s['win']} · бохт {s['lose']}\n\n{s['msg']}")
     return t
 
 
-@router.callback_query(F.data == "g:Ms")
-async def g_mm_start(call: CallbackQuery):
-    _mm_new(call.from_user.id)
-    await _show(call, _mm_text(call.from_user.id), _mm_kb(call.from_user.id))
+@router.callback_query(F.data == "g:ws")
+async def g_wd_start(call: CallbackQuery):
+    _wd_new(call.from_user.id)
+    await _show(call, _wd_text(call.from_user.id), _wd_kb(call.from_user.id))
 
 
-@router.callback_query(F.data == "g:Mu")
-async def g_mm_undo(call: CallbackQuery):
+@router.callback_query(F.data.startswith("g:wl:"))
+async def g_wd_letter(call: CallbackQuery):
     uid = call.from_user.id
-    s = _st(uid).get("mm")
-    if not s or s["over"] or not s["cur"]:
-        return await call.answer()
-    s["cur"] = []
-    s["msg"] = "Пок шуд — аз нав интихоб кунед 👇"
-    await _show(call, _mm_text(uid), _mm_kb(uid))
-
-
-@router.callback_query(F.data.startswith("g:Mc:"))
-async def g_mm_color(call: CallbackQuery):
-    uid = call.from_user.id
-    s = _st(uid).get("mm")
+    s = _st(uid).get("wd")
     if not s:
-        return await g_mm_start(call)
-    if s["over"]:
+        return await g_wd_start(call)
+    ch = call.data.split(":")[2]
+    if s["over"] or ch in s["used"]:
         return await call.answer()
-    s["cur"].append(int(call.data.split(":")[2]))
-    if len(s["cur"]) < _MM_LEN:
-        s["msg"] = f"Боз {_MM_LEN - len(s['cur'])} ранг 👇"
-    else:
-        guess = s["cur"]
-        ex, half = _mm_score(s["code"], guess)
-        s["hist"].append((guess, ex, half))
-        s["cur"] = []
-        if ex == _MM_LEN:
-            s["over"], s["won"] = True, True
+    s["used"].add(ch)
+    if ch in s["word"]:
+        if all(c in s["used"] for c in s["word"] if c != " "):
+            s["over"] = True
             s["win"] += 1
-            s["msg"] = f"🎉 Рамзро кушодед — {len(s['hist'])} кӯшиш! Офарин!"
-        elif len(s["hist"]) >= _MM_TRIES:
+            s["msg"] = f"🎉 Ёфтед — «{s['word']}»! Офарин!"
+        else:
+            s["msg"] = "✅ Ҳаст! Давом диҳед 👇"
+    else:
+        s["bad"] += 1
+        if s["bad"] >= _LIVES:
             s["over"] = True
             s["lose"] += 1
-            s["msg"] = ("😅 Кӯшишҳо тамом шуд. Рамз ин буд: "
-                        + "".join(_MM_COLORS[i] for i in s["code"]))
+            s["used"] |= set(s["word"])
+            s["msg"] = f"😅 Ҷонҳо тамом шуд. Калима ин буд: «{s['word']}»"
         else:
-            s["msg"] = "Боз кӯшиш кунед 👇"
-    await _show(call, _mm_text(uid), _mm_kb(uid))
+            s["msg"] = f"❌ Ин ҳарф нест. Ҷон монд: {_LIVES - s['bad']}"
+    await _show(call, _wd_text(uid), _wd_kb(uid))
