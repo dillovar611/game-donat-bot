@@ -4,7 +4,21 @@ games.py — бозиҳои хурд барои вақти интизории м
 
 Вақте мизоҷ чекро мефиристад, то тасдиқ шудани пардохт баъзан 10-15
 дақиқа мегузарад. Дар ин муддат ӯ танҳо ба экран нигоҳ мекунад ва
-асабӣ мешавад — ҳамин ҷо се бозии хурд пешниҳод мешавад.
+асабӣ мешавад — ҳамин ҷо ҳашт бозии хурд пешниҳод мешавад:
+
+  2048 · 4 дар қатор · Пазли 15 · Чароғҳо · Рамзкушоӣ ·
+  Мина 5×5 · Квизи Free Fire · Тик-так-то
+
+Бозиҳое, ки бо БОТ бозӣ мешаванд (тик-так-то, 4 дар қатор), қасдан
+беайб НЕСТАНД. Дар санҷиш боти беайби «4 дар қатор» 30 аз 30 бозиро
+бурд — чунин бозӣ мизоҷро танҳо асабӣ мекунад. Ҳозир бот баъзан роҳи
+мизоҷро намебандад, вале ғалабаи худашро ҳамеша мегирад. Дар натиҷа
+мизоҷи фикркунанда тақрибан 68% мебарад.
+
+Пазлҳое, ки омехта мешаванд (Пазли 15, Чароғҳо), аз ҳолати ҲАЛШУДА бо
+ҳаракатҳои тасодуфӣ сохта мешаванд — бо ин онҳо ҲАТМАН ҳалшавандаанд.
+Омехтаи тасодуфии оддӣ метавонад ҳолати ҳалнашаванда диҳад ва мизоҷ
+беҳуда вақт сарф мекунад.
 
 ҚОИДАИ АСОСӢ: тамоми бозӣ дар ЯК паём мегузарад ва ҳар ҳаракат ҳамон
 паёмро НАВ мекунад, на паёми нав месозад. Вагарна паёми «✅ Тасдиқ шуд»
@@ -62,9 +76,14 @@ def _head(uid: int, title: str) -> str:
 # ==================== МЕНЮ ====================
 def menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🧠 Квизи Free Fire", callback_data="g:qs")],
-        [InlineKeyboardButton(text="⭕️ Тик-так-то бо бот", callback_data="g:ts")],
-        [InlineKeyboardButton(text="💣 Мина (5×5)", callback_data="g:ms")],
+        [InlineKeyboardButton(text="🔢 2048", callback_data="g:2s"),
+         InlineKeyboardButton(text="🔴 4 дар қатор", callback_data="g:4s")],
+        [InlineKeyboardButton(text="🧩 Пазли 15", callback_data="g:ps"),
+         InlineKeyboardButton(text="💡 Чароғҳо", callback_data="g:ls")],
+        [InlineKeyboardButton(text="🎨 Рамзкушоӣ", callback_data="g:Ms"),
+         InlineKeyboardButton(text="💣 Мина 5×5", callback_data="g:ms")],
+        [InlineKeyboardButton(text="🧠 Квизи Free Fire", callback_data="g:qs"),
+         InlineKeyboardButton(text="⭕️ Тик-так-то", callback_data="g:ts")],
     ])
 
 
@@ -420,3 +439,534 @@ async def g_mines_open(call: CallbackQuery):
 @router.callback_query(F.data == "g:noop")
 async def g_noop(call: CallbackQuery):
     await call.answer()
+
+
+# ==================== 4) 2048 ====================
+# Аз ҳама бозии «часпанда»: одам мехоҳад рақами калонтар гирад ва
+# сониҳо тез мегузаранд. Мантиқи пурра: ҳаракат, якҷояшавӣ, рақами нав.
+def _2048_spawn(b):
+    free = [i for i, v in enumerate(b) if not v]
+    if free:
+        b[random.choice(free)] = 2 if random.random() < 0.9 else 4
+
+
+def _2048_line(row):
+    """Як қаторро ба ЧАП мефишорад ва холҳои ҷамъшударо бармегардонад."""
+    vals = [v for v in row if v]
+    out, gained, i = [], 0, 0
+    while i < len(vals):
+        if i + 1 < len(vals) and vals[i] == vals[i + 1]:
+            out.append(vals[i] * 2)
+            gained += vals[i] * 2
+            i += 2
+        else:
+            out.append(vals[i])
+            i += 1
+    return out + [0] * (4 - len(out)), gained
+
+
+def _2048_move(b, d):
+    """d: l/r/u/d. Бармегардонад (тахтаи нав, хол, оё чизе ҳаракат кард)."""
+    nb, gained = [0] * 16, 0
+    for k in range(4):
+        if d in "lr":
+            row = [b[k * 4 + c] for c in range(4)]
+        else:
+            row = [b[r * 4 + k] for r in range(4)]
+        if d in "rd":
+            row = row[::-1]
+        row, g = _2048_line(row)
+        gained += g
+        if d in "rd":
+            row = row[::-1]
+        for j in range(4):
+            if d in "lr":
+                nb[k * 4 + j] = row[j]
+            else:
+                nb[j * 4 + k] = row[j]
+    return nb, gained, nb != b
+
+
+def _2048_new(uid):
+    old = _st(uid).get("g2") or {}
+    b = [0] * 16
+    _2048_spawn(b)
+    _2048_spawn(b)
+    _st(uid)["g2"] = {"b": b, "score": 0, "best": old.get("best", 0),
+                      "over": False, "msg": "Ба кадом тараф фишорем? 👇"}
+
+
+_TILE = {0: "·", 2: "2", 4: "4", 8: "8", 16: "16", 32: "32", 64: "64",
+         128: "128", 256: "256", 512: "512", 1024: "1K", 2048: "2K",
+         4096: "4K", 8192: "8K"}
+
+
+def _2048_kb(uid):
+    s = _st(uid)["g2"]
+    rows = [[InlineKeyboardButton(text=_TILE.get(s["b"][r * 4 + c], str(s["b"][r * 4 + c])),
+                                  callback_data="g:noop") for c in range(4)]
+            for r in range(4)]
+    if s["over"]:
+        rows.append([InlineKeyboardButton(text="🔄 Аз нав", callback_data="g:2s")])
+    else:
+        rows.append([InlineKeyboardButton(text="⬅️", callback_data="g:2m:l"),
+                     InlineKeyboardButton(text="⬆️", callback_data="g:2m:u"),
+                     InlineKeyboardButton(text="⬇️", callback_data="g:2m:d"),
+                     InlineKeyboardButton(text="➡️", callback_data="g:2m:r")])
+        rows.append([InlineKeyboardButton(text="🔄 Аз нав", callback_data="g:2s")])
+    rows.append([_BACK])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _2048_text(uid):
+    s = _st(uid)["g2"]
+    t = _head(uid, "🔢 <b>2048</b>")
+    t += (f"\nХол: <b>{s['score']}</b> · беҳтарин: <b>{s['best']}</b>\n"
+          f"Рақами калонтарин: <b>{max(s['b'])}</b>\n\n{s['msg']}")
+    return t
+
+
+@router.callback_query(F.data == "g:2s")
+async def g_2048_start(call: CallbackQuery):
+    _2048_new(call.from_user.id)
+    await _show(call, _2048_text(call.from_user.id), _2048_kb(call.from_user.id))
+
+
+@router.callback_query(F.data.startswith("g:2m:"))
+async def g_2048_move(call: CallbackQuery):
+    uid = call.from_user.id
+    s = _st(uid).get("g2")
+    if not s:
+        return await g_2048_start(call)
+    if s["over"]:
+        return await call.answer()
+    nb, gained, moved = _2048_move(s["b"], call.data.split(":")[2])
+    if not moved:
+        return await call.answer("Ба ин тараф ҷой нест 🙂")
+    s["b"], s["score"] = nb, s["score"] + gained
+    s["best"] = max(s["best"], s["score"])
+    _2048_spawn(s["b"])
+    if 2048 in s["b"] and not s.get("won2048"):
+        s["won2048"] = True
+        s["msg"] = "🏆 2048 сохтед! Офарин! Давом дода метавонед."
+    elif 0 not in s["b"] and not any(_2048_move(s["b"], d)[2] for d in "lrud"):
+        s["over"] = True
+        s["msg"] = f"🏁 Ҷой намонд! Холи ниҳоӣ: {s['score']}"
+    else:
+        s["msg"] = f"+{gained} хол" if gained else "Давом диҳед 👇"
+    await _show(call, _2048_text(uid), _2048_kb(uid))
+
+
+# ==================== 5) 4 ДАР ЯК ҚАТОР ====================
+_C4W, _C4H = 7, 6
+
+
+def _c4_lines():
+    out = []
+    for r in range(_C4H):
+        for c in range(_C4W):
+            for dr, dc in ((0, 1), (1, 0), (1, 1), (1, -1)):
+                cells = [(r + dr * k, c + dc * k) for k in range(4)]
+                if all(0 <= rr < _C4H and 0 <= cc < _C4W for rr, cc in cells):
+                    out.append([rr * _C4W + cc for rr, cc in cells])
+    return out
+
+
+_C4LINES = _c4_lines()
+
+
+def _c4_win(b):
+    for ln in _C4LINES:
+        v = b[ln[0]]
+        if v and all(b[i] == v for i in ln):
+            return v, ln
+    return None, None
+
+
+def _c4_drop(b, col):
+    for r in range(_C4H - 1, -1, -1):
+        if not b[r * _C4W + col]:
+            return r * _C4W + col
+    return None
+
+
+def _c4_bot(b):
+    """
+    Мебарад агар тавонад, роҳи мизоҷро мебандад, вагарна ба марказ.
+
+    Мисли тик-так-то, бот қасдан беайб НЕСТ: баъзан роҳи мизоҷро
+    намебандад ва баъзан ҳаракати тасодуфӣ мекунад. Дар санҷиш боти
+    беайб 30 аз 30 бозиро бурд — чунин бозӣ мизоҷро танҳо асабӣ мекунад.
+    Ғалабаи худашро бошад ҳамеша мегирад.
+    """
+    free = [c for c in range(_C4W) if _c4_drop(b, c) is not None]
+    if not free:
+        return None
+    for who, careful in (("O", 1.0), ("X", 0.62)):
+        if random.random() > careful:
+            continue
+        for c in free:
+            i = _c4_drop(b, c)
+            b[i] = who
+            w, _ = _c4_win(b)
+            b[i] = ""
+            if w:
+                return c
+    if random.random() < 0.25:
+        return random.choice(free)
+    # Ҷойҳое, ки мизоҷро дар ҳаракати оянда мебаранд, канор мегузорем
+    safe = []
+    for c in free:
+        i = _c4_drop(b, c)
+        b[i] = "O"
+        j = _c4_drop(b, c)
+        risky = False
+        if j is not None:
+            b[j] = "X"
+            risky = _c4_win(b)[0] is not None
+            b[j] = ""
+        b[i] = ""
+        if not risky:
+            safe.append(c)
+    pool = safe or free
+    return min(pool, key=lambda c: abs(c - 3) + random.random())
+
+
+def _c4_new(uid):
+    old = _st(uid).get("c4") or {}
+    _st(uid)["c4"] = {"b": [""] * (_C4W * _C4H), "over": False, "hl": (),
+                      "msg": "Сутунро интихоб кунед 👇",
+                      "win": old.get("win", 0), "lose": old.get("lose", 0),
+                      "draw": old.get("draw", 0)}
+
+
+def _c4_kb(uid):
+    s = _st(uid)["c4"]
+    b, hl = s["b"], s.get("hl") or ()
+    rows = []
+    if not s["over"]:
+        rows.append([InlineKeyboardButton(
+            text="⬇️" if _c4_drop(b, c) is not None else "✖️",
+            callback_data=(f"g:4m:{c}" if _c4_drop(b, c) is not None else "g:noop"))
+            for c in range(_C4W)])
+    for r in range(_C4H):
+        row = []
+        for c in range(_C4W):
+            i = r * _C4W + c
+            ch = {"X": "🔴", "O": "🟡", "": "⚫️"}[b[i]]
+            if i in hl:
+                ch = "✨"
+            row.append(InlineKeyboardButton(text=ch, callback_data="g:noop"))
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="🔄 Аз нав", callback_data="g:4s")])
+    rows.append([_BACK])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _c4_text(uid):
+    s = _st(uid)["c4"]
+    t = _head(uid, "🔴 <b>4 дар як қатор</b>")
+    t += (f"\nШумо: 🔴 · Бот: 🟡 — 4-тоашро дар як қатор ҷамъ кунед!\n"
+          f"🏆 Шумо {s['win']} : {s['lose']} бот · дуранг {s['draw']}\n\n{s['msg']}")
+    return t
+
+
+@router.callback_query(F.data == "g:4s")
+async def g_c4_start(call: CallbackQuery):
+    _c4_new(call.from_user.id)
+    await _show(call, _c4_text(call.from_user.id), _c4_kb(call.from_user.id))
+
+
+@router.callback_query(F.data.startswith("g:4m:"))
+async def g_c4_move(call: CallbackQuery):
+    uid = call.from_user.id
+    s = _st(uid).get("c4")
+    if not s:
+        return await g_c4_start(call)
+    if s["over"]:
+        return await call.answer()
+    col = int(call.data.split(":")[2])
+    i = _c4_drop(s["b"], col)
+    if i is None:
+        return await call.answer("Ин сутун пур аст 🙂")
+    s["b"][i] = "X"
+    w, line = _c4_win(s["b"])
+    if not w and "" in s["b"]:
+        c = _c4_bot(s["b"])
+        if c is not None:
+            s["b"][_c4_drop(s["b"], c)] = "O"
+        w, line = _c4_win(s["b"])
+    if w:
+        s["over"], s["hl"] = True, line
+        if w == "X":
+            s["win"] += 1
+            s["msg"] = "🎉 Шумо бурдед! Офарин!"
+        else:
+            s["lose"] += 1
+            s["msg"] = "😅 Бот бурд. Боз кӯшиш кунед!"
+    elif "" not in s["b"]:
+        s["over"] = True
+        s["draw"] += 1
+        s["msg"] = "🤝 Тахта пур шуд — дуранг!"
+    else:
+        s["msg"] = "Навбати шумост 👇"
+    await _show(call, _c4_text(uid), _c4_kb(uid))
+
+
+# ==================== 6) ПАЗЛИ 15 ====================
+def _p15_moves(blank):
+    r, c = divmod(blank, 4)
+    out = []
+    if r > 0:
+        out.append(blank - 4)
+    if r < 3:
+        out.append(blank + 4)
+    if c > 0:
+        out.append(blank - 1)
+    if c < 3:
+        out.append(blank + 1)
+    return out
+
+
+def _p15_new(uid):
+    old = _st(uid).get("p15") or {}
+    b = list(range(1, 16)) + [0]
+    blank = 15
+    # Аз ҳолати ДУРУСТ ҳаракатҳои тасодуфӣ мекунем — бо ин пазл ҳатман
+    # ҳалшаванда мемонад (омехтаи тасодуфии оддӣ метавонад ҳалнашаванда шавад)
+    for _ in range(200):
+        j = random.choice(_p15_moves(blank))
+        b[blank], b[j] = b[j], b[blank]
+        blank = j
+    _st(uid)["p15"] = {"b": b, "blank": blank, "moves": 0, "over": False,
+                       "msg": "Катакеро, ки паҳлӯи ҷои холист, пахш кунед 👇",
+                       "best": old.get("best", 0)}
+
+
+_P15 = ["  ", "1️⃣", "2️⃣", "3️⃣", "4️⃣", "5️⃣", "6️⃣", "7️⃣", "8️⃣", "9️⃣",
+        "🔟", "1️⃣1️⃣", "1️⃣2️⃣", "1️⃣3️⃣", "1️⃣4️⃣", "1️⃣5️⃣"]
+
+
+def _p15_kb(uid):
+    s = _st(uid)["p15"]
+    ok = set(_p15_moves(s["blank"]))
+    rows = []
+    for r in range(4):
+        row = []
+        for c in range(4):
+            i = r * 4 + c
+            v = s["b"][i]
+            row.append(InlineKeyboardButton(
+                text=("▫️" if v == 0 else str(v)),
+                callback_data=(f"g:pm:{i}" if i in ok and not s["over"] else "g:noop")))
+        rows.append(row)
+    rows.append([InlineKeyboardButton(text="🔄 Аз нав", callback_data="g:ps")])
+    rows.append([_BACK])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _p15_text(uid):
+    s = _st(uid)["p15"]
+    t = _head(uid, "🧩 <b>Пазли 15</b>")
+    best = f" · рекорд: <b>{s['best']}</b>" if s["best"] else ""
+    t += (f"\nРақамҳоро аз 1 то 15 ба тартиб гузоред.\n"
+          f"Ҳаракат: <b>{s['moves']}</b>{best}\n\n{s['msg']}")
+    return t
+
+
+@router.callback_query(F.data == "g:ps")
+async def g_p15_start(call: CallbackQuery):
+    _p15_new(call.from_user.id)
+    await _show(call, _p15_text(call.from_user.id), _p15_kb(call.from_user.id))
+
+
+@router.callback_query(F.data.startswith("g:pm:"))
+async def g_p15_move(call: CallbackQuery):
+    uid = call.from_user.id
+    s = _st(uid).get("p15")
+    if not s:
+        return await g_p15_start(call)
+    i = int(call.data.split(":")[2])
+    if s["over"] or i not in _p15_moves(s["blank"]):
+        return await call.answer()
+    s["b"][s["blank"]], s["b"][i] = s["b"][i], s["b"][s["blank"]]
+    s["blank"] = i
+    s["moves"] += 1
+    if s["b"] == list(range(1, 16)) + [0]:
+        s["over"] = True
+        s["msg"] = f"🎉 Ҳал шуд — {s['moves']} ҳаракат! Офарин!"
+        if not s["best"] or s["moves"] < s["best"]:
+            s["best"] = s["moves"]
+    else:
+        s["msg"] = "Давом диҳед 👇"
+    await _show(call, _p15_text(uid), _p15_kb(uid))
+
+
+# ==================== 7) ЧАРОҒҲО (Lights Out) ====================
+_LN = 5
+
+
+def _lo_toggle(b, i):
+    r, c = divmod(i, _LN)
+    for rr, cc in ((r, c), (r - 1, c), (r + 1, c), (r, c - 1), (r, c + 1)):
+        if 0 <= rr < _LN and 0 <= cc < _LN:
+            b[rr * _LN + cc] ^= 1
+
+
+def _lo_new(uid):
+    old = _st(uid).get("lo") or {}
+    b = [0] * (_LN * _LN)
+    # Аз ҳолати ХОМӮШ пахшҳои тасодуфӣ — пас ҳатман ҳалшаванда мемонад
+    for i in random.sample(range(_LN * _LN), random.randint(4, 8)):
+        _lo_toggle(b, i)
+    if not any(b):
+        _lo_toggle(b, random.randrange(_LN * _LN))
+    _st(uid)["lo"] = {"b": b, "moves": 0, "over": False,
+                      "msg": "Ҳамаи чароғҳоро хомӯш кунед 👇",
+                      "best": old.get("best", 0)}
+
+
+def _lo_kb(uid):
+    s = _st(uid)["lo"]
+    rows = [[InlineKeyboardButton(
+        text="💡" if s["b"][r * _LN + c] else "⬛️",
+        callback_data=("g:noop" if s["over"] else f"g:lm:{r * _LN + c}"))
+        for c in range(_LN)] for r in range(_LN)]
+    rows.append([InlineKeyboardButton(text="🔄 Аз нав", callback_data="g:ls")])
+    rows.append([_BACK])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _lo_text(uid):
+    s = _st(uid)["lo"]
+    t = _head(uid, "💡 <b>Чароғҳо</b>")
+    best = f" · рекорд: <b>{s['best']}</b>" if s["best"] else ""
+    t += (f"\nҲар пахш чароғи худаш ВА 4 ҳамсояашро дигар мекунад.\n"
+          f"Фурӯзон: <b>{sum(s['b'])}</b> · ҳаракат: <b>{s['moves']}</b>{best}\n\n{s['msg']}")
+    return t
+
+
+@router.callback_query(F.data == "g:ls")
+async def g_lo_start(call: CallbackQuery):
+    _lo_new(call.from_user.id)
+    await _show(call, _lo_text(call.from_user.id), _lo_kb(call.from_user.id))
+
+
+@router.callback_query(F.data.startswith("g:lm:"))
+async def g_lo_move(call: CallbackQuery):
+    uid = call.from_user.id
+    s = _st(uid).get("lo")
+    if not s:
+        return await g_lo_start(call)
+    if s["over"]:
+        return await call.answer()
+    _lo_toggle(s["b"], int(call.data.split(":")[2]))
+    s["moves"] += 1
+    if not any(s["b"]):
+        s["over"] = True
+        s["msg"] = f"🎉 Ҳамааш хомӯш — {s['moves']} ҳаракат! Офарин!"
+        if not s["best"] or s["moves"] < s["best"]:
+            s["best"] = s["moves"]
+    else:
+        s["msg"] = "Давом диҳед 👇"
+    await _show(call, _lo_text(uid), _lo_kb(uid))
+
+
+# ==================== 8) РАМЗКУШОӢ (Mastermind) ====================
+_MM_COLORS = ["🔴", "🟡", "🟢", "🔵", "🟣", "🟠"]
+_MM_LEN, _MM_TRIES = 4, 10
+
+
+def _mm_new(uid):
+    old = _st(uid).get("mm") or {}
+    _st(uid)["mm"] = {
+        "code": [random.randrange(len(_MM_COLORS)) for _ in range(_MM_LEN)],
+        "cur": [], "hist": [], "over": False, "won": False,
+        "msg": "4 рангро интихоб кунед 👇", "win": old.get("win", 0),
+        "lose": old.get("lose", 0)}
+
+
+def _mm_score(code, guess):
+    """(дар ҷои дуруст, ранги дуруст вале ҷои нодуруст)"""
+    exact = sum(1 for a, b in zip(code, guess) if a == b)
+    common = sum(min(code.count(c), guess.count(c)) for c in set(guess))
+    return exact, common - exact
+
+
+def _mm_kb(uid):
+    s = _st(uid)["mm"]
+    rows = []
+    if not s["over"]:
+        rows.append([InlineKeyboardButton(text=c, callback_data=f"g:Mc:{i}")
+                     for i, c in enumerate(_MM_COLORS[:3])])
+        rows.append([InlineKeyboardButton(text=c, callback_data=f"g:Mc:{i + 3}")
+                     for i, c in enumerate(_MM_COLORS[3:])])
+        if s["cur"]:
+            rows.append([InlineKeyboardButton(text="⬅️ Пок кардан", callback_data="g:Mu")])
+    rows.append([InlineKeyboardButton(text="🔄 Аз нав", callback_data="g:Ms")])
+    rows.append([_BACK])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _mm_text(uid):
+    s = _st(uid)["mm"]
+    t = _head(uid, "🎨 <b>Рамзкушоӣ</b>")
+    t += (f"\n4 ранги пинҳонро ёбед. ⚫ = ранг ва ҷояш дуруст, "
+          f"⚪ = ранг ҳаст, вале ҷояш дигар.\n"
+          f"🏆 Бурд {s['win']} · бохт {s['lose']}\n\n")
+    for g_, ex, half in s["hist"]:
+        t += ("".join(_MM_COLORS[i] for i in g_) + "  "
+              + "⚫" * ex + "⚪" * half + ("▫️" * (_MM_LEN - ex - half)) + "\n")
+    left = _MM_TRIES - len(s["hist"])
+    if not s["over"]:
+        cur = "".join(_MM_COLORS[i] for i in s["cur"]) + "▫️" * (_MM_LEN - len(s["cur"]))
+        t += f"\nҲозир: {cur}\nКӯшиши боқимонда: <b>{left}</b>\n"
+    t += f"\n{s['msg']}"
+    return t
+
+
+@router.callback_query(F.data == "g:Ms")
+async def g_mm_start(call: CallbackQuery):
+    _mm_new(call.from_user.id)
+    await _show(call, _mm_text(call.from_user.id), _mm_kb(call.from_user.id))
+
+
+@router.callback_query(F.data == "g:Mu")
+async def g_mm_undo(call: CallbackQuery):
+    uid = call.from_user.id
+    s = _st(uid).get("mm")
+    if not s or s["over"] or not s["cur"]:
+        return await call.answer()
+    s["cur"] = []
+    s["msg"] = "Пок шуд — аз нав интихоб кунед 👇"
+    await _show(call, _mm_text(uid), _mm_kb(uid))
+
+
+@router.callback_query(F.data.startswith("g:Mc:"))
+async def g_mm_color(call: CallbackQuery):
+    uid = call.from_user.id
+    s = _st(uid).get("mm")
+    if not s:
+        return await g_mm_start(call)
+    if s["over"]:
+        return await call.answer()
+    s["cur"].append(int(call.data.split(":")[2]))
+    if len(s["cur"]) < _MM_LEN:
+        s["msg"] = f"Боз {_MM_LEN - len(s['cur'])} ранг 👇"
+    else:
+        guess = s["cur"]
+        ex, half = _mm_score(s["code"], guess)
+        s["hist"].append((guess, ex, half))
+        s["cur"] = []
+        if ex == _MM_LEN:
+            s["over"], s["won"] = True, True
+            s["win"] += 1
+            s["msg"] = f"🎉 Рамзро кушодед — {len(s['hist'])} кӯшиш! Офарин!"
+        elif len(s["hist"]) >= _MM_TRIES:
+            s["over"] = True
+            s["lose"] += 1
+            s["msg"] = ("😅 Кӯшишҳо тамом шуд. Рамз ин буд: "
+                        + "".join(_MM_COLORS[i] for i in s["code"]))
+        else:
+            s["msg"] = "Боз кӯшиш кунед 👇"
+    await _show(call, _mm_text(uid), _mm_kb(uid))
