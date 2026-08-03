@@ -1367,6 +1367,11 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int,
             # Чархи гарданда — агар сохта шавад, эълон ҳамчун GIF меравад.
             # Матн ҳамчун caption мемонад: GIF дар Telegram беохир такрор
             # мешавад, пас маълумот бояд дар матн ҳам бошад.
+            # Эълони баранда ба канали ОТЗИВ меравад, на ба канали асосӣ.
+            # Агар канали отзив танзим нашуда бошад, ба канали асосӣ
+            # бармегардем — вагарна эълон хомӯшона гум мешавад.
+            chan = getattr(config, "REVIEW_CHANNEL_ID", "") or config.CHANNEL_ID
+
             gif = None
             if batch and winner_idx >= 0:
                 gif = await _spin_gif_path(batch, winner_idx, label, total_wins,
@@ -1379,20 +1384,20 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int,
                     # тамоман нарафтан мегирад.
                     if len(caption) <= 1000:
                         await bot.send_animation(
-                            config.CHANNEL_ID, FSInputFile(gif),
+                            chan, FSInputFile(gif),
                             caption=caption, parse_mode="HTML")
                     else:
                         head, _, rest = caption.partition("━━━━━━━━━━━━━━")
                         await bot.send_animation(
-                            config.CHANNEL_ID, FSInputFile(gif),
+                            chan, FSInputFile(gif),
                             caption=head.strip(), parse_mode="HTML")
                         await bot.send_message(
-                            config.CHANNEL_ID, rest.strip(), parse_mode="HTML")
+                            chan, rest.strip(), parse_mode="HTML")
                 except Exception as e:
                     logger.error(f"GIF-и чарх ба канал нарафт ({e}) — матн мефиристем")
-                    await bot.send_message(config.CHANNEL_ID, caption, parse_mode="HTML")
+                    await bot.send_message(chan, caption, parse_mode="HTML")
             else:
-                await bot.send_message(config.CHANNEL_ID, caption, parse_mode="HTML")
+                await bot.send_message(chan, caption, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Эълони тӯҳфа ба канал нарасид: {e}")
 
