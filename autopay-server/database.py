@@ -223,6 +223,19 @@ async def init_db():
                     received_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+
+            # ---- Standoff 2: голд (донати ДАСТӢ — donatov.net API надорад,
+            # пас offer_id нест; соҳиб худаш иҷро мекунад) ----
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS standoff_products (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    amount INT NOT NULL,
+                    price DECIMAL(10,2) NOT NULL,
+                    label VARCHAR(255),
+                    is_active TINYINT DEFAULT 1,
+                    sort_order INT DEFAULT 0
+                )
+            """)
     # Агар маҲсулот набошад, намунаҲои пешфарзро илова мекунем
     await _seed_default_products()
 
@@ -2455,6 +2468,57 @@ async def delete_pubg_product(product_id: int):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("DELETE FROM pubg_products WHERE id=%s", (product_id,))
+
+
+# ==================== STANDOFF 2 (голд — донати ДАСТӢ) ====================
+# Standoff 2 дар donatov.net аст, ки API надорад — пас донат дастист:
+# бот фармоишро қабул мекунад, соҳиб худаш дар donatov.net иҷро мекунад.
+# Барои ҳамин offer_id нест (мисли PUBG), танҳо ном/миқдор/нарх.
+async def get_standoff_products():
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM standoff_products WHERE is_active=1 ORDER BY sort_order, amount"
+            )
+            return await cur.fetchall()
+
+
+async def get_standoff_product(product_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT * FROM standoff_products WHERE id=%s", (product_id,))
+            return await cur.fetchone()
+
+
+async def get_all_standoff_products():
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT * FROM standoff_products ORDER BY sort_order, amount")
+            return await cur.fetchall()
+
+
+async def add_standoff_product(amount: int, price: float, label: str):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO standoff_products (amount, price, label) VALUES (%s,%s,%s)",
+                (amount, price, label)
+            )
+
+
+async def update_standoff_product(product_id: int, amount: int, price: float, label: str):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE standoff_products SET amount=%s, price=%s, label=%s WHERE id=%s",
+                (amount, price, label, product_id)
+            )
+
+
+async def delete_standoff_product(product_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("DELETE FROM standoff_products WHERE id=%s", (product_id,))
 
 
 # ==================== TELEGRAM STARS ====================
