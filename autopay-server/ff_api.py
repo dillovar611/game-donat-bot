@@ -703,32 +703,85 @@ async def list_offers(category_id: str) -> list:
     if not config.FAZER_KEY:
         return []
     headers = {"X-API-Key": config.FAZER_KEY, "Content-Type": "application/json"}
-    url = f"{config.FAZER_BASE}/topups/offers?category_id={category_id}"
-    try:
-        async with aiohttp.ClientSession() as s:
-            async with s.get(
-                url, headers=headers,
-                timeout=aiohttp.ClientTimeout(total=20)
-            ) as r:
-                data = await r.json(content_type=None)
-    except Exception as e:
-        logger.error(f"FazerCards list_offers({category_id}) хато: {e}")
-        return []
-    logger.info(f"FazerCards offers ({category_id}): {data}")
-    # Ҷавоб метавонад {ok, offers:[...]} ё худи рӯйхат бошад
-    raw = []
-    if isinstance(data, dict):
-        raw = data.get("offers") or data.get("data") or data.get("result") or []
-    elif isinstance(data, list):
-        raw = data
-    out = []
-    for o in raw:
-        if not isinstance(o, dict):
+    base = config.FAZER_BASE
+    # Роҳи дурусти FazerCards маълум нест — якчандтоашро месанҷем ва аввалин
+    # ҷавоби кориро мегирем (ҷои кории мо POST аст, вале рӯйхат шояд GET бошад)
+    attempts = [
+        ("GET",  f"{base}/topups/offers?category_id={category_id}", None),
+        ("POST", f"{base}/topups/offers", {"category_id": category_id}),
+        ("GET",  f"{base}/offers?category_id={category_id}", None),
+    ]
+    for method, url, payload in attempts:
+        try:
+            async with aiohttp.ClientSession() as s:
+                req = s.get(url, headers=headers,
+                            timeout=aiohttp.ClientTimeout(total=20)) \
+                    if method == "GET" else \
+                    s.post(url, json=payload, headers=headers,
+                           timeout=aiohttp.ClientTimeout(total=20))
+                async with req as r:
+                    data = await r.json(content_type=None)
+        except Exception as e:
+            logger.warning(f"list_offers {method} {url} хато: {e}")
             continue
-        oid = o.get("id") or o.get("offer_id") or o.get("sku") or ""
-        name = o.get("name") or o.get("title") or o.get("label") or ""
-        price = o.get("price_usd") or o.get("price") or o.get("total_usd") or ""
-        out.append({"id": str(oid), "name": str(name), "price_usd": price})
+        # Ҷавоб метавонад {ok, offers:[...]} ё худи рӯйхат бошад
+        raw = []
+        if isinstance(data, dict):
+            raw = data.get("offers") or data.get("data") or data.get("result") or []
+        elif isinstance(data, list):
+            raw = data
+        out = []
+        for o in raw:
+            if not isinstance(o, dict):
+                continue
+            oid = o.get("id") or o.get("offer_id") or o.get("sku") or ""
+            name = o.get("name") or o.get("title") or o.get("label") or ""
+            price = o.get("price_usd") or o.get("price") or o.get("total_usd") or ""
+            out.append({"id": str(oid), "name": str(name), "price_usd": price})
+        if out:
+            logger.info(f"FazerCards offers ({category_id}) аз {method} {url}: "
+                        f"{len(out)} дона")
+            return out
+    logger.error(f"FazerCards list_offers({category_id}): ягон роҳ кор накард")
+    return []
+
+
+async def probe_api(category_id: str = "") -> list:
+    """ТАШХИС: якчанд роҳи гирифтани рӯйхати офферҳо/категорияҳоро месанҷад
+    ва ҷавоби ХОМИ ҳар яке (код + матн)-ро бармегардонад.
+
+    Лозим шуд, чунки роҳи дурусти FazerCards маълум нест: ҷои кории мо
+    (order/validate-id) POST аст, вале рӯйхат шояд GET бошад ё роҳи дигар.
+    Ҳар элемент: {method, url, status, body}."""
+    if not config.FAZER_KEY:
+        return [{"method": "-", "url": "-", "status": "-",
+                 "body": "FAZER_KEY холӣ аст!"}]
+    headers = {"X-API-Key": config.FAZER_KEY, "Content-Type": "application/json"}
+    base = config.FAZER_BASE
+    attempts = [
+        ("GET",  f"{base}/topups/offers?category_id={category_id}", None),
+        ("GET",  f"{base}/topups/offers", None),
+        ("POST", f"{base}/topups/offers", {"category_id": category_id}),
+        ("GET",  f"{base}/topups/categories", None),
+        ("POST", f"{base}/topups/categories", {}),
+    ]
+    out = []
+    async with aiohttp.ClientSession() as s:
+        for method, url, payload in attempts:
+            try:
+                req = s.get(url, headers=headers,
+                            timeout=aiohttp.ClientTimeout(total=15)) \
+                    if method == "GET" else \
+                    s.post(url, json=payload, headers=headers,
+                           timeout=aiohttp.ClientTimeout(total=15))
+                async with req as r:
+                    status = r.status
+                    body = (await r.text())[:400]
+            except Exception as e:
+                status, body = "ХАТО", str(e)[:400]
+            out.append({"method": method, "url": url.replace(base, ""),
+                        "status": status, "body": body})
+            logger.info(f"probe_api {method} {url} → {status}: {body[:200]}")
     return out
 
 

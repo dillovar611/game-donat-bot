@@ -4530,9 +4530,13 @@ async def a_show_offers(call: CallbackQuery):
     if not offers:
         await _safe_edit(
             call,
-            "❌ Ягон оффер ёфт нашуд (ё FazerCards ҷавоб надод).\n"
-            "Дертар бори дигар кӯшиш кунед.",
+            f"❌ Ягон оффер ёфт нашуд.\n\n"
+            f"🔑 category_id: <code>{esc(category_id)}</code>\n\n"
+            f"Сабаб ё category_id нодуруст аст, ё роҳи дархост.\n"
+            f"«🩺 Ташхис»-ро пахш кунед — ҷавоби ХОМИ FazerCards-ро "
+            f"нишон медиҳад ва сураташро ба ман фиристед.",
             InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🩺 Ташхис", callback_data=f"probe_{key}")],
                 [InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back)]
             ])
         )
@@ -5037,3 +5041,41 @@ async def a_ml_settings_save(message: Message, state: FSMContext):
         parse_mode="HTML"
     )
     await state.clear()
+
+
+@router.callback_query(F.data.startswith("probe_"))
+async def a_probe_api(call: CallbackQuery):
+    """ТАШХИС: ҷавоби ХОМИ FazerCards-ро нишон медиҳад — то роҳи дурусти
+    гирифтани рӯйхати офферҳо маълум шавад."""
+    if not is_admin(call.from_user.id):
+        return
+    key = call.data.split("_", 1)[1]
+    entry = _OFFERS_MAP.get(key)
+    if not entry:
+        await call.answer("❌ Номаълум", show_alert=True)
+        return
+    category_id, title, back = entry
+    if key == "ml":
+        category_id = await db.get_setting("ml_category_id") or category_id
+    await call.answer("⏳ Месанҷам (то 1 дақиқа)...")
+    results = await ff_api.probe_api(category_id)
+
+    lines = [f"🩺 <b>Ташхиси FazerCards — {esc(title)}</b>\n"
+             f"🔑 category_id: <code>{esc(category_id)}</code>\n"]
+    for r in results:
+        ok = "✅" if str(r["status"]) == "200" else "❌"
+        lines.append(
+            f"{ok} <b>{r['method']} {esc(str(r['url']))}</b>\n"
+            f"    → {r['status']}\n"
+            f"<code>{esc(str(r['body'])[:220])}</code>\n"
+        )
+    lines.append("📸 Сурати ин экранро ба ман фиристед.")
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:3900] + "\n\n… (бурида шуд)"
+    await _safe_edit(
+        call, text,
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back)]
+        ])
+    )
