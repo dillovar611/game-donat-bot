@@ -477,12 +477,33 @@ async def peek_order_status(api_order_id: str):
 async def get_nickname_ffid(player_id: str) -> str:
     """
     Номи аккаунти Free Fire Indonesia.
-    Тавассути FazerCards validate-id (RapidAPI ин серверро дастгирӣ намекунад).
+
+    FazerCards барои категорияи фармоиши FFID санҷиши ID-ро ДАСТГИРӢ
+    НАМЕКУНАД — ҷавобаш: «ID validation is not available for this
+    category_id». Барои ҳамин агар категорияи FFID нашавад, ҳамон
+    категорияи санҷишро мекӯшем, ки барои СНГ кор мекунад: ID-и Free
+    Fire ҷаҳонӣ аст ва як ID ҳамон як аккаунт аст, новобаста аз он ки
+    пуркунӣ ба кадом сервер меравад.
+
+    Санҷиш танҳо ХОНДАН аст — на пул мехӯрад, на чизе месозад. Агар
+    ҳарду нашаванд, сатри холӣ бармегардад ва бот мисли пештара
+    «Номи аккаунт ёфт нашуд» мегӯяд.
     """
+    cats = [config.FFID_CATEGORY_VALIDATE]
+    if config.FF_CATEGORY_VALIDATE not in cats:
+        cats.append(config.FF_CATEGORY_VALIDATE)
+    for cat in cats:
+        name = await _ffid_validate_one(player_id, cat)
+        if name:
+            return name
+    return ""
+
+
+async def _ffid_validate_one(player_id: str, category_id: str) -> str:
     if not config.FAZER_KEY:
         return ""
     headers = {"X-API-Key": config.FAZER_KEY, "Content-Type": "application/json"}
-    payload = {"category_id": config.FFID_CATEGORY_VALIDATE, "fields": {"player_id": player_id}}
+    payload = {"category_id": category_id, "fields": {"player_id": player_id}}
     try:
         async with aiohttp.ClientSession() as s:
             async with s.post(
@@ -491,9 +512,10 @@ async def get_nickname_ffid(player_id: str) -> str:
                 timeout=aiohttp.ClientTimeout(total=15)
             ) as r:
                 data = await r.json(content_type=None)
-        logger.info(f"FazerCards FFID validate ({config.FFID_CATEGORY_VALIDATE}, id={player_id}): {data}")
+        logger.info(f"FazerCards FFID validate ({category_id}, id={player_id}): {data}")
         if not data.get("ok"):
-            logger.warning(f"FazerCards FFID validate натиҷаи ok=false: {data}")
+            logger.info(f"FazerCards FFID validate ({category_id}) нашуд: "
+                        f"{data.get('error') or data}")
             return ""
         if data.get("valid") is False:
             return ""
@@ -513,7 +535,7 @@ async def get_nickname_ffid(player_id: str) -> str:
             if ok and node:
                 return str(node).strip()
     except Exception as e:
-        logger.warning(f"FazerCards FFID validate хато: {e}")
+        logger.warning(f"FazerCards FFID validate ({category_id}) хато: {e}")
     return ""
 
 
