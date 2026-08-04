@@ -4,3 +4,5 @@ autopay-server/spin_last.gif
 autopay-server/spin_last.mp4
 # Сӯҳбатҳои шахсии мизоҷон — ҳаргиз ба GitHub нараванд
 autopay-server/chats/
+autopay-server/support_map.json
+autopay-server/support_blocked.json
