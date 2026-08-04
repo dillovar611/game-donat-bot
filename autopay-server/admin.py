@@ -5150,7 +5150,12 @@ async def a_ml_find_custom_run(message: Message, state: FSMContext):
     if not is_admin(message.from_user.id):
         return
     await state.clear()
-    cands = [c.strip() for c in message.text.replace("\n", ",").split(",") if c.strip()]
+    # Агар сатри танзимот («cat | player | server») ин ҷо часпонда шавад,
+    # онро ҳамчун ЯК номи дароз нагирем — қисми аввалаш номи категория аст
+    txt = message.text
+    if "|" in txt and "," not in txt:
+        txt = txt.split("|")[0]
+    cands = [c.strip() for c in txt.replace("\n", ",").split(",") if c.strip()]
     if not cands:
         await message.answer("⚠️ Ягон ном нанавиштед.")
         return
