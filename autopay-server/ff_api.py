@@ -758,6 +758,71 @@ ML_CANDIDATES = [
 ]
 
 
+# Ҷуфтҳои эҳтимолии номи майдонҳо барои бозиҳои ДУ-майдона (ML).
+# Номи дақиқи FazerCards маълум нест — сайт танҳо «Player ID»/«Server ID»
+# нишон медиҳад, ки ин нишонаи UI аст, на калиди API.
+ML_FIELD_PAIRS = [
+    ("player_id", "server_id"),
+    ("user_id", "zone_id"),
+    ("player_id", "zone_id"),
+    ("user_id", "server_id"),
+    ("uid", "zone"),
+    ("userid", "zoneid"),
+    ("account_id", "server_id"),
+    ("id", "server"),
+]
+
+
+async def find_ml_fields(player_id: str, server_id: str,
+                         category_id: str = "") -> list:
+    """Ҷуфтҳои номи майдонҳоро месанҷад ва онҳоеро бармегардонад, ки
+    FazerCards ҚАБУЛ кард (номи аккаунт баргардонд).
+
+    Ин санҷиш ТАНҲО validate-id-ро истифода мебарад — яъне ҳељ пул сарф
+    намешавад ва ҳељ донат намешавад. Лозим аст, чунки бо номи НОДУРУСТИ
+    майдон донат ноком мешавад, вале пули мизоҷ аллакай гирифта шудааст.
+    Ҳар элемент: {fields, name}."""
+    if not config.FAZER_KEY:
+        return []
+    if not category_id:
+        category_id, _, _ = await _ml_cfg()
+    headers = {"X-API-Key": config.FAZER_KEY, "Content-Type": "application/json"}
+    found = []
+    async with aiohttp.ClientSession() as s:
+        for f_player, f_server in ML_FIELD_PAIRS:
+            payload = {
+                "category_id": category_id,
+                "fields": {f_player: player_id, f_server: server_id},
+            }
+            try:
+                async with s.post(
+                    f"{config.FAZER_BASE}/topups/validate-id",
+                    json=payload, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=15)
+                ) as r:
+                    data = await r.json(content_type=None)
+            except Exception as e:
+                logger.warning(f"find_ml_fields({f_player}/{f_server}) хато: {e}")
+                continue
+            if not isinstance(data, dict):
+                continue
+            name = ""
+            for src in (data, data.get("data") or {}, data.get("result") or {}):
+                if not isinstance(src, dict):
+                    continue
+                for key in ("player_name", "username", "nickname", "name"):
+                    v = src.get(key)
+                    if isinstance(v, str) and v.strip():
+                        name = v.strip()
+                        break
+                if name:
+                    break
+            if name:
+                found.append({"fields": f"{f_player} | {f_server}", "name": name})
+                logger.info(f"find_ml_fields: {f_player}/{f_server} → {name}")
+    return found
+
+
 async def find_category(candidates: list) -> list:
     """Ҳар номи эҳтимолиро месанҷад ва онҳоеро бармегардонад, ки ВОҚЕАН
     оффер доранд. Барои ёфтани category_id-и бозии нав, вақте рӯйхати
@@ -872,7 +937,8 @@ async def list_categories() -> list:
 #
 # Ному category_id-и дақиқи FazerCards ҳанӯз тасдиқ нашудааст, барои ҳамин
 # ҳар се қиматро соҳиб аз панели админ иваз карда метавонад (бе деплой).
-ML_CATEGORY = "mobile_legends"
+# «mobile_legends_global» бо санҷиши воқеӣ тасдиқ шуд (47 оффер дошт).
+ML_CATEGORY = "mobile_legends_global"
 ML_FIELD_PLAYER = "player_id"
 ML_FIELD_SERVER = "server_id"
 

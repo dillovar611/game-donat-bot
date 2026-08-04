@@ -4993,6 +4993,7 @@ async def a_ml_settings(call: CallbackQuery):
         f"ℹ️ Агар донати ML кор накунад, ин се қиматро бо он чи дар "
         f"FazerCards аст мувофиқ кунед.",
         InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🧪 Санҷиши номи майдонҳо", callback_data="ml_test_fields")],
             [InlineKeyboardButton(text="✏️ Тағйир додан", callback_data="ml_settings_edit")],
             [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_ml_products")],
         ])
@@ -5165,3 +5166,70 @@ async def a_ml_find_custom_run(message: Message, state: FSMContext):
         )
         return
     await wait.edit_text(_found_text(found), parse_mode="HTML")
+
+
+# ==================== САНҶИШИ НОМИ МАЙДОНҲОИ ML ====================
+# Бо номи НОДУРУСТИ майдон донат ноком мешавад, вале пули мизоҷ аллакай
+# гирифта шудааст — пас пеш аз фурӯш ҳатман санҷидан лозим.
+class MLFieldTestState(StatesGroup):
+    ids = State()
+
+
+@router.callback_query(F.data == "ml_test_fields")
+async def a_ml_test_fields(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await _safe_edit(
+        call,
+        "🧪 <b>Санҷиши номи майдонҳо</b>\n\n"
+        "Як Player ID ва Server ID-и ВОҚЕИИ Mobile Legends нависед "
+        "(аз они худатон ё дӯстатон):\n\n"
+        "Формат: <code>Player ID | Server ID</code>\n"
+        "Мисол: <code>123456789 | 2001</code>\n\n"
+        "ℹ️ Ин санҷиш ҳељ пул сарф намекунад ва ҳељ донат намекунад — "
+        "танҳо номи аккаунтро мепурсад.",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="ml_settings")]
+        ])
+    )
+    await state.set_state(MLFieldTestState.ids)
+
+
+@router.message(MLFieldTestState.ids)
+async def a_ml_test_fields_run(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.clear()
+    parts = [x.strip() for x in message.text.split("|")]
+    if len(parts) < 2 or not parts[0].isdigit() or not parts[1].isdigit():
+        await message.answer(
+            "⚠️ Формат: <code>Player ID | Server ID</code>\n"
+            "Мисол: <code>123456789 | 2001</code>",
+            parse_mode="HTML"
+        )
+        return
+    player_id, server_id = parts[0], parts[1]
+    cat = await db.get_setting("ml_category_id") or ff_api.ML_CATEGORY
+    wait = await message.answer(
+        f"⏳ {len(ff_api.ML_FIELD_PAIRS)} ҷуфти номро месанҷам...")
+    found = await ff_api.find_ml_fields(player_id, server_id, cat)
+    if not found:
+        await wait.edit_text(
+            f"❌ Ягон ҷуфти ном кор накард.\n\n"
+            f"🔑 category_id: <code>{esc(cat)}</code>\n"
+            f"🆔 {esc(player_id)} / {esc(server_id)}\n\n"
+            f"Сабабҳои эҳтимолӣ:\n"
+            f"• ID ё Server нодуруст аст\n"
+            f"• category_id нодуруст аст\n"
+            f"• ин категория санҷиши номро дастгирӣ намекунад\n\n"
+            f"⚠️ Дар ин ҳолат ПЕШ аз фурӯш бо як хариди хурди воқеӣ санҷед.",
+            parse_mode="HTML"
+        )
+        return
+    lines = ["✅ <b>Кор кард!</b>\n"]
+    for f in found:
+        lines.append(f"🔑 <code>{esc(f['fields'])}</code>\n"
+                     f"    👤 {esc(f['name'])}\n")
+    lines.append(f"👆 Дар «⚙️ Танзимоти API» нависед:\n"
+                 f"<code>{esc(cat)} | {esc(found[0]['fields'])}</code>")
+    await wait.edit_text("\n".join(lines)[:4000], parse_mode="HTML")
