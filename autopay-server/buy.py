@@ -3145,3 +3145,299 @@ async def topup_receive_check(message: Message, state: FSMContext):
 @router.message(TopupState.wait_check)
 async def topup_wrong_check(message: Message, state: FSMContext):
     await message.answer("⚠️ Лутфан <b>расми</b> чекро фиристед (на матн).", parse_mode="HTML")
+
+
+# ==================== STANDOFF 2 (голд — донати ДАСТӢ) ====================
+# Standoff 2 дар donatov.net аст, ки API надорад — пас донат ДАСТӢ иҷро
+# мешавад: бот фармоиш, ID ва пардохтро мегирад, ба админ хабар медиҳад,
+# админ дар donatov.net донат мекунад ва «Иҷро кардам»-ро мезанад.
+# Барои ҳамин на автопардохт, на offer_id — мисли комбо.
+class StandoffBuyState(StatesGroup):
+    enter_id       = State()
+    choose_product = State()
+    choose_payment = State()
+    wait_check     = State()
+
+
+@router.callback_query(F.data == "buy_standoff")
+async def standoff_buy_start(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="games_menu")]
+    ])
+    await _safe_edit(
+        call,
+        "🔫 <b>Standoff 2 — Харидани голд</b>\n\n"
+        "📝 <b>USER ID</b>-и аккаунтатонро нависед:\n"
+        "Мисол: <code>263347019</code>\n\n"
+        "ℹ️ ID-ро дар бозӣ → Профил ёфта метавонед.",
+        kb
+    )
+    await state.set_state(StandoffBuyState.enter_id)
+
+
+@router.message(StandoffBuyState.enter_id)
+async def standoff_enter_id(message: Message, state: FSMContext):
+    player_id = (message.text or "").strip()
+    if not player_id.isdigit() or len(player_id) < 5:
+        await message.answer("⚠️ USER ID танҳо рақам аст (ҳадди ақал 5 рақам). Дубора нависед:")
+        return
+    await state.update_data(player_id=player_id, nickname="")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Давом", callback_data="standoff_id_ok")],
+        [InlineKeyboardButton(text="✏️ ID-ро тағйир медиҳам", callback_data="buy_standoff")],
+    ])
+    await message.answer(
+        f"🔫 <b>Standoff 2</b>\n\n"
+        f"🆔 USER ID: <code>{player_id}</code>\n\n"
+        f"⚠️ ID-ро бодиққат тафтиш кунед — голд ба ҳамин ID меравад!\n"
+        f"Агар дуруст бошад «Давом»-ро пахш кунед:",
+        reply_markup=kb, parse_mode="HTML"
+    )
+
+
+@router.callback_query(F.data == "standoff_id_ok")
+async def standoff_show_products(call: CallbackQuery, state: FSMContext):
+    products = await db.get_standoff_products()
+    if not products:
+        await call.answer("❌ Ҳозир голд нест. Баъдтар кӯшиш кунед.", show_alert=True)
+        return
+    buttons = []
+    for p in products:
+        label = p.get("label") or f"🔫 {p['amount']}G"
+        buttons.append([InlineKeyboardButton(
+            text=f"{label} — {float(p['price']):.2f} сом",
+            callback_data=f"standoff_prod_{p['id']}"
+        )])
+    buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="buy_standoff")])
+    await _safe_edit(
+        call,
+        "🔫 <b>Голд барои Standoff 2</b>\n\nМаҳсулотро интихоб кунед:",
+        InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+    await state.set_state(StandoffBuyState.choose_product)
+
+
+@router.callback_query(F.data.startswith("standoff_prod_"), StandoffBuyState.choose_product)
+async def standoff_choose_payment(call: CallbackQuery, state: FSMContext):
+    product_id = int(call.data.split("_")[2])
+    product = await db.get_standoff_product(product_id)
+    if not product:
+        await call.answer("❌ Маҳсулот ёфт нашуд!", show_alert=True)
+        return
+    await state.update_data(
+        product_id=product_id, amount=product["amount"],
+        price=float(product["price"]),
+        label=product.get("label") or f"🔫 {product['amount']}G",
+    )
+    await _standoff_payment_menu(call, state)
+
+
+async def _standoff_payment_menu(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    kb_rows = [
+        [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="standoff_pay_dc")],
+        [InlineKeyboardButton(text="💳 Алиф",          callback_data="standoff_pay_alif")],
+    ]
+    balance = await db.get_referral_balance(call.from_user.id)
+    if balance >= data["price"]:
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
+            callback_data="standoff_pay_balance")])
+    kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="standoff_id_ok")])
+    await _safe_edit(
+        call,
+        f"🛒 <b>Тасдиқи фармоиш (Standoff 2)</b>\n\n"
+        f"🆔 USER ID: <code>{data['player_id']}</code>\n"
+        f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
+        f"💵 Нарх: <b>{data['price']:.2f} сомонӣ</b>\n\n"
+        f"💰 Тариқи пардохтро интихоб кунед:",
+        InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    )
+    await state.set_state(StandoffBuyState.choose_payment)
+
+
+@router.callback_query(F.data == "standoff_pay_balance", StandoffBuyState.choose_payment)
+async def standoff_pay_balance(call: CallbackQuery, state: FSMContext):
+    uid = call.from_user.id
+    if uid in _balance_pay_in_flight:
+        await call.answer("⏳ Фармоиши қаблиатон дар кор аст — сабр кунед.", show_alert=True)
+        return
+    _balance_pay_in_flight.add(uid)
+    try:
+        data = await state.get_data()
+        price = data.get("price")
+        if price is None:
+            await call.answer("❌ State тамом шуд, аз нав сар кунед!", show_alert=True)
+            return
+        if await db.get_referral_balance(uid) < price:
+            await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
+            return
+        if not await db.deduct_referral_balance(uid, price):
+            await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
+            return
+        await state.clear()
+        order_id = await db.create_order(
+            user_id=uid, game_id=f"SO2:{data['player_id']}", nickname="",
+            amount=data["amount"], price=price, label=data["label"],
+            offer_id="", payment_method="referral_balance",
+        )
+        new_balance = await db.get_referral_balance(uid)
+        await call.message.answer(
+            f"✅ <b>Пардохт аз баланс қабул шуд!</b>\n\n"
+            f"🆔 Фармоиш: #{order_id}\n🎁 {esc(data['label'])}\n"
+            f"💵 Кам шуд: <b>{price:.2f} сом</b>\n"
+            f"💰 Баланси боқимонда: <b>{new_balance:.2f} сом</b>\n\n"
+            f"🔄 Голд ба зудӣ иҷро мешавад. 🙏", parse_mode="HTML")
+        await _standoff_notify_admin(call.bot, call.from_user, order_id, data,
+                                     "💰 Аз баланс", None)
+    finally:
+        _balance_pay_in_flight.discard(uid)
+
+
+@router.callback_query(F.data.in_({"standoff_pay_dc", "standoff_pay_alif"}),
+                       StandoffBuyState.choose_payment)
+async def standoff_show_requisites(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    price = round(float(data["price"]), 2)
+    method = "dushanbe_city" if call.data == "standoff_pay_dc" else "alif"
+    # Нархи каме нодир — то маблағи чек айнан бо ин фармоиш мувофиқ шавад
+    price = round(price + random.randint(1, 99) / 100, 2)
+    await state.update_data(price=price, payment_method=method)
+    order_ref = "so" + str(uuid.uuid4())[:8]
+    if method == "dushanbe_city":
+        method_name = "🏙 Душанбе Сити"
+        dc_card = await db.get_dc_card_number()
+        pay_url = f"http://pay.expresspay.tj/?A={dc_card}&s={price:g}&c=card_{order_ref}&f1=133"
+    else:
+        method_name = "💳 Алиф"
+        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Пардохт кардан", url=pay_url)],
+        [InlineKeyboardButton(text="📸 Чекро фиристодам", callback_data="standoff_sent")],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="standoff_id_ok")],
+    ])
+    await _safe_edit(
+        call,
+        f"🔫 <b>Standoff 2 — {method_name}</b>\n\n"
+        f"🆔 USER ID: <code>{data['player_id']}</code>\n"
+        f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
+        f"💵 Маблағ: <b>{price:.2f} сомонӣ</b>\n\n"
+        f"1️⃣ Тугмаи «Пардохт кардан»-ро пахш кунед\n"
+        f"2️⃣ Маҳз <b>{price:.2f} сом</b>-ро пардозед\n"
+        f"3️⃣ Расми чекро ин ҷо фиристед\n\n"
+        f"⚠️ Маблағро АЙНАН нигоҳ доред — то фармоишатон зуд ёфт шавад.",
+        kb
+    )
+    await state.set_state(StandoffBuyState.wait_check)
+
+
+@router.callback_query(F.data == "standoff_sent", StandoffBuyState.wait_check)
+async def standoff_ask_check(call: CallbackQuery, state: FSMContext):
+    await call.answer("📸 Расми чекро фиристед 👇", show_alert=True)
+
+
+@router.message(StandoffBuyState.wait_check, F.photo)
+async def standoff_receive_check(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await state.clear()
+    file_id = message.photo[-1].file_id
+    check_hash = await _hash_photo(message)
+    if await _block_if_duplicate_check(message, check_hash):
+        return
+    method_name = "🏙 Душанбе Сити" if data.get("payment_method") == "dushanbe_city" else "💳 Алиф"
+    order_id = await db.create_order(
+        user_id=message.from_user.id, game_id=f"SO2:{data['player_id']}",
+        nickname="", amount=data["amount"], price=data["price"],
+        label=data["label"], offer_id="",
+        payment_method=data.get("payment_method", ""),
+    )
+    await db.set_order_check(order_id, file_id, check_hash)
+    await message.answer(
+        f"✅ <b>Чек қабул шуд!</b>\n\n🆔 Фармоиш: #{order_id}\n\n"
+        f"🔄 Пардохтатон тафтиш мешавад, голд ба зудӣ фиристода мешавад. 🙏",
+        parse_mode="HTML")
+    await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
+    await _standoff_notify_admin(message.bot, message.from_user, order_id, data,
+                                 method_name, file_id)
+
+
+@router.message(StandoffBuyState.wait_check)
+async def standoff_wrong_check(message: Message, state: FSMContext):
+    await message.answer("⚠️ Лутфан <b>расми</b> чекро фиристед (на матн).", parse_mode="HTML")
+
+
+async def _standoff_notify_admin(bot, user, order_id, data, method_name, file_id):
+    """Ба админ хабар — Standoff донати ДАСТӢ дорад, пас тугмаи «Иҷро кардам»."""
+    username = f"@{user.username}" if user.username else "—"
+    caption = (
+        f"🔫 <b>Фармоиши нав — Standoff 2 (ДАСТӢ иҷро кунед!)</b>\n\n"
+        f"🆔 Фармоиш: <b>#{order_id}</b>\n"
+        f"👤 Корбар: {esc(user.full_name)} (<code>{user.id}</code>)\n"
+        f"📱 Username: {esc(username)}\n"
+        f"💳 Тариқ: {method_name}\n\n"
+        f"🆔 USER ID: <code>{data['player_id']}</code>\n"
+        f"🎁 Маҳсулот: <b>{esc(data['label'])}</b>\n"
+        f"💵 Маблағ: <b>{float(data['price']):.2f} сомонӣ</b>\n\n"
+        f"👉 Дар donatov.net ба ин ID донат кунед, баъд «Иҷро кардам»-ро пахш кунед."
+    )
+    rows = [
+        [InlineKeyboardButton(text="✅ Иҷро кардам — тасдиқ",
+                              callback_data=f"sdok_{order_id}")],
+        [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order_id}")],
+    ]
+    if user.username:
+        rows.append([InlineKeyboardButton(text="💬 ЛС ба клент",
+                                          url=f"https://t.me/{user.username}")])
+    kb = InlineKeyboardMarkup(inline_keyboard=rows)
+    for admin_id in config.ADMIN_IDS:
+        try:
+            if file_id:
+                await bot.send_photo(admin_id, file_id, caption=caption,
+                                     reply_markup=kb, parse_mode="HTML")
+            else:
+                await bot.send_message(admin_id, caption, reply_markup=kb,
+                                       parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Standoff: ба админ {admin_id} нарасид: {e}")
+
+
+@router.callback_query(F.data.startswith("sdok_"))
+async def standoff_admin_done(call: CallbackQuery):
+    if call.from_user.id not in config.ADMIN_IDS:
+        return
+    order_id = int(call.data.split("_")[1])
+    order = await db.get_order(order_id)
+    if not order:
+        await call.answer("❌ Фармоиш ёфт нашуд!", show_alert=True)
+        return
+    if order.get("status") == "confirmed":
+        await call.answer("ℹ️ Ин фармоиш аллакай тасдиқ шудааст.", show_alert=True)
+        return
+    await db.update_order_status(order_id, "confirmed")
+    try:
+        await db.set_confirmed_at(order_id)
+    except Exception:
+        pass
+    try:
+        await call.bot.send_message(
+            order["user_id"],
+            f"🎉 <b>Голди Standoff 2 фиристода шуд!</b>\n\n"
+            f"🆔 Фармоиш: #{order_id}\n"
+            f"🎁 {esc(order.get('label') or '—')}\n"
+            f"🆔 ба ID: <code>{str(order.get('game_id','')).replace('SO2:','')}</code>\n\n"
+            f"📲 Аккаунтатонро санҷед. Раҳмат барои харид! 🙏",
+            parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Standoff: хабар ба мизоҷ нарасид: {e}")
+    try:
+        await call.message.edit_caption(
+            caption=(call.message.caption or "") + "\n\n✅ ИҶРО ШУД",
+            reply_markup=None)
+    except Exception:
+        try:
+            await call.message.edit_text(
+                (call.message.text or "") + "\n\n✅ ИҶРО ШУД", reply_markup=None)
+        except Exception:
+            pass
+    await call.answer("✅ Тасдиқ шуд, мизоҷ хабар гирифт.")

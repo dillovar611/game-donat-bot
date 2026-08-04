@@ -294,6 +294,7 @@ def games_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔥 Free Fire СНГ",        callback_data="buy")],
         [InlineKeyboardButton(text="🔥 Free Fire Indonesia",  callback_data="buy_ffid")],
         [InlineKeyboardButton(text="🎮 PUBG Mobile",          callback_data="buy_pubg")],
+        [InlineKeyboardButton(text="🔫 Standoff 2",           callback_data="buy_standoff")],
         [InlineKeyboardButton(text="🔙 Бозгашт",              callback_data="back_main")],
     ])
 

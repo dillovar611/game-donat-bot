@@ -173,6 +173,7 @@ async def a_products_menu(call: CallbackQuery):
         [InlineKeyboardButton(text="💎 FF алмазҳо",   callback_data="a_products")],
         [InlineKeyboardButton(text="💎 FF Indonesia", callback_data="a_ffid_products")],
         [InlineKeyboardButton(text="💰 PUBG UC",      callback_data="a_pubg_products")],
+        [InlineKeyboardButton(text="🔫 Standoff 2",   callback_data="a_standoff_products")],
         [InlineKeyboardButton(text="⭐ Stars/Premium", callback_data="a_tg_products")],
         [InlineKeyboardButton(text="🎁 Комбоҳо",       callback_data="a_combos")],
         [InlineKeyboardButton(text="🔙 Бозгашт",      callback_data="a_back")],
@@ -4179,3 +4180,152 @@ async def a_premium_product_change_save(message: Message, state: FSMContext):
     await message.answer("✅ Навсозӣ шуд!")
     await state.clear()
 
+
+
+# ==================== ИДОРАКУНИИ STANDOFF 2 (голд) ====================
+@router.callback_query(F.data == "a_standoff_products")
+async def a_standoff_products(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    products = await db.get_all_standoff_products()
+    buttons = []
+    for p in products:
+        active = "🟢" if p["is_active"] else "🔴"
+        label = p.get("label") or f"🔫 {p['amount']}G"
+        buttons.append([InlineKeyboardButton(
+            text=f"{active} {label} — {float(p['price']):.2f} сом",
+            callback_data=f"soedit_{p['id']}"
+        )])
+    buttons.append([InlineKeyboardButton(text="➕ Маҳсулоти нав", callback_data="soadd")])
+    buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")])
+    await _safe_edit(
+        call,
+        "🔫 <b>Идоракунии Standoff 2 (голд)</b>\n\n"
+        "ℹ️ Донат ДАСТӢ иҷро мешавад (donatov.net API надорад).\n\n"
+        "Барои таҳрир интихоб кунед:",
+        InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+
+
+@router.callback_query(F.data.startswith("soedit_"))
+async def a_standoff_product_edit(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    product_id = int(call.data.split("_")[1])
+    p = await db.get_standoff_product(product_id)
+    if not p:
+        await call.answer("❌ Ёфт нашуд!", show_alert=True)
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Тағйир додан", callback_data=f"sochange_{product_id}")],
+        [InlineKeyboardButton(text="🗑 Нест кардан",   callback_data=f"sodel_{product_id}")],
+        [InlineKeyboardButton(text="🔙 Бозгашт",       callback_data="a_standoff_products")],
+    ])
+    await _safe_edit(
+        call,
+        f"🔫 <b>Маҳсулот #{product_id}</b>\n\n"
+        f"🔢 Голд: <b>{p['amount']}G</b>\n"
+        f"💵 Нарх: <b>{float(p['price']):.2f} сом</b>\n"
+        f"🏷 Ном: <b>{p.get('label') or '—'}</b>",
+        kb
+    )
+
+
+@router.callback_query(F.data.startswith("sodel_"))
+async def a_standoff_product_delete(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    product_id = int(call.data.split("_")[1])
+    await db.delete_standoff_product(product_id)
+    await call.answer("✅ Нест карда шуд!")
+    await a_standoff_products(call)
+
+
+class StandoffProductState(StatesGroup):
+    add_data    = State()
+    change_data = State()
+
+
+@router.callback_query(F.data == "soadd")
+async def a_standoff_product_add(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await _safe_edit(
+        call,
+        "➕ <b>Маҳсулоти нав (Standoff 2)</b>\n\n"
+        "Бо ин формат нависед (бо | ҷудо):\n"
+        "<code>голд | нарх | ном</code>\n\n"
+        "Мисол:\n"
+        "<code>100 | 12.00 | 100G 🪙</code>",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_standoff_products")]
+        ])
+    )
+    await state.set_state(StandoffProductState.add_data)
+
+
+def _parse_standoff(text: str):
+    parts = [x.strip() for x in (text or "").split("|")]
+    amount = int(parts[0])
+    price = float(parts[1])
+    label = parts[2] if len(parts) > 2 else f"{amount}G"
+    return amount, price, label
+
+
+@router.message(StandoffProductState.add_data)
+async def a_standoff_product_add_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        amount, price, label = _parse_standoff(message.text)
+    except Exception:
+        await message.answer(
+            "⚠️ Хато! Формат:\n<code>голд | нарх | ном</code>", parse_mode="HTML")
+        return
+    try:
+        await db.add_standoff_product(amount, price, label)
+    except Exception as e:
+        logger.error(f"a_standoff_product_add_save хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Маҳсулоти нав илова шуд!")
+    await state.clear()
+
+
+@router.callback_query(F.data.startswith("sochange_"))
+async def a_standoff_product_change(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    product_id = int(call.data.split("_")[1])
+    await state.update_data(edit_id=product_id)
+    await _safe_edit(
+        call,
+        "✏️ <b>Тағйир додан</b>\n\n"
+        "Бо ин формат нависед (бо | ҷудо):\n"
+        "<code>голд | нарх | ном</code>",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_standoff_products")]
+        ])
+    )
+    await state.set_state(StandoffProductState.change_data)
+
+
+@router.message(StandoffProductState.change_data)
+async def a_standoff_product_change_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        amount, price, label = _parse_standoff(message.text)
+    except Exception:
+        await message.answer(
+            "⚠️ Хато! Формат:\n<code>голд | нарх | ном</code>", parse_mode="HTML")
+        return
+    try:
+        data = await state.get_data()
+        await db.update_standoff_product(data["edit_id"], amount, price, label)
+    except Exception as e:
+        logger.error(f"a_standoff_product_change_save хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Маҳсулот навсозӣ шуд!")
+    await state.clear()
