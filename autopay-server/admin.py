@@ -173,6 +173,7 @@ async def a_products_menu(call: CallbackQuery):
         [InlineKeyboardButton(text="💎 FF алмазҳо",   callback_data="a_products")],
         [InlineKeyboardButton(text="💎 FF Indonesia", callback_data="a_ffid_products")],
         [InlineKeyboardButton(text="🇧🇷 FF Brazil",    callback_data="a_ffbr_products")],
+        [InlineKeyboardButton(text="🎯 Mobile Legends", callback_data="a_ml_products")],
         [InlineKeyboardButton(text="💰 PUBG UC",      callback_data="a_pubg_products")],
         [InlineKeyboardButton(text="🔫 Standoff 2",   callback_data="a_standoff_products")],
         [InlineKeyboardButton(text="⭐ Stars/Premium", callback_data="a_tg_products")],
@@ -4503,6 +4504,9 @@ _OFFERS_MAP = {
     "ffid": (config.FFID_CATEGORY_ORDER,    "FF Indonesia", "a_ffid_products"),
     "ffcis": (config.FF_CATEGORY_ORDER,     "FF СНГ",        "a_products"),
     "pubg": ("pubg_mobile_auto",            "PUBG Mobile",  "a_pubg_products"),
+    # ML: category_id аз танзимот хонда мешавад (ҳанӯз тасдиқ нашуда) —
+    # қимати воқеӣ дар a_show_offers иваз мешавад
+    "ml":   (ff_api.ML_CATEGORY,            "Mobile Legends", "a_ml_products"),
 }
 
 
@@ -4518,6 +4522,9 @@ async def a_show_offers(call: CallbackQuery):
         await call.answer("❌ Номаълум", show_alert=True)
         return
     category_id, title, back = entry
+    if key == "ml":
+        # ML category_id-и воқеӣ дар танзимот аст (соҳиб иваз карда метавонад)
+        category_id = await db.get_setting("ml_category_id") or category_id
     await call.answer("⏳ Мегирам...")
     offers = await ff_api.list_offers(category_id)
     if not offers:
@@ -4680,3 +4687,353 @@ async def a_ffbr_product_change_save(message: Message, state: FSMContext):
 
 
 # ==================== ТАСДИҲ PUBG ====================
+
+
+# ════════════════════════════════════════════════════════
+#                   MOBILE LEGENDS
+# ════════════════════════════════════════════════════════
+# ML ДУ майдон дорад — game_id формат: "ML:<player_id>:<server_id>"
+def _ml_ids(game_id: str) -> tuple:
+    """Player ID ва Server ID-ро аз game_id мебарорад."""
+    if not game_id.startswith("ML:"):
+        return game_id, ""
+    player_id, _, server_id = game_id[3:].partition(":")
+    return player_id, server_id
+
+
+@router.callback_query(F.data.startswith("okml_"))
+async def order_confirm_ml(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("❌ Иҷозат нест!", show_alert=True)
+        return
+
+    order_id = int(call.data.split("_")[1])
+    order = await db.get_order(order_id)
+    if not order:
+        await call.answer("❌ Фармоиш ёфт нашуд!", show_alert=True)
+        return
+    if order["status"] in ("confirmed", "rejected"):
+        await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+        return
+    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+        await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
+        return
+
+    await call.answer("⏳ Донат оғоз шуд...", show_alert=False)
+    player_id, server_id = _ml_ids(order["game_id"])
+
+    await _safe_edit_caption(
+        call.message,
+        f"⏳ <b>Донати худкор оғоз шуд (Mobile Legends)...</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n"
+        f"{order['label']} → <code>{player_id}</code> / <code>{server_id}</code>",
+        None
+    )
+
+    import asyncio as _asyncio
+    _asyncio.create_task(_do_donate_ml(call, order, player_id, server_id, call.message))
+
+
+async def _do_donate_ml(call: CallbackQuery, order: dict, player_id: str,
+                        server_id: str, wait_msg: Message):
+    order_id = order["id"]
+    header = (
+        f"⏳ <b>Автодонати шумо оғоз шуд (Mobile Legends)...</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n"
+        f"{order['label']} → <code>{player_id}</code> / <code>{server_id}</code>"
+    )
+    success, api_order_id = await _run_with_live_progress(
+        wait_msg, header,
+        ff_api.auto_donate_ml(player_id, server_id, order["offer_id"],
+                              order.get("api_order_id") or "", order_id)
+    )
+
+    if api_order_id:
+        await db.set_order_api_id(order_id, api_order_id)
+    api_id_line = f"🆔 ID FazerCards: <code>{api_order_id}</code>\n" if api_order_id else ""
+
+    if success:
+        await db.update_order_status(order_id, "confirmed")
+        await db.set_confirmed_at(order_id)
+        await _credit_referral_and_notify(call.bot, order_id)
+        try:
+            await call.bot.send_message(
+                order["user_id"],
+                f"✅ <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
+                f"🆔 Фармоиш: #{order_id}\n"
+                f"{order['label']} → <code>{player_id}</code> / <code>{server_id}</code>\n\n"
+                f"🙏 Ташаккур барои харид!\n\n"
+                f"⭐ Лутфан отзив гузоред:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
+                ]),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Хабар ба корбар нашуд: {e}")
+        buyer_line = await _buyer_info_line(order)
+        await _safe_edit_caption(
+            wait_msg,
+            f"✅ <b>Донат муваффақ шуд!</b>\n\n"
+            f"{buyer_line}\n"
+            f"🆔 Фармоиш: #{order_id}\n"
+            f"{api_id_line}"
+            f"{order['label']} → <code>{player_id}</code> / <code>{server_id}</code>",
+            None
+        )
+    else:
+        await db.update_order_status(order_id, "failed")
+        try:
+            user_chat = await call.bot.get_chat(order["user_id"])
+            ls_url = f"https://t.me/{user_chat.username}" if user_chat.username else f"tg://user?id={order['user_id']}"
+        except Exception:
+            ls_url = f"tg://user?id={order['user_id']}"
+        retry_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Дубора донат", callback_data=f"okml_{order_id}")],
+            [InlineKeyboardButton(text="✅ Дастӣ тасдиқ кардам", callback_data=f"manual_{order_id}")],
+            [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order_id}")],
+            [InlineKeyboardButton(text="💬 ЛС ба клент", url=ls_url)],
+        ])
+        await _safe_edit_caption(
+            wait_msg,
+            f"⚠️ <b>Донати худкор нашуд!</b>\n\n"
+            f"🆔 Фармоиш: #{order_id}\n"
+            f"{api_id_line}"
+            f"🆔 Player ID: <code>{player_id}</code>\n"
+            f"🌐 Server ID: <code>{server_id}</code>\n"
+            f"{order['label']}\n\n"
+            f"Метавонед дубора кӯшиш кунед ё дастӣ донат карда тасдиқ кунед.",
+            retry_kb
+        )
+
+
+# ==================== ИДОРАКУНИИ МАҲСУЛОТИ ML ====================
+@router.callback_query(F.data == "a_ml_products")
+async def a_ml_products(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    products = await db.get_all_ml_products()
+    buttons = []
+    for p in products:
+        active = "🟢" if p["is_active"] else "🔴"
+        label = p.get("label") or f"💎 {p['amount']}"
+        buttons.append([InlineKeyboardButton(
+            text=f"{active} {label} — {p['price']:.2f} сом",
+            callback_data=f"mledit_{p['id']}"
+        )])
+    buttons.append([InlineKeyboardButton(text="➕ Маҳсулоти нав", callback_data="mladd")])
+    buttons.append([InlineKeyboardButton(text="🔍 Офферҳои FazerCards", callback_data="offers_ml")])
+    buttons.append([InlineKeyboardButton(text="⚙️ Танзимоти API", callback_data="ml_settings")])
+    buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")])
+    await _safe_edit(
+        call,
+        "🎯 <b>Идоракунии Mobile Legends</b>\n\nБарои таҳрир интихоб кунед:",
+        InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+
+
+@router.callback_query(F.data.startswith("mledit_"))
+async def a_ml_product_edit(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    product_id = int(call.data.split("_")[1])
+    p = await db.get_ml_product(product_id)
+    if not p:
+        await call.answer("❌ Ёфт нашуд!", show_alert=True)
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Тағйир додан", callback_data=f"mlchange_{product_id}")],
+        [InlineKeyboardButton(text="🗑 Нест кардан",   callback_data=f"mldel_{product_id}")],
+        [InlineKeyboardButton(text="🔙 Бозгашт",       callback_data="a_ml_products")],
+    ])
+    await _safe_edit(
+        call,
+        f"💎 <b>Маҳсулот #{product_id}</b>\n\n"
+        f"🔢 Миқдор: <b>{p['amount']}</b>\n"
+        f"💵 Нарх: <b>{p['price']:.2f} сом</b>\n"
+        f"🏷 Ном: <b>{p.get('label') or '—'}</b>\n"
+        f"🔑 Offer ID: <code>{p.get('offer_id') or '—'}</code>",
+        kb
+    )
+
+
+@router.callback_query(F.data.startswith("mldel_"))
+async def a_ml_product_delete(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    product_id = int(call.data.split("_")[1])
+    await db.delete_ml_product(product_id)
+    await call.answer("✅ Нест карда шуд!")
+    await a_ml_products(call)
+
+
+class MLProductState(StatesGroup):
+    add_data    = State()
+    change_data = State()
+
+
+@router.callback_query(F.data == "mladd")
+async def a_ml_product_add(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await _safe_edit(
+        call,
+        "➕ <b>Маҳсулоти нав (Mobile Legends)</b>\n\n"
+        "Бо ин формат нависед (бо | ҷудо):\n"
+        "<code>миқдор | нарх | ном | offer_id</code>\n\n"
+        "Мисол:\n"
+        "<code>100 | 12.00 | 💎 100 Алмаз | ml_100</code>",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_ml_products")]
+        ])
+    )
+    await state.set_state(MLProductState.add_data)
+
+
+@router.message(MLProductState.add_data)
+async def a_ml_product_add_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        parts = [x.strip() for x in message.text.split("|")]
+        amount = int(parts[0])
+        price = float(parts[1])
+        label = parts[2] if len(parts) > 2 else f"💎 {amount}"
+        offer_id = parts[3] if len(parts) > 3 else ""
+    except Exception:
+        await message.answer(
+            "⚠️ Хато! Формат:\n<code>миқдор | нарх | ном | offer_id</code>",
+            parse_mode="HTML"
+        )
+        return
+    try:
+        await db.add_ml_product(amount, price, label, offer_id)
+    except Exception as e:
+        logger.error(f"a_ml_product_add_save: db.add_ml_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Маҳсулоти нав илова шуд!")
+    await state.clear()
+
+
+@router.callback_query(F.data.startswith("mlchange_"))
+async def a_ml_product_change(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    product_id = int(call.data.split("_")[1])
+    await state.update_data(edit_id=product_id)
+    await _safe_edit(
+        call,
+        "✏️ <b>Тағйир додан</b>\n\n"
+        "Бо ин формат нависед (бо | ҷудо):\n"
+        "<code>миқдор | нарх | ном | offer_id</code>",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_ml_products")]
+        ])
+    )
+    await state.set_state(MLProductState.change_data)
+
+
+@router.message(MLProductState.change_data)
+async def a_ml_product_change_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    product_id = data.get("edit_id")
+    try:
+        parts = [x.strip() for x in message.text.split("|")]
+        amount = int(parts[0])
+        price = float(parts[1])
+        label = parts[2] if len(parts) > 2 else f"💎 {amount}"
+        offer_id = parts[3] if len(parts) > 3 else ""
+    except Exception:
+        await message.answer(
+            "⚠️ Хато! Формат:\n<code>миқдор | нарх | ном | offer_id</code>",
+            parse_mode="HTML"
+        )
+        return
+    try:
+        await db.update_ml_product(product_id, amount, price, label, offer_id)
+    except Exception as e:
+        logger.error(f"a_ml_product_change_save: db.update_ml_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Тағйир дода шуд!")
+    await state.clear()
+
+
+# ==================== ТАНЗИМОТИ API-и ML ====================
+# category_id ва номи майдонҳои FazerCards барои ML ҳанӯз тасдиқ нашудаанд —
+# бигзор соҳиб онҳоро БЕ ДЕПЛОЙ иваз карда тавонад.
+class MLSettingsState(StatesGroup):
+    edit = State()
+
+
+@router.callback_query(F.data == "ml_settings")
+async def a_ml_settings(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    cat = await db.get_setting("ml_category_id") or ff_api.ML_CATEGORY
+    fp = await db.get_setting("ml_field_player") or ff_api.ML_FIELD_PLAYER
+    fs = await db.get_setting("ml_field_server") or ff_api.ML_FIELD_SERVER
+    await _safe_edit(
+        call,
+        f"⚙️ <b>Танзимоти API-и Mobile Legends</b>\n\n"
+        f"🔑 category_id: <code>{esc(cat)}</code>\n"
+        f"🆔 майдони Player: <code>{esc(fp)}</code>\n"
+        f"🌐 майдони Server: <code>{esc(fs)}</code>\n\n"
+        f"ℹ️ Агар донати ML кор накунад, ин се қиматро бо он чи дар "
+        f"FazerCards аст мувофиқ кунед.",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="✏️ Тағйир додан", callback_data="ml_settings_edit")],
+            [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_ml_products")],
+        ])
+    )
+
+
+@router.callback_query(F.data == "ml_settings_edit")
+async def a_ml_settings_edit(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await _safe_edit(
+        call,
+        "✏️ <b>Танзимоти API-и ML</b>\n\n"
+        "Ҳар се қиматро бо | ҷудо нависед:\n"
+        "<code>category_id | майдони_player | майдони_server</code>\n\n"
+        "Мисол:\n"
+        "<code>mobile_legends | player_id | server_id</code>",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="ml_settings")]
+        ])
+    )
+    await state.set_state(MLSettingsState.edit)
+
+
+@router.message(MLSettingsState.edit)
+async def a_ml_settings_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    parts = [x.strip() for x in message.text.split("|")]
+    if len(parts) < 3 or not all(parts[:3]):
+        await message.answer(
+            "⚠️ Хато! Ҳар се қимат лозим:\n"
+            "<code>category_id | майдони_player | майдони_server</code>",
+            parse_mode="HTML"
+        )
+        return
+    try:
+        await db.set_setting("ml_category_id", parts[0])
+        await db.set_setting("ml_field_player", parts[1])
+        await db.set_setting("ml_field_server", parts[2])
+    except Exception as e:
+        logger.error(f"a_ml_settings_save: сабт нашуд: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer(
+        f"✅ Танзимот сабт шуд!\n\n"
+        f"🔑 category_id: <code>{esc(parts[0])}</code>\n"
+        f"🆔 Player: <code>{esc(parts[1])}</code>\n"
+        f"🌐 Server: <code>{esc(parts[2])}</code>",
+        parse_mode="HTML"
+    )
+    await state.clear()

@@ -2884,6 +2884,20 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
             service_title = "🔥 Free Fire Indonesia"
             nickname = data.get("nickname", "")
             extra_line = f"🆔 ID: <code>{data['player_id']}</code>\n👤 Ном: <b>{nickname or '—'}</b>\n"
+        elif current.startswith("FFBRBuyState"):
+            game_id = f"FFBR:{data['player_id']}"
+            confirm_prefix = "okffbr"
+            service_title = "🇧🇷 Free Fire Brazil"
+            nickname = data.get("nickname", "")
+            extra_line = f"🆔 ID: <code>{data['player_id']}</code>\n👤 Ном: <b>{nickname or '—'}</b>\n"
+        elif current.startswith("MLBuyState"):
+            # ML ду майдон дорад — ҳарду дар game_id захира мешаванд
+            game_id = f"ML:{data['player_id']}:{data['server_id']}"
+            confirm_prefix = "okml"
+            service_title = "🎯 Mobile Legends"
+            nickname = data.get("nickname", "")
+            extra_line = (f"🆔 Player ID: <code>{data['player_id']}</code>\n"
+                          f"🌐 Server ID: <code>{data['server_id']}</code>\n")
         elif current.startswith("PUBGBuyState"):
             game_id = f"PUBG:{data['player_id']}"
             confirm_prefix = "okpubg"
@@ -3960,3 +3974,324 @@ async def ffbr_wrong_check(message: Message, state: FSMContext):
 
 # ════════════════════════════════════════════════════════
 #                   PUBG MOBILE
+
+
+# ════════════════════════════════════════════════════════
+#                   MOBILE LEGENDS
+# ════════════════════════════════════════════════════════
+# ML аз бозиҳои дигар ФАРҚ мекунад: мизоҷ ДУ рақам менависад —
+# Player ID ва Server (Zone) ID. Ҳарду дар game_id захира мешаванд:
+# "ML:<player_id>:<server_id>".
+class MLBuyState(StatesGroup):
+    enter_id       = State()
+    enter_server   = State()
+    choose_product = State()
+    choose_payment = State()
+    wait_check     = State()
+
+
+# ==================== ҚАДАМИ 1: PLAYER ID ====================
+@router.callback_query(F.data == "buy_ml")
+async def ml_buy_start(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await _safe_edit(
+        call,
+        "🎯 <b>Mobile Legends</b>\n\n"
+        "1️⃣ Аввал <b>Player ID</b>-и худро нависед:\n\n"
+        "📌 ID-ро дар бозӣ: Профил → зери ном мебинед\n"
+        "Мисол: <code>123456789</code>",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="games_menu")],
+        ])
+    )
+    await state.set_state(MLBuyState.enter_id)
+
+
+@router.message(MLBuyState.enter_id)
+async def ml_enter_id(message: Message, state: FSMContext):
+    player_id = message.text.strip()
+    if not player_id.isdigit():
+        await message.answer("⚠️ Player ID танҳо аз рақамҳо иборат аст! Дубора нависед:")
+        return
+    await state.update_data(player_id=player_id)
+    await message.answer(
+        f"✅ Player ID: <code>{player_id}</code>\n\n"
+        f"2️⃣ Акнун <b>Server ID</b> (Zone)-ро нависед:\n\n"
+        f"📌 Дар бозӣ он дар қавс паҳлӯи ID навишта шудааст\n"
+        f"Мисол: агар <code>123456789 (2001)</code> бошад → <code>2001</code>",
+        parse_mode="HTML"
+    )
+    await state.set_state(MLBuyState.enter_server)
+
+
+# ==================== ҚАДАМИ 2: SERVER ID ====================
+@router.message(MLBuyState.enter_server)
+async def ml_enter_server(message: Message, state: FSMContext):
+    server_id = message.text.strip()
+    if not server_id.isdigit():
+        await message.answer("⚠️ Server ID танҳо аз рақамҳо иборат аст! Дубора нависед:")
+        return
+    data = await state.get_data()
+    player_id = data["player_id"]
+
+    wait = await message.answer("⏳ Аккаунт тафтиш мешавад...")
+    nickname = await ff_api.get_nickname_ml(player_id, server_id)
+    await state.update_data(server_id=server_id, nickname=nickname)
+
+    if nickname:
+        text = (
+            f"🎯 <b>Mobile Legends</b>\n\n"
+            f"🆔 Player ID: <code>{player_id}</code>\n"
+            f"🌐 Server ID: <code>{server_id}</code>\n"
+            f"👤 Ном: <b>{esc(nickname)}</b>\n\n"
+            f"✅ Агар ин аккаунти шумо бошад «Давом»-ро пахш кунед:"
+        )
+    else:
+        text = (
+            f"🎯 <b>Mobile Legends</b>\n\n"
+            f"🆔 Player ID: <code>{player_id}</code>\n"
+            f"🌐 Server ID: <code>{server_id}</code>\n"
+            f"⚠️ Номи аккаунт ёфт нашуд.\n\n"
+            f"Ҳарду рақамро бодиққат тафтиш кунед ва агар дуруст бошанд "
+            f"«Давом»-ро пахш кунед:"
+        )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Давом", callback_data="ml_id_ok")],
+        [InlineKeyboardButton(text="✏️ Аз нав нависам", callback_data="buy_ml")],
+    ])
+    await _safe_edit_msg(wait, text, kb)
+
+
+# ==================== РӮЙХАТИ МАҲСУЛОТ ====================
+@router.callback_query(F.data == "ml_id_ok")
+async def ml_show_products(call: CallbackQuery, state: FSMContext):
+    products = await db.get_ml_products()
+    if not products:
+        await call.answer("❌ Ҳозир маҳсулот нест. Баъдтар кӯшиш кунед.", show_alert=True)
+        return
+    buttons = []
+    for p in products:
+        label = p.get("label") or f"💎 {p['amount']}"
+        buttons.append([InlineKeyboardButton(
+            text=f"{label} — {p['price']:.2f} сом",
+            callback_data=f"ml_prod_{p['id']}"
+        )])
+    buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="buy_ml")])
+    await _safe_edit(
+        call,
+        "💎 <b>Алмазҳои Mobile Legends</b>\n\nМаҳсулотро интихоб кунед:",
+        InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+    await state.set_state(MLBuyState.choose_product)
+
+
+def _ml_confirm_kb(balance: float, price: float) -> list:
+    """Тугмаҳои экрани тасдиқи фармоиши ML (пардохт/баланс/бозгашт)."""
+    rows = [
+        [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="ml_pay_dc")],
+        [InlineKeyboardButton(text="💳 Алиф",          callback_data="ml_pay_alif")],
+        [InlineKeyboardButton(text="🏦 Эсхата",        callback_data="ml_pay_eskhata")],
+    ]
+    if balance >= price:
+        rows.append([InlineKeyboardButton(
+            text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
+            callback_data="pay_balance"
+        )])
+    else:
+        shortfall = round(price - balance, 2)
+        rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
+        )])
+    rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="ml_id_ok")])
+    return rows
+
+
+def _ml_confirm_text(data: dict) -> str:
+    nickname = data.get("nickname", "")
+    nick_line = f"👤 Ном: <b>{esc(nickname)}</b>\n" if nickname else ""
+    return (
+        f"🛒 <b>Тасдиқи фармоиш</b>\n\n"
+        f"🎮 Бозӣ: 🎯 Mobile Legends\n"
+        f"🆔 Player ID: <code>{data['player_id']}</code>\n"
+        f"🌐 Server ID: <code>{data['server_id']}</code>\n"
+        f"{nick_line}"
+        f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
+        f"💵 Нарх: <b>{data['price']:.2f} сомонӣ</b>\n\n"
+        f"💰 Тариқи пардохтро интихоб кунед:"
+    )
+
+
+# ==================== ИНТИХОБИ ТАРИҚИ ПАРДОХТ ====================
+@router.callback_query(F.data.startswith("ml_prod_"), MLBuyState.choose_product)
+async def ml_choose_payment(call: CallbackQuery, state: FSMContext):
+    product_id = int(call.data.split("_")[2])
+    product = await db.get_ml_product(product_id)
+    if not product:
+        await call.answer("❌ Маҳсулот ёфт нашуд!", show_alert=True)
+        return
+    await state.update_data(
+        product_id=product_id,
+        amount=product["amount"],
+        price=float(product["price"]),
+        label=product.get("label") or f"💎 {product['amount']}",
+        offer_id=product.get("offer_id") or "",
+        eskhata_link=product.get("eskhata_link") or "",
+        combo_id=None,
+    )
+    data = await state.get_data()
+    balance = await db.get_referral_balance(call.from_user.id)
+    await _safe_edit(
+        call, _ml_confirm_text(data),
+        InlineKeyboardMarkup(inline_keyboard=_ml_confirm_kb(balance, data["price"]))
+    )
+    await state.set_state(MLBuyState.choose_payment)
+
+
+# ==================== РОЗИГӢ ПЕШ АЗ РЕКВИЗИТ ====================
+@router.callback_query(F.data.in_({"ml_pay_dc", "ml_pay_alif", "ml_pay_eskhata"}), MLBuyState.choose_payment)
+async def ml_ask_terms(call: CallbackQuery, state: FSMContext):
+    method_map = {
+        "ml_pay_dc": "dushanbe_city",
+        "ml_pay_eskhata": "eskhata",
+        "ml_pay_alif": "alif",
+    }
+    await state.update_data(pending_payment_method=method_map[call.data])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Қабул мекунам", callback_data="ml_terms_accept")],
+        [InlineKeyboardButton(text="❌ Рад кунам",      callback_data="ml_terms_reject")],
+    ])
+    await _safe_edit(call, TERMS_TEXT_ROZIGI, kb)
+
+
+@router.callback_query(F.data == "ml_terms_reject", MLBuyState.choose_payment)
+async def ml_terms_reject(call: CallbackQuery, state: FSMContext):
+    await call.answer("Бекор карда шуд.")
+    data = await state.get_data()
+    balance = await db.get_referral_balance(call.from_user.id)
+    await _safe_edit(
+        call, _ml_confirm_text(data),
+        InlineKeyboardMarkup(inline_keyboard=_ml_confirm_kb(balance, data["price"]))
+    )
+
+
+# ==================== РЕКВИЗИТ ====================
+@router.callback_query(F.data == "ml_terms_accept", MLBuyState.choose_payment)
+async def ml_show_requisites(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    method = data.get("pending_payment_method", "alif")
+    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
+    if method in ("dushanbe_city", "alif"):
+        await _autopay_requisites(
+            call, state, data, method,
+            game_id_marker=f"ML:{data['player_id']}:{data['server_id']}",
+            amount=data.get("amount", 0),
+            title="🎯 Mobile Legends", back_cb="ml_id_ok")
+        await state.set_state(MLBuyState.wait_check)
+        return
+
+    price, winback_note = await _apply_winback_discount(
+        call.from_user.id, round(float(data["price"]), 2))
+    await state.update_data(price=price, payment_method=method)
+    pay_url = data.get("eskhata_link") or ""
+    if not pay_url:
+        await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
+        return
+
+    await _notify_rozigiho(
+        call.bot, call.from_user, "🎯 Mobile Legends", data["label"],
+        price, "🏦 Эсхата", str(data.get("product_id", ""))
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Пардохти Эсхата", url=pay_url)],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="ml_id_ok")],
+    ])
+    await _safe_edit(
+        call,
+        f"💳 <b>🏦 Эсхата</b>\n\n"
+        f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
+        f"💵 Маблағ: <b>{price:.2f} сомонӣ</b>\n"
+        f"{winback_note}"
+        f"\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n\n"
+        f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
+        f"2️⃣ Маблағи дақиқ <b>{price:.2f} сом</b>-ро пардохт кунед\n"
+        f"3️⃣ Расми чекро ба ин чат фиристед\n\n"
+        f"⏳ Шумо <b>10 дақиқа</b> вақт доред барои фиристодани чек!\n"
+        f"⚠️ Маблағ бояд дақиқ бошад!",
+        kb
+    )
+    await state.set_state(MLBuyState.wait_check)
+
+
+# ==================== ИНТИЗОРИ ЧЕК ====================
+@router.message(MLBuyState.wait_check, F.photo)
+async def ml_receive_check(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await state.clear()
+
+    # ==== АВТОПАРДОХТ (DC/Alif): чек омад → ҷустуҷӯи худкори пардохт ====
+    if await _autopay_receive_check(message, data):
+        return
+
+    file_id = message.photo[-1].file_id
+    check_hash = await _hash_photo(message)
+    if await _block_if_duplicate_check(message, check_hash):
+        return
+
+    order_id = await db.create_order(
+        user_id=message.from_user.id,
+        game_id=f"ML:{data['player_id']}:{data['server_id']}",
+        nickname=data.get("nickname", ""),
+        amount=data["amount"],
+        price=data["price"],
+        label=data["label"],
+        offer_id=data.get("offer_id", ""),
+        payment_method=data.get("payment_method", ""),
+    )
+    await db.set_order_check(order_id, file_id, check_hash)
+
+    await message.answer(
+        "✅ <b>Чек қабул шуд!</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n\n"
+        "🔄 Пардохти шумо тафтиш мешавад.\n"
+        "Натиҷа ба зудӣ фиристода мешавад. 🙏",
+        parse_mode="HTML"
+    )
+    await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
+
+    nickname = data.get("nickname", "") or "—"
+    username = f"@{message.from_user.username}" if message.from_user.username else "—"
+    caption = (
+        f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
+        f"🆔 Фармоиш: <b>#{order_id}</b>\n"
+        f"👤 Корбар: {esc(message.from_user.full_name)} (<code>{message.from_user.id}</code>)\n"
+        f"📱 Username: {username}\n"
+        f"💳 Тариқ: 🏦 Эсхата\n\n"
+        f"🎯 Mobile Legends\n"
+        f"🆔 Player ID: <code>{data['player_id']}</code>\n"
+        f"🌐 Server ID: <code>{data['server_id']}</code>\n"
+        f"👤 Ном: <b>{esc(nickname)}</b>\n"
+        f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
+        f"💵 Маблағ: <b>{data['price']:.2f} сомонӣ</b>"
+    )
+    admin_kb_rows = [
+        [InlineKeyboardButton(text="✅ Тасдиқ — донат кун (ML)", callback_data=f"okml_{order_id}")],
+        [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order_id}")],
+    ]
+    if message.from_user.username:
+        admin_kb_rows.append([InlineKeyboardButton(
+            text="💬 ЛС ба клент", url=f"https://t.me/{message.from_user.username}")])
+    admin_kb = InlineKeyboardMarkup(inline_keyboard=admin_kb_rows)
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await message.bot.send_photo(
+                admin_id, file_id, caption=caption,
+                reply_markup=admin_kb, parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Ба админ {admin_id} фиристода нашуд: {e}")
+
+
+@router.message(MLBuyState.wait_check)
+async def ml_wrong_check(message: Message, state: FSMContext):
+    await message.answer("⚠️ Лутфан <b>расми</b> чекро фиристед (на матн).", parse_mode="HTML")

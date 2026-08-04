@@ -311,8 +311,8 @@ def _confirm_cb(order: dict) -> str:
     фиристем, фармоиши FFID/FFBR/PUBG/Stars/Premium ба API-и FF СНГ мерафт."""
     gid = order.get("game_id") or ""
     for prefix, cb in (("FFID:", "okffid"), ("FFBR:", "okffbr"),
-                       ("PUBG:", "okpubg"), ("STARS:", "okstars"),
-                       ("PREMIUM:", "okpremium")):
+                       ("ML:", "okml"), ("PUBG:", "okpubg"),
+                       ("STARS:", "okstars"), ("PREMIUM:", "okpremium")):
         if gid.startswith(prefix):
             return f"{cb}_{order['id']}"
     return f"ok_{order['id']}"
@@ -853,6 +853,14 @@ async def _dispatch_donate_call(order: dict):
             player_id = game_id.replace("FFBR:", "")
             success, api_order_id = await ff_api.auto_donate_ffbr(
                 player_id, order["offer_id"], order.get("api_order_id") or "", order_id
+            )
+            return success, api_order_id, False, None
+        if game_id.startswith("ML:"):
+            # "ML:<player_id>:<server_id>" — ML ДУ майдон дорад
+            player_id, _, server_id = game_id[3:].partition(":")
+            success, api_order_id = await ff_api.auto_donate_ml(
+                player_id, server_id, order["offer_id"],
+                order.get("api_order_id") or "", order_id
             )
             return success, api_order_id, False, None
         if game_id.startswith("PUBG:"):

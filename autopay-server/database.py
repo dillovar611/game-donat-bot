@@ -250,6 +250,20 @@ async def init_db():
                     sort_order INT DEFAULT 0
                 )
             """)
+            # Mobile Legends — ба ҷуз Player ID боз Server (Zone) ID лозим аст,
+            # вале ин ба МАҲСУЛОТ дахл надорад (мизоҷ онро менависад), пас
+            # ҷадвал мисли ffbr_products аст.
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS ml_products (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    amount INT NOT NULL,
+                    price DECIMAL(10,2) NOT NULL,
+                    label VARCHAR(255),
+                    offer_id VARCHAR(255),
+                    is_active TINYINT DEFAULT 1,
+                    sort_order INT DEFAULT 0
+                )
+            """)
     # Агар маҲсулот набошад, намунаҲои пешфарзро илова мекунем
     await _seed_default_products()
 
@@ -2572,6 +2586,50 @@ async def update_ffbr_product(product_id: int, amount: int, price: float, label:
             await cur.execute(
                 "UPDATE ffbr_products SET amount=%s, price=%s, label=%s, offer_id=%s WHERE id=%s",
                 (amount, price, label, offer_id, product_id))
+
+
+async def get_ml_products():
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM ml_products WHERE is_active=1 ORDER BY sort_order, amount")
+            return await cur.fetchall()
+
+
+async def get_ml_product(product_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT * FROM ml_products WHERE id=%s", (product_id,))
+            return await cur.fetchone()
+
+
+async def get_all_ml_products():
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT * FROM ml_products ORDER BY sort_order, amount")
+            return await cur.fetchall()
+
+
+async def add_ml_product(amount: int, price: float, label: str, offer_id: str):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO ml_products (amount, price, label, offer_id) VALUES (%s,%s,%s,%s)",
+                (amount, price, label, offer_id))
+
+
+async def update_ml_product(product_id: int, amount: int, price: float, label: str, offer_id: str):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE ml_products SET amount=%s, price=%s, label=%s, offer_id=%s WHERE id=%s",
+                (amount, price, label, offer_id, product_id))
+
+
+async def delete_ml_product(product_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("DELETE FROM ml_products WHERE id=%s", (product_id,))
 
 
 async def delete_ffbr_product(product_id: int):

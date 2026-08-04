@@ -779,6 +779,141 @@ async def list_categories() -> list:
     return []
 
 
+# ==================== MOBILE LEGENDS ====================
+# ML аз бозиҳои дигар ФАРҚ мекунад: ба ҷуз Player ID боз Server (Zone) ID
+# лозим аст — пас payload ДУ майдон дорад, на як.
+#
+# Ному category_id-и дақиқи FazerCards ҳанӯз тасдиқ нашудааст, барои ҳамин
+# ҳар се қиматро соҳиб аз панели админ иваз карда метавонад (бе деплой).
+ML_CATEGORY = "mobile_legends"
+ML_FIELD_PLAYER = "player_id"
+ML_FIELD_SERVER = "server_id"
+
+
+async def _ml_cfg():
+    """Танзимоти ML-ро аз база мегирад (агар соҳиб ивазашон карда бошад)."""
+    try:
+        import database as _db
+        cat = await _db.get_setting("ml_category_id")
+        fp = await _db.get_setting("ml_field_player")
+        fs = await _db.get_setting("ml_field_server")
+    except Exception as e:
+        logger.warning(f"_ml_cfg: танзимот аз база хонда нашуд ({e}) — пешфарз")
+        cat = fp = fs = ""
+    return (cat or ML_CATEGORY, fp or ML_FIELD_PLAYER, fs or ML_FIELD_SERVER)
+
+
+async def get_nickname_ml(player_id: str, server_id: str) -> str:
+    """Номи аккаунти Mobile Legends (Player ID + Server ID)."""
+    if not config.FAZER_KEY:
+        return ""
+    category_id, f_player, f_server = await _ml_cfg()
+    headers = {"X-API-Key": config.FAZER_KEY, "Content-Type": "application/json"}
+    payload = {
+        "category_id": category_id,
+        "fields": {f_player: player_id, f_server: server_id},
+    }
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                f"{config.FAZER_BASE}/topups/validate-id",
+                json=payload, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=15)
+            ) as r:
+                data = await r.json(content_type=None)
+    except Exception as e:
+        logger.warning(f"FazerCards ML validate хато: {e}")
+        return ""
+    logger.info(f"FazerCards ML validate ({player_id}/{server_id}): {data}")
+    if not isinstance(data, dict):
+        return ""
+    for key in ("player_name", "username", "nickname", "name"):
+        v = data.get(key)
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+    inner = data.get("data") or data.get("result") or {}
+    if isinstance(inner, dict):
+        for key in ("player_name", "username", "nickname", "name"):
+            v = inner.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+    return ""
+
+
+async def auto_donate_ml(player_id: str, server_id: str, offer_id: str,
+                         existing_order_id: str = "", order_id: int | str = ""):
+    """Донати худкор барои Mobile Legends (ду майдон: Player ID + Server ID)."""
+    retry_tag = ""
+    if existing_order_id:
+        status_data = await _fazer_status(existing_order_id)
+        status = ""
+        if isinstance(status_data, dict):
+            status = (status_data.get("order") or {}).get("status") \
+                or status_data.get("status") or ""
+        if status == "completed":
+            return True, existing_order_id
+        if status == "processing":
+            return False, existing_order_id
+        if status not in _FAZER_FAILED:
+            note_unknown_status(status, existing_order_id)
+            logger.warning(f"auto_donate_ml: ҳолати {existing_order_id} "
+                           f"номаълум ({status!r}) — кӯшиши нав НАШУД")
+            return False, existing_order_id
+        retry_tag = existing_order_id
+
+    if not offer_id or not config.FAZER_KEY:
+        return False, ""
+
+    category_id, f_player, f_server = await _ml_cfg()
+    headers = {
+        "X-API-Key": config.FAZER_KEY,
+        "Content-Type": "application/json",
+        "Idempotency-Key": _idem_key("ml", order_id, retry_tag),
+    }
+    payload = {
+        "category_id": category_id,
+        "offer_id": offer_id,
+        "fields": {f_player: player_id, f_server: server_id},
+    }
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                f"{config.FAZER_BASE}/topups/order",
+                json=payload, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as r:
+                result = await r.json(content_type=None)
+        logger.info(f"FazerCards ML order: {result}")
+    except Exception as e:
+        logger.error(f"FazerCards ML order хато: {e}")
+        return False, ""
+
+    api_order_id = ""
+    if isinstance(result, dict):
+        order_block = result.get("order") or {}
+        api_order_id = str(order_block.get("id") or result.get("id") or "")
+    if not result.get("ok") or not api_order_id:
+        logger.error(f"FazerCards ML фармоиш нашуд: {result}")
+        return False, api_order_id
+
+    for _ in range(60):
+        await asyncio.sleep(10)
+        status_data = await _fazer_status(api_order_id)
+        status = ""
+        if isinstance(status_data, dict):
+            status = (status_data.get("order") or {}).get("status") \
+                or status_data.get("status") or ""
+        if status == "completed":
+            return True, api_order_id
+        if status in _FAZER_FAILED:
+            logger.error(f"FazerCards ML {api_order_id} рад шуд: {status}")
+            return False, api_order_id
+        if status and status not in _FAZER_PROCESSING:
+            note_unknown_status(status, api_order_id)
+    logger.warning(f"FazerCards ML {api_order_id} дар 10 дақиқа тамом нашуд")
+    return False, api_order_id
+
+
 async def get_nickname_ffbr(player_id: str) -> str:
     """Номи аккаунти FF Brazil. Мисли FFID — агар категорияи BR санҷишро
     дастгирӣ накунад, категорияи кории СНГ-ро мекӯшад."""
