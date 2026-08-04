@@ -417,6 +417,41 @@ async def _log_to_channel(message: Message, user_id: int, sender: str, text: str
         logger.error(f"[LOG-CHANNEL] нашуд: {e}")
 
 
+async def _owner_order_lookup(message: Message, chat_id: int, text: str):
+    """
+    Соҳиб дар чат бо мизоҷ рақами фармоиш навишт — ҳолаташро ҳамин ҷо
+    нишон медиҳем, то ба боти асосӣ рафтан лозим нашавад.
+
+    Агар фармоиш ба ҲАМИН мизоҷ тааллуқ дошта бошад, ҷавоб дар чат
+    менависем — мизоҷ ҳам мебинад ва ин фоиданок аст.
+
+    Агар ба каси ДИГАР тааллуқ дошта бошад, дар чат ЧИЗЕ намекушоем
+    (вагарна маълумоти мизоҷи дигар ба ин мизоҷ ошкор мешавад) —
+    ҷавобро ба чати шахсии соҳиб мефиристем.
+    """
+    ids = {int(m.group(1)) for m in _ORDER_RE.finditer(text or "")}
+    if not ids or len(ids) > 3:
+        return
+    for order_id in sorted(ids):
+        try:
+            order = await get_order_by_id(order_id)
+        except Exception as e:
+            logger.error(f"[OWNER-LOOKUP] #{order_id}: {e}")
+            continue
+        if not order:
+            await notify_owner(f"🔍 Фармоиши #{order_id} дар база нест.")
+            continue
+        if order["user_id"] == chat_id:
+            await message.answer(_status_text(order))
+            _watch_add(chat_id, order, message.business_connection_id)
+        else:
+            await notify_owner(
+                f"🔍 Фармоиши #{order_id}\n\n{_status_text(order)}\n\n"
+                f"⚠️ Ин фармоиш ба мизоҷи ДИГАР (ID: {order['user_id']}) "
+                f"тааллуқ дорад — барои ҳамин дар чат нанавиштам."
+            )
+
+
 @dp.business_message()
 async def handle_business_message(message: Message):
     chat_id = message.chat.id
@@ -439,6 +474,10 @@ async def handle_business_message(message: Message):
         # Telegram Business API ин паёмҳоро ҳам ҳамчун business_message
         # мефиристад (барои синхронизатсия) — бот НАБОЯД ба паёми худи
         # соҳиб ҷавоб гардонад, вагарна ду "овоз" дар як чат пайдо мешавад.
+        # ИСТИСНО: агар СОҲИБ худаш рақами фармоиш нависад, бот ҳолаташро
+        # ҲАМИН ҶО нишон медиҳад — то соҳиб маҷбур нашавад ба боти асосӣ
+        # равад. Ин ягона ҳолатест, ки бот ба паёми соҳиб ҷавоб медиҳад.
+        await _owner_order_lookup(message, chat_id, text)
         logger.info(f"[SKIP-OWN] chat={chat_id} — паёми худи соҳиб, четак карда шуд")
         return
 

@@ -237,6 +237,13 @@ async def from_client(message: Message):
         _map[mid] = uid
     _save_map()
 
+    # Тасдиқ ба мизоҷ — баъди ҲАР паём. Бе ин экрани ӯ хомӯш мемонад ва
+    # ӯ намедонад паёмаш расид ё бот вайрон аст.
+    try:
+        await message.answer("✅ Паёматон расид. Ба зудӣ ҷавоб медиҳам 🙏")
+    except Exception as e:
+        logger.info(f"Тасдиқ ба {uid} нарасид: {e}")
+
     await chatlog.record(bot, message, uid, "client", name,
                          message.from_user.username or "", src="sup")
 
