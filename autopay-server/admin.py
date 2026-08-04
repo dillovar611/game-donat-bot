@@ -4535,7 +4535,10 @@ async def a_show_offers(call: CallbackQuery):
             f"Сабаб ё category_id нодуруст аст, ё роҳи дархост.\n"
             f"«🩺 Ташхис»-ро пахш кунед — ҷавоби ХОМИ FazerCards-ро "
             f"нишон медиҳад ва сураташро ба ман фиристед.",
-            InlineKeyboardMarkup(inline_keyboard=[
+            InlineKeyboardMarkup(inline_keyboard=([
+                [InlineKeyboardButton(text="🔎 Номи дурустро ёбад",
+                                      callback_data="ml_find_category")]
+            ] if key == "ml" else []) + [
                 [InlineKeyboardButton(text="🩺 Ташхис", callback_data=f"probe_{key}")],
                 [InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back)]
             ])
@@ -4827,6 +4830,7 @@ async def a_ml_products(call: CallbackQuery):
         )])
     buttons.append([InlineKeyboardButton(text="➕ Маҳсулоти нав", callback_data="mladd")])
     buttons.append([InlineKeyboardButton(text="🔍 Офферҳои FazerCards", callback_data="offers_ml")])
+    buttons.append([InlineKeyboardButton(text="🔎 category_id-ро худаш ёбад", callback_data="ml_find_category")])
     buttons.append([InlineKeyboardButton(text="⚙️ Танзимоти API", callback_data="ml_settings")])
     buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")])
     await _safe_edit(
@@ -5079,3 +5083,85 @@ async def a_probe_api(call: CallbackQuery):
             [InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back)]
         ])
     )
+
+
+# ==================== ЁФТАНИ category_id ====================
+class FindCategoryState(StatesGroup):
+    custom = State()
+
+
+def _found_text(found: list) -> str:
+    lines = ["✅ <b>Ёфт шуд!</b>\n"]
+    for f in found:
+        lines.append(
+            f"🔑 <code>{esc(f['id'])}</code>\n"
+            f"    {f['count']} оффер · мисол: {esc(str(f['sample'])[:40])}\n"
+        )
+    lines.append("👆 Дурустро дар «⚙️ Танзимоти API» гузоред.")
+    return "\n".join(lines)[:4000]
+
+
+@router.callback_query(F.data == "ml_find_category")
+async def a_ml_find_category(call: CallbackQuery):
+    """Номҳои эҳтимолии category_id-и ML-ро якто-якто месанҷад ва онеро
+    нишон медиҳад, ки воқеан оффер дорад."""
+    if not is_admin(call.from_user.id):
+        return
+    await call.answer("⏳ Меҷӯям (то 1 дақиқа)...")
+    found = await ff_api.find_category(ff_api.ML_CANDIDATES)
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✍️ Худам номҳо менависам", callback_data="ml_find_custom")],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_ml_products")],
+    ])
+    if not found:
+        await _safe_edit(
+            call,
+            f"❌ Аз {len(ff_api.ML_CANDIDATES)} номи санҷидашуда ягонтоаш "
+            f"оффер надошт.\n\n"
+            f"Яъне дар FazerCards Mobile Legends номи дигар дорад.\n\n"
+            f"📌 Агар дар сайти FazerCards номашро бинед, «✍️ Худам номҳо "
+            f"менависам»-ро пахш кунед ва онро нависед.",
+            back_kb
+        )
+        return
+    await _safe_edit(call, _found_text(found), back_kb)
+
+
+@router.callback_query(F.data == "ml_find_custom")
+async def a_ml_find_custom(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await _safe_edit(
+        call,
+        "✍️ <b>Номҳои эҳтимолиро нависед</b>\n\n"
+        "Якчандтоашро бо вергул ҷудо кунед — бот ҳар якеро месанҷад:\n\n"
+        "Мисол:\n"
+        "<code>mobile_legends_gl, mlbb_id, legends_auto</code>",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_ml_products")]
+        ])
+    )
+    await state.set_state(FindCategoryState.custom)
+
+
+@router.message(FindCategoryState.custom)
+async def a_ml_find_custom_run(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.clear()
+    cands = [c.strip() for c in message.text.replace("\n", ",").split(",") if c.strip()]
+    if not cands:
+        await message.answer("⚠️ Ягон ном нанавиштед.")
+        return
+    cands = cands[:25]
+    wait = await message.answer(f"⏳ {len(cands)} номро месанҷам...")
+    found = await ff_api.find_category(cands)
+    if not found:
+        await wait.edit_text(
+            "❌ Ягонтоаш оффер надошт.\n\n"
+            "Номҳои дигарро кӯшиш кунед — ё дар сайти FazerCards "
+            "категорияи Mobile Legends-ро кушоед ва номи дақиқашро бинед.",
+            parse_mode="HTML"
+        )
+        return
+    await wait.edit_text(_found_text(found), parse_mode="HTML")

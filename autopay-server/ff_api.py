@@ -746,6 +746,40 @@ async def list_offers(category_id: str) -> list:
     return []
 
 
+# Номҳои эҳтимолии category_id-и Mobile Legends дар FazerCards.
+# Аз рӯи услуби номгузории худи FazerCards сохта шудаанд: бозиҳои дигар
+# free_fire_cis / free_fire_id / free_fire_br / pubg_mobile_auto ном доранд —
+# яъне snake_case + пасванди минтақа/навъ.
+ML_CANDIDATES = [
+    "mobile_legends", "mobile_legends_global", "mobile_legends_auto",
+    "mobile_legends_cis", "mobile_legends_bang_bang", "mobilelegends",
+    "mlbb", "mlbb_global", "mlbb_auto", "ml_global", "ml",
+    "mobile_legends_gl", "mobile_legend", "moba_mobile_legends",
+]
+
+
+async def find_category(candidates: list) -> list:
+    """Ҳар номи эҳтимолиро месанҷад ва онҳоеро бармегардонад, ки ВОҚЕАН
+    оффер доранд. Барои ёфтани category_id-и бозии нав, вақте рӯйхати
+    категорияҳои FazerCards дастрас нест.
+    Ҳар элемент: {id, count, sample}."""
+    found = []
+    for cid in candidates:
+        try:
+            offers = await list_offers(cid)
+        except Exception as e:
+            logger.warning(f"find_category({cid}) хато: {e}")
+            continue
+        if offers:
+            found.append({
+                "id": cid,
+                "count": len(offers),
+                "sample": offers[0].get("name", ""),
+            })
+            logger.info(f"find_category: {cid} → {len(offers)} оффер")
+    return found
+
+
 async def probe_api(category_id: str = "") -> list:
     """ТАШХИС: якчанд роҳи гирифтани рӯйхати офферҳо/категорияҳоро месанҷад
     ва ҷавоби ХОМИ ҳар яке (код + матн)-ро бармегардонад.
