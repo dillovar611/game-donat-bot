@@ -172,6 +172,7 @@ async def a_products_menu(call: CallbackQuery):
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 FF алмазҳо",   callback_data="a_products")],
         [InlineKeyboardButton(text="💎 FF Indonesia", callback_data="a_ffid_products")],
+        [InlineKeyboardButton(text="🇧🇷 FF Brazil",    callback_data="a_ffbr_products")],
         [InlineKeyboardButton(text="💰 PUBG UC",      callback_data="a_pubg_products")],
         [InlineKeyboardButton(text="🔫 Standoff 2",   callback_data="a_standoff_products")],
         [InlineKeyboardButton(text="⭐ Stars/Premium", callback_data="a_tg_products")],
@@ -4329,3 +4330,265 @@ async def a_standoff_product_change_save(message: Message, state: FSMContext):
         return
     await message.answer("✅ Маҳсулот навсозӣ шуд!")
     await state.clear()
+
+
+
+# ==================== ТАСДИҚ FF BRAZIL + ИДОРАКУНӢ ====================
+@router.callback_query(F.data.startswith("okffbr_"))
+async def order_confirm_ffbr(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        await call.answer("❌ Иҷозат нест!", show_alert=True)
+        return
+
+    order_id = int(call.data.split("_")[1])
+    order = await db.get_order(order_id)
+    if not order:
+        await call.answer("❌ Фармоиш ёфт нашуд!", show_alert=True)
+        return
+    if order["status"] in ("confirmed", "rejected"):
+        await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+        return
+    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+        await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
+        return
+
+    await call.answer("⏳ Донат оғоз шуд...", show_alert=False)
+
+    # game_id формат: "FFBR:123456789"
+    player_id = order["game_id"].replace("FFBR:", "") if order["game_id"].startswith("FFBR:") else order["game_id"]
+
+    await _safe_edit_caption(
+        call.message,
+        f"⏳ <b>Донати худкор оғоз шуд (FF Brazil)...</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n"
+        f"{order['label']} → <code>{player_id}</code>",
+        None
+    )
+
+    import asyncio as _asyncio
+    _asyncio.create_task(_do_donate_ffbr(call, order, player_id, call.message))
+
+
+async def _do_donate_ffbr(call: CallbackQuery, order: dict, player_id: str, wait_msg: Message):
+    order_id = order["id"]
+    header = (
+        f"⏳ <b>Автодонати шумо оғоз шуд (FF Brazil)...</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n"
+        f"{order['label']} → <code>{player_id}</code>"
+    )
+    success, api_order_id = await _run_with_live_progress(
+        wait_msg, header,
+        ff_api.auto_donate_ffbr(player_id, order["offer_id"], order.get("api_order_id") or "", order_id)
+    )
+
+    if api_order_id:
+        await db.set_order_api_id(order_id, api_order_id)
+
+    api_id_line = f"🆔 ID FazerCards: <code>{api_order_id}</code>\n" if api_order_id else ""
+
+    if success:
+        await db.update_order_status(order_id, "confirmed")
+        await db.set_confirmed_at(order_id)
+        await _credit_referral_and_notify(call.bot, order_id)
+        try:
+            await call.bot.send_message(
+                order["user_id"],
+                f"✅ <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
+                f"🆔 Фармоиш: #{order_id}\n"
+                f"{order['label']} → <code>{player_id}</code>\n\n"
+                f"🙏 Ташаккур барои харид!\n\n"
+                f"⭐ Лутфан отзив гузоред:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
+                ]),
+                parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Хабар ба корбар нашуд: {e}")
+        buyer_line = await _buyer_info_line(order)
+        await _safe_edit_caption(
+            wait_msg,
+            f"✅ <b>Донат муваффақ шуд!</b>\n\n"
+            f"{buyer_line}\n"
+            f"🆔 Фармоиш: #{order_id}\n"
+            f"{api_id_line}"
+            f"{order['label']} → <code>{player_id}</code>",
+            None
+        )
+    else:
+        await db.update_order_status(order_id, "failed")
+        try:
+            user_chat = await call.bot.get_chat(order["user_id"])
+            ls_url = f"https://t.me/{user_chat.username}" if user_chat.username else f"tg://user?id={order['user_id']}"
+        except Exception:
+            ls_url = f"tg://user?id={order['user_id']}"
+        retry_kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Дубора донат", callback_data=f"okffbr_{order_id}")],
+            [InlineKeyboardButton(text="✅ Дастӣ тасдиқ кардам", callback_data=f"manual_{order_id}")],
+            [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order_id}")],
+            [InlineKeyboardButton(text="💬 ЛС ба клент", url=ls_url)],
+        ])
+        await _safe_edit_caption(
+            wait_msg,
+            f"⚠️ <b>Донати худкор нашуд!</b>\n\n"
+            f"🆔 Фармоиш: #{order_id}\n"
+            f"{api_id_line}"
+            f"🆔 ID: <code>{player_id}</code>\n"
+            f"{order['label']}\n\n"
+            f"Метавонед дубора кӯшиш кунед ё дастӣ донат карда тасдиқ кунед.",
+            retry_kb
+        )
+
+
+@router.callback_query(F.data == "a_ffbr_products")
+async def a_ffbr_products(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    products = await db.get_all_ffbr_products()
+    buttons = []
+    for p in products:
+        active = "🟢" if p["is_active"] else "🔴"
+        label = p.get("label") or f"💎 {p['amount']}"
+        buttons.append([InlineKeyboardButton(
+            text=f"{active} {label} — {p['price']:.2f} сом",
+            callback_data=f"ffbredit_{p['id']}"
+        )])
+    buttons.append([InlineKeyboardButton(text="➕ Маҷсулоти нав", callback_data="ffbradd")])
+    buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")])
+    await _safe_edit(
+        call,
+        "💎 <b>Идоракунии FF Brazil</b>\n\nБарои таҳрир интихоб кунед:",
+        InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+
+
+@router.callback_query(F.data.startswith("ffbredit_"))
+async def a_ffbr_product_edit(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    product_id = int(call.data.split("_")[1])
+    p = await db.get_ffbr_product(product_id)
+    if not p:
+        await call.answer("❌ Ёфт нашуд!", show_alert=True)
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✏️ Тағйир додан", callback_data=f"ffbrchange_{product_id}")],
+        [InlineKeyboardButton(text="🗑 Нест кардан",   callback_data=f"ffbrdel_{product_id}")],
+        [InlineKeyboardButton(text="🔙 Бозгашт",       callback_data="a_ffbr_products")],
+    ])
+    await _safe_edit(
+        call,
+        f"💎 <b>Маҷсулот #{product_id}</b>\n\n"
+        f"🔢 Миқдор: <b>{p['amount']}</b>\n"
+        f"💵 Нарх: <b>{p['price']:.2f} сом</b>\n"
+        f"🏷 Ном: <b>{p.get('label') or '—'}</b>\n"
+        f"🔑 Offer ID: <code>{p.get('offer_id') or '—'}</code>",
+        kb
+    )
+
+
+@router.callback_query(F.data.startswith("ffbrdel_"))
+async def a_ffbr_product_delete(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    product_id = int(call.data.split("_")[1])
+    await db.delete_ffbr_product(product_id)
+    await call.answer("✅ Нест карда шуд!")
+    await a_ffbr_products(call)
+
+
+class FFBRProductState(StatesGroup):
+    add_data    = State()
+    change_data = State()
+
+
+@router.callback_query(F.data == "ffbradd")
+async def a_ffbr_product_add(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await _safe_edit(
+        call,
+        "➕ <b>Маҷсулоти нав (FF Brazil)</b>\n\n"
+        "Бо ин формат нависед (бо | ҷудо):\n"
+        "<code>миқдор | нарх | ном | offer_id</code>\n\n"
+        "Мисол:\n"
+        "<code>500 | 45.00 | 💎 500 | 500_diamonds</code>",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_ffbr_products")]
+        ])
+    )
+    await state.set_state(FFBRProductState.add_data)
+
+
+@router.message(FFBRProductState.add_data)
+async def a_ffbr_product_add_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        parts = [x.strip() for x in message.text.split("|")]
+        amount = int(parts[0])
+        price = float(parts[1])
+        label = parts[2] if len(parts) > 2 else f"💎 {amount}"
+        offer_id = parts[3] if len(parts) > 3 else ""
+    except Exception:
+        await message.answer(
+            "⚠️ Хато! Формат:\n<code>миқдор | нарх | ном | offer_id</code>",
+            parse_mode="HTML"
+        )
+        return
+    try:
+        await db.add_ffbr_product(amount, price, label, offer_id)
+    except Exception as e:
+        logger.error(f"a_ffbr_product_add_save: db.add_ffbr_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Маҳсулоти нав илова шуд!")
+    await state.clear()
+
+
+@router.callback_query(F.data.startswith("ffbrchange_"))
+async def a_ffbr_product_change(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    product_id = int(call.data.split("_")[1])
+    await state.update_data(edit_id=product_id)
+    await _safe_edit(
+        call,
+        "✏️ <b>Тағйир додан</b>\n\n"
+        "Бо ин формат нависед (бо | ҷудо):\n"
+        "<code>миқдор | нарх | ном | offer_id</code>",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_ffbr_products")]
+        ])
+    )
+    await state.set_state(FFBRProductState.change_data)
+
+
+@router.message(FFBRProductState.change_data)
+async def a_ffbr_product_change_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        parts = [x.strip() for x in message.text.split("|")]
+        amount = int(parts[0])
+        price = float(parts[1])
+        label = parts[2] if len(parts) > 2 else f"💎 {amount}"
+        offer_id = parts[3] if len(parts) > 3 else ""
+    except Exception:
+        await message.answer(
+            "⚠️ Хато! Формат:\n<code>миқдор | нарх | ном | offer_id</code>",
+            parse_mode="HTML"
+        )
+        return
+    try:
+        data = await state.get_data()
+        await db.update_ffbr_product(data["edit_id"], amount, price, label, offer_id)
+    except Exception as e:
+        logger.error(f"a_ffbr_product_change_save: db.update_ffbr_product хато: {e}")
+        await message.answer("⚠️ Хатои система — бо админи техникӣ тамос гиред.")
+        return
+    await message.answer("✅ Маҳсулот навсозӣ шуд!")
+    await state.clear()
+
+
+# ==================== ТАСДИҲ PUBG ====================

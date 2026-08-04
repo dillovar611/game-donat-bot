@@ -689,6 +689,95 @@ async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str
     return False, api_order_id
 
 
+# ==================== FREE FIRE BRAZIL (free_fire_br) ====================
+# FF BR дар FazerCards аст — донати ХУДКОР дорад, мисли FF СНГ/FFID.
+# Танҳо фарқ дар category_id: 'free_fire_br'. ID-и Free Fire ҷаҳонӣ аст,
+# пас санҷиши ном ҳамон категорияи кориро мекӯшад (мисли FFID).
+FFBR_CATEGORY = "free_fire_br"
+
+
+async def get_nickname_ffbr(player_id: str) -> str:
+    """Номи аккаунти FF Brazil. Мисли FFID — агар категорияи BR санҷишро
+    дастгирӣ накунад, категорияи кории СНГ-ро мекӯшад."""
+    cats = [FFBR_CATEGORY]
+    if config.FF_CATEGORY_VALIDATE not in cats:
+        cats.append(config.FF_CATEGORY_VALIDATE)
+    for cat in cats:
+        name = await _ffid_validate_one(player_id, cat)
+        if name:
+            return name
+    return ""
+
+
+async def auto_donate_ffbr(player_id: str, offer_id: str,
+                           existing_order_id: str = "", order_id: int | str = ""):
+    """Донати худкор барои Free Fire Brazil (category: free_fire_br)."""
+    retry_tag = ""
+    if existing_order_id:
+        status_data = await _fazer_status(existing_order_id)
+        status = ""
+        if isinstance(status_data, dict):
+            status = (status_data.get("order") or {}).get("status") \
+                or status_data.get("status") or ""
+        if status == "completed":
+            return True, existing_order_id
+        if status == "processing":
+            return False, existing_order_id
+        if status not in _FAZER_FAILED:
+            note_unknown_status(status, existing_order_id)
+            logger.warning(f"auto_donate_ffbr: ҳолати {existing_order_id} "
+                           f"номаълум ({status!r}) — кӯшиши нав НАШУД")
+            return False, existing_order_id
+        retry_tag = existing_order_id
+
+    if not offer_id or not config.FAZER_KEY:
+        return False, ""
+
+    headers = {
+        "X-API-Key": config.FAZER_KEY,
+        "Content-Type": "application/json",
+        "Idempotency-Key": _idem_key("ffbr", order_id, retry_tag),
+    }
+    payload = {
+        "category_id": FFBR_CATEGORY,
+        "offer_id": offer_id,
+        "fields": {"player_id": player_id},
+    }
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.post(
+                f"{config.FAZER_BASE}/topups/order",
+                json=payload, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=30)
+            ) as r:
+                result = await r.json(content_type=None)
+        logger.info(f"FazerCards FFBR order: {result}")
+    except Exception as e:
+        logger.error(f"FazerCards FFBR order хато: {e}")
+        return False, ""
+
+    api_order_id = ""
+    if isinstance(result, dict):
+        order_block = result.get("order") or {}
+        api_order_id = str(order_block.get("id") or result.get("id") or "")
+    if not result.get("ok") or not api_order_id:
+        logger.error(f"FazerCards FFBR фармоиш нашуд: {result}")
+        return False, api_order_id
+
+    for _ in range(60):
+        await asyncio.sleep(10)
+        status_data = await _fazer_status(api_order_id)
+        status = ""
+        if isinstance(status_data, dict):
+            status = (status_data.get("order") or {}).get("status") \
+                or status_data.get("status") or ""
+        if status == "completed":
+            return True, api_order_id
+        if status in _FAZER_FAILED:
+            return False, api_order_id
+    return False, api_order_id
+
+
 # ==================== TELEGRAM STARS / PREMIUM ====================
 async def buy_telegram_stars(username: str, quantity: int, order_id: int | str = "",
                               existing_order_id: str = ""):

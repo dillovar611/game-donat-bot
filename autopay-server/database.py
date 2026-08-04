@@ -236,6 +236,20 @@ async def init_db():
                     sort_order INT DEFAULT 0
                 )
             """)
+
+            # ---- Free Fire Brazil: донати ХУДКОР (FazerCards, category
+            # free_fire_br) — пас offer_id ҲАСТ, мисли FF СНГ ----
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS ffbr_products (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    amount INT NOT NULL,
+                    price DECIMAL(10,2) NOT NULL,
+                    label VARCHAR(255),
+                    offer_id VARCHAR(255),
+                    is_active TINYINT DEFAULT 1,
+                    sort_order INT DEFAULT 0
+                )
+            """)
     # Агар маҲсулот набошад, намунаҲои пешфарзро илова мекунем
     await _seed_default_products()
 
@@ -2519,6 +2533,51 @@ async def delete_standoff_product(product_id: int):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute("DELETE FROM standoff_products WHERE id=%s", (product_id,))
+
+
+# ==================== FREE FIRE BRAZIL (донати ХУДКОР) ====================
+async def get_ffbr_products():
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM ffbr_products WHERE is_active=1 ORDER BY sort_order, amount")
+            return await cur.fetchall()
+
+
+async def get_ffbr_product(product_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT * FROM ffbr_products WHERE id=%s", (product_id,))
+            return await cur.fetchone()
+
+
+async def get_all_ffbr_products():
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute("SELECT * FROM ffbr_products ORDER BY sort_order, amount")
+            return await cur.fetchall()
+
+
+async def add_ffbr_product(amount: int, price: float, label: str, offer_id: str):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO ffbr_products (amount, price, label, offer_id) VALUES (%s,%s,%s,%s)",
+                (amount, price, label, offer_id))
+
+
+async def update_ffbr_product(product_id: int, amount: int, price: float, label: str, offer_id: str):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE ffbr_products SET amount=%s, price=%s, label=%s, offer_id=%s WHERE id=%s",
+                (amount, price, label, offer_id, product_id))
+
+
+async def delete_ffbr_product(product_id: int):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("DELETE FROM ffbr_products WHERE id=%s", (product_id,))
 
 
 # ==================== TELEGRAM STARS ====================

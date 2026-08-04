@@ -3441,3 +3441,345 @@ async def standoff_admin_done(call: CallbackQuery):
         except Exception:
             pass
     await call.answer("✅ Тасдиқ шуд, мизоҷ хабар гирифт.")
+
+
+
+# ==================== FREE FIRE BRAZIL (донати ХУДКОР) ====================
+class FFBRBuyState(StatesGroup):
+    enter_id       = State()
+    choose_product = State()
+    choose_payment = State()
+    wait_check     = State()
+
+
+# ==================== ОҒОЗ: ID НАВИШТАН ====================
+@router.callback_query(F.data == "buy_ffbr")
+async def ffbr_buy_start(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="games_menu")]
+    ])
+    await _safe_edit(
+        call,
+        "🔥 <b>Free Fire Brazil — Харидани алмаз</b>\n\n"
+        "📝 ID аккаунтатонро нависед:\n"
+        "Мисол: <code>123456789</code>",
+        kb
+    )
+    await state.set_state(FFBRBuyState.enter_id)
+
+
+@router.message(FFBRBuyState.enter_id)
+async def ffbr_enter_id(message: Message, state: FSMContext):
+    player_id = message.text.strip()
+    if not player_id.isdigit():
+        await message.answer("⚠️ ID танҳо аз рақамҳо иборат аст! Дубора нависед:")
+        return
+
+    wait = await message.answer("⏳ ID тафтиш мешавад...")
+    nickname = await ff_api.get_nickname_ffbr(player_id)
+    await state.update_data(player_id=player_id, nickname=nickname)
+
+    if nickname:
+        text = (
+            f"🔥 <b>Free Fire Brazil</b>\n\n"
+            f"🆔 ID: <code>{player_id}</code>\n"
+            f"👤 Ном: <b>{esc(nickname)}</b>\n\n"
+            f"✅ Агар ин аккаунти шумо бошад «Давом»-ро пахш кунед:"
+        )
+    else:
+        text = (
+            f"🔥 <b>Free Fire Brazil</b>\n\n"
+            f"🆔 ID: <code>{player_id}</code>\n"
+            f"⚠️ Номи аккаунт ёфт нашуд.\n\n"
+            f"ID-ро бодиққат тафтиш кунед ва агар дуруст бошад «Давом»-ро пахш кунед:"
+        )
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Давом", callback_data="ffbr_id_ok")],
+        [InlineKeyboardButton(text="✏️ ID-ро тағйир медиҳам", callback_data="buy_ffbr")],
+    ])
+    await _safe_edit_msg(wait, text, kb)
+
+
+# ==================== РӮЙХАТИ МАҲСУЛОТ ====================
+@router.callback_query(F.data == "ffbr_id_ok")
+async def ffbr_show_products(call: CallbackQuery, state: FSMContext):
+    products = await db.get_ffbr_products()
+    if not products:
+        await call.answer("❌ Ҳозир маҳсулот нест. Баъдтар кӯшиш кунед.", show_alert=True)
+        return
+
+    buttons = []
+    for p in products:
+        label = p.get("label") or f"💎 {p['amount']}"
+        buttons.append([InlineKeyboardButton(
+            text=f"{label} — {p['price']:.2f} сом",
+            callback_data=f"ffbr_prod_{p['id']}"
+        )])
+    buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="buy_ffbr")])
+
+    await _safe_edit(
+        call,
+        "💎 <b>Алмазҳои Free Fire Brazil</b>\n\nМаҷсулотро интихоб кунед:",
+        InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+    await state.set_state(FFBRBuyState.choose_product)
+
+
+# ==================== ИНТИХОБИ ТАРИҚИ ПАРДОХТ ====================
+@router.callback_query(F.data.startswith("ffbr_prod_"), FFBRBuyState.choose_product)
+async def ffbr_choose_payment(call: CallbackQuery, state: FSMContext):
+    product_id = int(call.data.split("_")[2])
+    product = await db.get_ffbr_product(product_id)
+    if not product:
+        await call.answer("❌ Маҷсулот ёфт нашуд!", show_alert=True)
+        return
+
+    await state.update_data(
+        product_id=product_id,
+        amount=product["amount"],
+        price=float(product["price"]),
+        label=product.get("label") or f"💎 {product['amount']}",
+        offer_id=product.get("offer_id") or "",
+        eskhata_link=product.get("eskhata_link") or "",
+        combo_id=None,
+    )
+
+    data = await state.get_data()
+    label = data["label"]
+    nickname = data.get("nickname", "")
+    nick_line = f"👤 Ном: <b>{esc(nickname)}</b>\n" if nickname else ""
+
+    kb_rows = [
+        [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="ffbr_pay_dc")],
+        [InlineKeyboardButton(text="💳 Алиф",          callback_data="ffbr_pay_alif")],
+        [InlineKeyboardButton(text="🏦 Эсхата",        callback_data="ffbr_pay_eskhata")],
+    ]
+    balance = await db.get_referral_balance(call.from_user.id)
+    if balance >= data["price"]:
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
+            callback_data="pay_balance"
+        )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
+        )])
+    kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="ffbr_id_ok")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    await _safe_edit(
+        call,
+        f"🛒 <b>Тасдиқи фармоиш</b>\n\n"
+        f"🎮 Бозӣ: 🔥 Free Fire Brazil\n"
+        f"🆔 ID: <code>{data['player_id']}</code>\n"
+        f"{nick_line}"
+        f"🎁 Маҳсулот: <b>{label}</b>\n"
+        f"💵 Нарх: <b>{data['price']:.2f} сомонӣ</b>\n\n"
+        f"💰 Тариқи пардохтро интихоб кунед:",
+        kb
+    )
+    await state.set_state(FFBRBuyState.choose_payment)
+
+
+# ==================== РОЗИГӢ ПЕШ АЗ РЕКВИЗИТ (FFBR) ====================
+@router.callback_query(F.data.in_({"ffbr_pay_dc", "ffbr_pay_alif", "ffbr_pay_eskhata"}), FFBRBuyState.choose_payment)
+async def ffbr_ask_terms(call: CallbackQuery, state: FSMContext):
+    method_map = {
+        "ffbr_pay_dc": "dushanbe_city",
+        "ffbr_pay_eskhata": "eskhata",
+        "ffbr_pay_alif": "alif",
+    }
+    await state.update_data(pending_payment_method=method_map[call.data])
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Қабул мекунам", callback_data="ffbr_terms_accept")],
+        [InlineKeyboardButton(text="❌ Рад кунам",      callback_data="ffbr_terms_reject")],
+    ])
+    await _safe_edit(call, TERMS_TEXT_ROZIGI, kb)
+
+
+@router.callback_query(F.data == "ffbr_terms_reject", FFBRBuyState.choose_payment)
+async def ffbr_terms_reject(call: CallbackQuery, state: FSMContext):
+    await call.answer("Бекор карда шуд.")
+    data = await state.get_data()
+    label = data["label"]
+    nickname = data.get("nickname", "")
+    nick_line = f"👤 Ном: <b>{esc(nickname)}</b>\n" if nickname else ""
+    kb_rows = [
+        [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="ffbr_pay_dc")],
+        [InlineKeyboardButton(text="💳 Алиф",          callback_data="ffbr_pay_alif")],
+        [InlineKeyboardButton(text="🏦 Эсхата",        callback_data="ffbr_pay_eskhata")],
+    ]
+    balance = await db.get_referral_balance(call.from_user.id)
+    if balance >= data["price"]:
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 Истифода аз баланс ({balance:.2f} сом)",
+            callback_data="pay_balance"
+        )])
+    else:
+        shortfall = round(data["price"] - balance, 2)
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 {shortfall:.2f} сом норасост — Пур кунед",
+            callback_data=f"topup_shortfall_{shortfall:.2f}"
+        )])
+    kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="ffbr_id_ok")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    await _safe_edit(
+        call,
+        f"🛒 <b>Тасдиқи фармоиш</b>\n\n"
+        f"🎮 Бозӣ: 🔥 Free Fire Brazil\n"
+        f"🆔 ID: <code>{data['player_id']}</code>\n"
+        f"{nick_line}"
+        f"🎁 Маҳсулот: <b>{label}</b>\n"
+        f"💵 Нарх: <b>{data['price']:.2f} сомонӣ</b>\n\n"
+        f"💰 Тариқи пардохтро интихоб кунед:",
+        kb
+    )
+
+
+# ==================== НИШОН ДОДАНИ РЕКВИЗИТ ====================
+@router.callback_query(F.data == "ffbr_terms_accept", FFBRBuyState.choose_payment)
+async def ffbr_show_requisites(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    price, disc_pct, disc_amt = data["price"], 0.0, 0.0
+    price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
+    await state.update_data(price=price)
+    order_id = data.get("product_id", 0)
+    eskhata_note = ""
+    discount_note = winback_note
+
+    method = data.get("pending_payment_method", "alif")
+    if method == "dushanbe_city":
+        method_name = "🏙 Душанбе Сити"
+        dc_card = await db.get_dc_card_number()
+        pay_url = f"http://pay.expresspay.tj/?A={dc_card}&s={price:g}&c=card_ffbr{order_id}&f1=133"
+    elif method == "eskhata":
+        method_name = "🏦 Эсхата"
+        pay_url = data.get("eskhata_link") or ""
+        eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
+        if not pay_url:
+            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
+            return
+    else:
+        method_name = "💳 Алиф"
+        # Нархи каме нодир — зидди чеки такрорӣ/дуруғин (ба amount= низ мегузарад)
+        price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
+        await state.update_data(price=price)
+        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+
+    await state.update_data(payment_method=method)
+
+    await _notify_rozigiho(
+        call.bot, call.from_user, "🔥 Free Fire Brazil", data["label"],
+        price, method_name, f"ffbr{order_id}"
+    )
+
+    btn_text = method_name.replace("🏙 ", "").replace("💳 ", "").replace("🏦 ", "")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"💳 Пардохти {btn_text}", url=pay_url)],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="ffbr_id_ok")],
+    ])
+    await _safe_edit(
+        call,
+        f"💳 <b>{method_name}</b>\n\n"
+        f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
+        f"💵 Маблағ: <b>{price:.2f} сомонӣ</b>\n"
+        f"{discount_note}"
+        f"{eskhata_note}\n"
+        f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
+        f"2️⃣ Маблағи дақиқ <b>{price:.2f} сом</b>-ро пардохт кунед\n"
+        f"3️⃣ Расми чекро ба ин чат фиристед\n\n"
+        f"⏳ Шумо <b>10 дақиқа</b> вақт доред барои фиристодани чек!\n"
+        f"⚠️ Маблағ бояд дақиқ бошад!",
+        kb
+    )
+    await state.set_state(FFBRBuyState.wait_check)
+
+
+# ==================== ИНТИЗОРИ ЧЕК ====================
+@router.message(FFBRBuyState.wait_check, F.photo)
+async def ffbr_receive_check(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await state.clear()
+
+    file_id = message.photo[-1].file_id
+    check_hash = await _hash_photo(message)
+    if await _block_if_duplicate_check(message, check_hash):
+        return
+    _pm = data.get("payment_method")
+    if _pm == "dushanbe_city":
+        method_name = "🏙 Душанбе Сити"
+    elif _pm == "eskhata":
+        method_name = "🏦 Эсхата"
+    else:
+        method_name = "💳 Алиф"
+
+    order_id = await db.create_order(
+        user_id=message.from_user.id,
+        game_id=data["player_id"],
+        nickname=data.get("nickname", ""),
+        amount=data["amount"],
+        price=data["price"],
+        label=data["label"],
+        offer_id=data.get("offer_id", ""),
+        payment_method=data.get("payment_method", ""),
+    )
+    await db.set_order_check(order_id, file_id, check_hash)
+    # Маркер барои FF Brazil
+    async with db.pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("UPDATE orders SET game_id=%s WHERE id=%s",
+                               (f"FFBR:{data['player_id']}", order_id))
+
+    await message.answer(
+        "✅ <b>Чек қабул шуд!</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n\n"
+        "🔄 Пардохти шумо тафтиш мешавад.\n"
+        "Натиҷа ба зудӣ фиристода мешавад. 🙏",
+        parse_mode="HTML"
+    )
+    await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
+
+    nickname = data.get("nickname", "") or "—"
+    username = f"@{message.from_user.username}" if message.from_user.username else "—"
+    caption = (
+        f"📸 <b>Фармоиши нав — чек омад!</b>\n\n"
+        f"🆔 Фармоиш: <b>#{order_id}</b>\n"
+        f"👤 Корбар: {esc(message.from_user.full_name)} (<code>{message.from_user.id}</code>)\n"
+        f"📱 Username: {username}\n"
+        f"💳 Тариқ: {method_name}\n\n"
+        f"🎮 Free Fire Brazil\n"
+        f"🆔 ID: <code>{data['player_id']}</code>\n"
+        f"👤 Ном: <b>{esc(nickname)}</b>\n"
+        f"🎁 Маҷсулот: <b>{data['label']}</b>\n"
+        f"💵 Маблағ: <b>{data['price']:.2f} сомонӣ</b>"
+    )
+    username_val = message.from_user.username
+    admin_kb_rows = [
+        [InlineKeyboardButton(text="✅ Тасдиқ — донат кун (FFBR)", callback_data=f"okffbr_{order_id}")],
+        [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order_id}")],
+    ]
+    if username_val:
+        admin_kb_rows.append(
+            [InlineKeyboardButton(text="💬 ЛС ба клент", url=f"https://t.me/{username_val}")]
+        )
+    admin_kb = InlineKeyboardMarkup(inline_keyboard=admin_kb_rows)
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await message.bot.send_photo(
+                admin_id, file_id, caption=caption,
+                reply_markup=admin_kb, parse_mode="HTML"
+            )
+        except Exception as e:
+            logger.error(f"Ба админ {admin_id} фиристода нашуд: {e}")
+
+
+@router.message(FFBRBuyState.wait_check)
+async def ffbr_wrong_check(message: Message, state: FSMContext):
+    await message.answer("⚠️ Лутфан <b>расми</b> чекро фиристед (на матн).", parse_mode="HTML")
+
+
+# ════════════════════════════════════════════════════════
+#                   PUBG MOBILE
