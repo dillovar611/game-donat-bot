@@ -180,7 +180,8 @@ async def get_order_by_id(order_id: int):
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
-                "SELECT id, user_id, status, label, price, reject_reason FROM orders WHERE id=%s",
+                "SELECT id, user_id, status, label, price, reject_reason, created_at "
+                "FROM orders WHERE id=%s",
                 (order_id,),
             )
             return await cur.fetchone()
@@ -190,7 +191,7 @@ async def get_last_order_by_user(user_id: int):
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
-                "SELECT id, user_id, status, label, price, reject_reason FROM orders "
+                "SELECT id, user_id, status, label, price, reject_reason, created_at FROM orders "
                 "WHERE user_id=%s ORDER BY id DESC LIMIT 1",
                 (user_id,),
             )
@@ -347,10 +348,44 @@ def _order_header(order: dict) -> str:
     return " ".join(parts)
 
 
+# Аз ин муддат кӯҳнатар — дигар «зуд ҳал мекунем» гуфтан мумкин нест:
+# пардохти кӯҳнаро дар выписка ёфтан ғайриимкон мешавад ва ваъдаи
+# бардурӯғ мизоҷро бештар асабӣ мекунад. Ба ҷои он чек талаб мекунем.
+STALE_HOURS = 24
+
+# Ҳолатҳое, ки «сабр кунед» мегӯянд — маҳз онҳо баъди як рӯз маъно
+# гум мекунанд. Тасдиқшуда/радшуда ҳолати ниҳоӣ доранд ва бетағйир мемонанд.
+_WAITING = {"pending", "awaiting_autopay", "autopay_search", "paid",
+            "donating", "failed"}
+
+
+def _order_age_hours(order: dict):
+    created = order.get("created_at")
+    if not created:
+        return None
+    try:
+        return (datetime.now() - created).total_seconds() / 3600
+    except Exception:
+        return None
+
+
 def _status_text(order: dict) -> str:
     order_id = order["id"]
     status = order.get("status")
     header = _order_header(order)
+
+    age = _order_age_hours(order)
+    if status in _WAITING and age is not None and age >= STALE_HOURS:
+        days = max(1, int(age // 24))
+        return (
+            f"{header}\n"
+            f"⏳ Ин фармоиш аз <b>{days} рӯз</b> пеш аст ва санҷиши худкораш "
+            f"мӯҳлаташ гузаштааст.\n\n"
+            f"Агар ҳанӯз ҳал нашуда бошад, лутфан <b>расми чеки пардохт</b>-ро "
+            f"ҳамин ҷо фиристед — дастӣ месанҷем ва ҳал мекунем.\n\n"
+            f"🙏 Бе чек пардохти кӯҳнаро ёфтан душвор аст, барои ҳамин "
+            f"расмро фиристодан лозим."
+        )
 
     if status in ("pending", "awaiting_autopay"):
         body = (
