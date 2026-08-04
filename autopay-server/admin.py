@@ -4454,11 +4454,50 @@ async def a_ffbr_products(call: CallbackQuery):
             callback_data=f"ffbredit_{p['id']}"
         )])
     buttons.append([InlineKeyboardButton(text="➕ Маҷсулоти нав", callback_data="ffbradd")])
+    buttons.append([InlineKeyboardButton(text="🔍 Офферҳои FazerCards", callback_data="ffbr_offers")])
     buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")])
     await _safe_edit(
         call,
         "💎 <b>Идоракунии FF Brazil</b>\n\nБарои таҳрир интихоб кунед:",
         InlineKeyboardMarkup(inline_keyboard=buttons)
+    )
+
+
+@router.callback_query(F.data == "ffbr_offers")
+async def a_ffbr_offers(call: CallbackQuery):
+    """Ҳамаи офферҳои категорияи free_fire_br-ро бо offer_id нишон медиҳад —
+    то соҳиб ваучери ҳафта/моҳона/лайт ва ғ.-ро ёбад ва offer_id-ро нусха гирад."""
+    if not is_admin(call.from_user.id):
+        return
+    await call.answer("⏳ Мегирам...")
+    offers = await ff_api.list_offers(ff_api.FFBR_CATEGORY)
+    if not offers:
+        await _safe_edit(
+            call,
+            "❌ Ягон оффер ёфт нашуд (ё FazerCards ҷавоб надод).\n"
+            "Дертар бори дигар кӯшиш кунед.",
+            InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_ffbr_products")]
+            ])
+        )
+        return
+    lines = ["🔍 <b>Офферҳои FF Brazil (free_fire_br)</b>\n"]
+    for o in offers:
+        price = o.get("price_usd")
+        price_str = f" — ${price}" if price not in ("", None) else ""
+        lines.append(f"🏷 {esc(o['name'])}{price_str}\n🔑 <code>{esc(o['id'])}</code>\n")
+    lines.append("👆 offer_id-ро пахш кунед → нусхабардорӣ мешавад.\n"
+                 "Онро ҳангоми «➕ Маҷсулоти нав» дар қисми <code>offer_id</code> гузоред.")
+    text = "\n".join(lines)
+    # Telegram маҳдудияти 4096 аломат дорад — агар дароз шавад, бурида мефиристем
+    if len(text) > 4000:
+        text = text[:3900] + "\n\n… (рӯйхат дароз аст)"
+    await _safe_edit(
+        call,
+        text,
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_ffbr_products")]
+        ])
     )
 
 

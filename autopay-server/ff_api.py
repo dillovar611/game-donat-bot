@@ -696,6 +696,42 @@ async def auto_donate_pubg(player_id: str, offer_id: str, existing_order_id: str
 FFBR_CATEGORY = "free_fire_br"
 
 
+async def list_offers(category_id: str) -> list:
+    """Рӯйхати офферҳои як категорияро аз FazerCards мегирад.
+    Ҳар элемент: {id, name, price_usd}. Барои он ки соҳиб offer_id-ро
+    (масалан ваучери ҳафта/моҳона) дар панели админ бинад ва нусха гирад."""
+    if not config.FAZER_KEY:
+        return []
+    headers = {"X-API-Key": config.FAZER_KEY, "Content-Type": "application/json"}
+    url = f"{config.FAZER_BASE}/topups/offers?category_id={category_id}"
+    try:
+        async with aiohttp.ClientSession() as s:
+            async with s.get(
+                url, headers=headers,
+                timeout=aiohttp.ClientTimeout(total=20)
+            ) as r:
+                data = await r.json(content_type=None)
+    except Exception as e:
+        logger.error(f"FazerCards list_offers({category_id}) хато: {e}")
+        return []
+    logger.info(f"FazerCards offers ({category_id}): {data}")
+    # Ҷавоб метавонад {ok, offers:[...]} ё худи рӯйхат бошад
+    raw = []
+    if isinstance(data, dict):
+        raw = data.get("offers") or data.get("data") or data.get("result") or []
+    elif isinstance(data, list):
+        raw = data
+    out = []
+    for o in raw:
+        if not isinstance(o, dict):
+            continue
+        oid = o.get("id") or o.get("offer_id") or o.get("sku") or ""
+        name = o.get("name") or o.get("title") or o.get("label") or ""
+        price = o.get("price_usd") or o.get("price") or o.get("total_usd") or ""
+        out.append({"id": str(oid), "name": str(name), "price_usd": price})
+    return out
+
+
 async def get_nickname_ffbr(player_id: str) -> str:
     """Номи аккаунти FF Brazil. Мисли FFID — агар категорияи BR санҷишро
     дастгирӣ накунад, категорияи кории СНГ-ро мекӯшад."""
