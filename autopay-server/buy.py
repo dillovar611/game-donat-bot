@@ -56,6 +56,95 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
+async def _balance_pay_cart(call: CallbackQuery, uid: int, data: dict,
+                            cart_items: list, total: float):
+    """
+    Сабад аз баланс пардохта шуд — барои ҳар дона фармоиши алоҳида бо як
+    group_id месозад ва ба админ бо тугмаҳои гурӯҳӣ мефиристад.
+
+    Маблағ АЛЛАКАЙ аз баланс кам шудааст. Агар сохтани фармоиш нашавад,
+    пул ХУДКОР барнамегардад (қоидаи соҳиб) — ба ҷои он админ огоҳ
+    мешавад, то дастӣ ҳал кунад.
+    """
+    group_id = str(uuid.uuid4())
+    order_ids = []
+    try:
+        for item in cart_items:
+            oid = await db.create_order(
+                user_id=uid,
+                game_id=data["player_id"],
+                nickname=data.get("nickname", ""),
+                amount=item["amount"],
+                price=item["price"],
+                label=item["label"],
+                offer_id=item["offer_id"],
+                payment_method="referral_balance",
+                order_group_id=group_id,
+            )
+            order_ids.append(oid)
+    except Exception as e:
+        logger.error(f"Сабад аз баланс сохта нашуд ({uid}): {e}")
+        for admin_id in config.ADMIN_IDS:
+            try:
+                await call.bot.send_message(
+                    admin_id,
+                    f"⚠️ <b>Пул аз баланс кам шуд, вале фармоиш сохта НАШУД!</b>\n\n"
+                    f"🆔 Корбар: <code>{uid}</code>\n"
+                    f"💵 Кам шуд: <b>{total:.2f} сом</b>\n"
+                    f"🆔 Сохта шуд: {', '.join(f'#{i}' for i in order_ids) or '—'}\n"
+                    f"Хато: {esc(str(e))[:200]}\n\nДастӣ ҳал кунед.",
+                    parse_mode="HTML")
+            except Exception:
+                pass
+        await call.message.answer(
+            "⚠️ Мушкили техникӣ шуд. Админ хабардор аст ва зуд ҳал мекунад 🙏")
+        return
+
+    new_balance = await db.get_referral_balance(uid)
+    ids_text = ", ".join(f"#{i}" for i in order_ids)
+    items_text = "\n".join(f"  • {esc(i['label'])} — {float(i['price']):.2f} сом"
+                           for i in cart_items)
+    await call.message.answer(
+        f"✅ <b>Пардохт аз баланс қабул шуд!</b>\n\n"
+        f"🆔 Фармоишҳо: {ids_text}\n"
+        f"{items_text}\n\n"
+        f"💵 Кам шуд: <b>{total:.2f} сом</b>\n"
+        f"💰 Баланси боқимонда: <b>{new_balance:.2f} сом</b>\n\n"
+        f"🔄 Фармоишҳо ба зудӣ иҷро мешаванд. 🙏",
+        parse_mode="HTML")
+
+    username = f"@{call.from_user.username}" if call.from_user.username else "—"
+    caption = (
+        f"💰 <b>Фармоиши нав (сабад) — АЗ БАЛАНС пардохт шуд!</b>\n\n"
+        f"🆔 Фармоишҳо: <b>{ids_text}</b>\n"
+        f"👤 Корбар: {esc(call.from_user.full_name)} (<code>{uid}</code>)\n"
+        f"📱 Username: {esc(username)}\n\n"
+        f"🎮 Free Fire\n"
+        f"🆔 ID: <code>{data['player_id']}</code>\n"
+        f"👤 Ном: <b>{esc(data.get('nickname') or '—')}</b>\n\n"
+        f"{items_text}\n\n"
+        f"💵 Ҷамъи умумӣ: <b>{total:.2f} сом</b>\n"
+        f"💰 Баланси боқимонда: <b>{new_balance:.2f} сом</b>"
+    )
+    kb_rows = [
+        [InlineKeyboardButton(text="✅ Тасдиқи ҳамаи гурӯҳ — донат кун",
+                              callback_data=f"okgroup_{group_id}")],
+        [InlineKeyboardButton(text="❌ Рад кардани ҳамаи гурӯҳ",
+                              callback_data=f"nogroup_{group_id}")],
+    ]
+    if call.from_user.username:
+        kb_rows.append([InlineKeyboardButton(
+            text="💬 ЛС ба клент", url=f"https://t.me/{call.from_user.username}")])
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await call.bot.send_message(
+                admin_id, caption,
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
+                parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Ба админ {admin_id} нарасид: {e}")
+
+
 async def _offer_game(message: Message, note: str = ""):
     """
     Баъди қабули чек ба мизоҷ бозӣ пешниҳод мекунад — интизорӣ то 10-15
@@ -2572,6 +2661,18 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
         ok = await db.deduct_referral_balance(uid, price)
         if not ok:
             await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
+            return
+
+        # ---- САБАД: барои ҳар маҳсулот фармоиши АЛОҲИДА ----
+        # Бе ин шоха, аз баланс маблағи ПУРРА (масалан 4700) кам мешуд,
+        # вале ЯК фармоиш сохта мешуд — бо `amount`-и маҳсулоти пештар
+        # дидашуда, ки дар state мондааст. Яъне мизоҷ барои 10 баста пул
+        # медод ва ЯК баста мегирифт. Ҳамон тавре чек кор мекунад, ин ҷо
+        # ҳам як фармоиш ба ҳар дона сохта мешавад.
+        cart_items = data.get("cart_items")
+        if cart_items:
+            await state.clear()
+            await _balance_pay_cart(call, uid, data, cart_items, price)
             return
 
         await state.clear()
