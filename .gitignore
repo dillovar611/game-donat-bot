@@ -6,3 +6,6 @@ autopay-server/spin_last.mp4
 autopay-server/chats/
 autopay-server/support_map.json
 autopay-server/support_blocked.json
+
+# Пайгирии фармоишҳо (маълумоти корӣ, на код)
+autopay-server/watch_orders.json

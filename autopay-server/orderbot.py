@@ -11,6 +11,7 @@ orderbot.py — Боти АЛОҲИДА барои "Автоматизация �
 Иҷро (протсеси АЛОҲИДА, новобаста аз bot.py): python3 orderbot.py
 """
 import asyncio
+import json
 import logging
 import os
 import random
@@ -194,6 +195,98 @@ async def get_last_order_by_user(user_id: int):
                 (user_id,),
             )
             return await cur.fetchone()
+
+
+# ==================== ПАЙГИРИИ ФАРМОИШ ====================
+# Вақте мизоҷ дар бораи фармоише мепурсад, мо ҳолати ҳозираашро дар ёд
+# мегирем. Агар он ҳолат БАЪДТАР иваз шавад, худамон ба ӯ хабар медиҳем
+# — то ӯ маҷбур нашавад ҳар чанд дақиқа боз пурсад.
+#
+# Дар ФАЙЛ нигоҳ дошта мешавад, на дар хотира: ин бот ба база НАВИСТА
+# НАМЕТАВОНАД (ҳисоби SELECT-ӣ), ва баъди рестарти сервер пайгирӣ набояд
+# гум шавад.
+WATCH_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "watch_orders.json")
+WATCH_MAX_HOURS = 24        # аз ин дертар пайгириро бас мекунем
+WATCH_INTERVAL = 60         # ҳар чанд сония ҳолатҳоро месанҷем
+WATCH_START_DELAY = 20      # то пурра сар шудани бот сабр мекунем
+
+# Ҳолатҳое, ки дигар иваз намешаванд — баъди онҳо пайгирӣ маъно надорад
+_FINAL = {"confirmed", "rejected", "expired", "archived"}
+
+_watch: dict = {}           # "chat:order" -> {chat, order, status, bcid, ts}
+
+
+def _watch_load():
+    global _watch
+    try:
+        if os.path.isfile(WATCH_PATH):
+            with open(WATCH_PATH, encoding="utf-8") as f:
+                _watch = json.load(f)
+    except Exception as e:
+        logger.error(f"watch_orders хонда нашуд: {e}")
+        _watch = {}
+    logger.info(f"Пайгирии фармоиш: {len(_watch)} дона")
+
+
+def _watch_save():
+    try:
+        with open(WATCH_PATH, "w", encoding="utf-8") as f:
+            json.dump(_watch, f)
+    except Exception as e:
+        logger.error(f"watch_orders навишта нашуд: {e}")
+
+
+def _watch_add(chat_id: int, order: dict, bcid: str):
+    """Фармоишро ба пайгирӣ мегузорад (агар ҳолаташ ҳанӯз иваз шуданӣ бошад)."""
+    if order.get("status") in _FINAL:
+        return
+    _watch[f"{chat_id}:{order['id']}"] = {
+        "chat": chat_id, "order": order["id"],
+        "status": order.get("status"), "bcid": bcid, "ts": time.time(),
+    }
+    _watch_save()
+
+
+async def watch_loop():
+    """Ҳар дақиқа фармоишҳои пайгиришавандаро месанҷад."""
+    await asyncio.sleep(WATCH_START_DELAY)
+    while True:
+        await asyncio.sleep(WATCH_INTERVAL)
+        if not _watch:
+            continue
+        changed = False
+        for key, w in list(_watch.items()):
+            try:
+                if time.time() - w.get("ts", 0) > WATCH_MAX_HOURS * 3600:
+                    _watch.pop(key, None)
+                    changed = True
+                    continue
+                order = await get_order_by_id(w["order"])
+                if not order or order["status"] == w["status"]:
+                    continue
+                # Ҳолат ИВАЗ шуд — ба мизоҷ хабар медиҳем
+                try:
+                    await bot.send_message(
+                        w["chat"],
+                        "🔔 Хабари фармоиши шумо:\n\n" + _status_text(order),
+                        business_connection_id=w.get("bcid") or None,
+                    )
+                    _stats["messages"] += 1
+                except Exception as e:
+                    logger.error(f"Хабари ҳолат ба {w['chat']} нарасид: {e}")
+                    _watch.pop(key, None)
+                    changed = True
+                    continue
+                if order["status"] in _FINAL:
+                    _watch.pop(key, None)
+                else:
+                    w["status"] = order["status"]
+                changed = True
+            except Exception as e:
+                logger.error(f"watch_loop хато ({key}): {e}")
+        if changed:
+            _watch_save()
 
 
 async def notify_owner(text: str):
@@ -401,6 +494,7 @@ async def handle_business_message(message: Message):
                 logger.info(f"[ORDER] id={order_id} found={order is not None}")
                 if order and order["user_id"] == user_id:
                     replies.append(_status_text(order))
+                    _watch_add(chat_id, order, message.business_connection_id)
                 elif order:
                     # Фармоиш ҳаст, вале ба ИН корбар тааллуқ надорад — мизоҷ
                     # ҳамон "ёфт нашуд"-ро мебинад (то маълумоти каси дигар
@@ -437,6 +531,7 @@ async def handle_business_message(message: Message):
                 return
             if order:
                 await message.answer(_status_text(order))
+                _watch_add(chat_id, order, message.business_connection_id)
             else:
                 await message.answer(
                     "🤔 Ягон фармоиши қаблии шумо ёфт нашуд. "
@@ -762,8 +857,10 @@ async def main():
     me = await bot.get_me()
     logger.info(f"✅ orderbot омода аст! @{me.username}")
     await bot.delete_webhook(drop_pending_updates=True)
+    _watch_load()
     asyncio.create_task(nightly_report_loop())
     asyncio.create_task(weekly_backup_loop())
+    asyncio.create_task(watch_loop())
     logger.info(f"📁 Бойгонии сӯҳбатҳо: {chatlog.BASE}")
     await dp.start_polling(
         bot,
