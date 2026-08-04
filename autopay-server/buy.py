@@ -4047,13 +4047,17 @@ async def ml_enter_server(message: Message, state: FSMContext):
             f"✅ Агар ин аккаунти шумо бошад «Давом»-ро пахш кунед:"
         )
     else:
+        # Барои Mobile Legends FazerCards санҷиши номро УМУМАН дастгирӣ
+        # намекунад — пас «ёфт нашуд» ҳар дафъа мебарояд ва мизоҷро беҳуда
+        # метарсонад. Ба ҷои огоҳӣ, танҳо хоҳиши тафтиши рақамҳо.
         text = (
             f"🎯 <b>Mobile Legends</b>\n\n"
             f"🆔 Player ID: <code>{player_id}</code>\n"
-            f"🌐 Server ID: <code>{server_id}</code>\n"
-            f"⚠️ Номи аккаунт ёфт нашуд.\n\n"
-            f"Ҳарду рақамро бодиққат тафтиш кунед ва агар дуруст бошанд "
-            f"«Давом»-ро пахш кунед:"
+            f"🌐 Server ID: <code>{server_id}</code>\n\n"
+            f"ℹ️ Дар Mobile Legends номи аккаунтро пешакӣ нишон додан "
+            f"мумкин нест.\n\n"
+            f"❗️ Лутфан ҳарду рақамро бо диққат тафтиш кунед — алмазҳо "
+            f"маҳз ба ҳамин аккаунт мераванд ва баргардонида намешаванд."
         )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Давом", callback_data="ml_id_ok")],
