@@ -2123,6 +2123,7 @@ async def a_products(call: CallbackQuery):
             callback_data=f"pedit_{p['id']}"
         )])
     buttons.append([InlineKeyboardButton(text="➕ Маҳсулоти нав", callback_data="padd")])
+    buttons.append([InlineKeyboardButton(text="🔍 Офферҳои FazerCards", callback_data="offers_ffcis")])
     buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")])
     await _safe_edit(
         call,
@@ -3331,6 +3332,7 @@ async def a_ffid_products(call: CallbackQuery):
             callback_data=f"ffidedit_{p['id']}"
         )])
     buttons.append([InlineKeyboardButton(text="➕ Маҷсулоти нав", callback_data="ffidadd")])
+    buttons.append([InlineKeyboardButton(text="🔍 Офферҳои FazerCards", callback_data="offers_ffid")])
     buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")])
     await _safe_edit(
         call,
@@ -3589,6 +3591,7 @@ async def a_pubg_products(call: CallbackQuery):
             callback_data=f"pubgedit_{p['id']}"
         )])
     buttons.append([InlineKeyboardButton(text="➕ Маҷсулоти нав", callback_data="pubgadd")])
+    buttons.append([InlineKeyboardButton(text="🔍 Офферҳои FazerCards", callback_data="offers_pubg")])
     buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")])
     await _safe_edit(
         call,
@@ -4454,7 +4457,7 @@ async def a_ffbr_products(call: CallbackQuery):
             callback_data=f"ffbredit_{p['id']}"
         )])
     buttons.append([InlineKeyboardButton(text="➕ Маҷсулоти нав", callback_data="ffbradd")])
-    buttons.append([InlineKeyboardButton(text="🔍 Офферҳои FazerCards", callback_data="ffbr_offers")])
+    buttons.append([InlineKeyboardButton(text="🔍 Офферҳои FazerCards", callback_data="offers_ffbr")])
     buttons.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")])
     await _safe_edit(
         call,
@@ -4463,25 +4466,41 @@ async def a_ffbr_products(call: CallbackQuery):
     )
 
 
-@router.callback_query(F.data == "ffbr_offers")
-async def a_ffbr_offers(call: CallbackQuery):
-    """Ҳамаи офферҳои категорияи free_fire_br-ро бо offer_id нишон медиҳад —
-    то соҳиб ваучери ҳафта/моҳона/лайт ва ғ.-ро ёбад ва offer_id-ро нусха гирад."""
+# Асбоби «Офферҳои FazerCards» — барои ҳар бозии автоматӣ.
+# key → (category_id, номи намоишӣ, callback-и бозгашт)
+_OFFERS_MAP = {
+    "ffbr": (ff_api.FFBR_CATEGORY,          "FF Brazil",    "a_ffbr_products"),
+    "ffid": (config.FFID_CATEGORY_ORDER,    "FF Indonesia", "a_ffid_products"),
+    "ffcis": (config.FF_CATEGORY_ORDER,     "FF СНГ",        "a_products"),
+    "pubg": ("pubg_mobile_auto",            "PUBG Mobile",  "a_pubg_products"),
+}
+
+
+@router.callback_query(F.data.startswith("offers_"))
+async def a_show_offers(call: CallbackQuery):
+    """Ҳамаи офферҳои як категорияи FazerCards-ро бо offer_id нишон медиҳад —
+    то соҳиб ваучер/оффери навро ёбад ва offer_id-ро нусха гирад."""
     if not is_admin(call.from_user.id):
         return
+    key = call.data.split("_", 1)[1]
+    entry = _OFFERS_MAP.get(key)
+    if not entry:
+        await call.answer("❌ Номаълум", show_alert=True)
+        return
+    category_id, title, back = entry
     await call.answer("⏳ Мегирам...")
-    offers = await ff_api.list_offers(ff_api.FFBR_CATEGORY)
+    offers = await ff_api.list_offers(category_id)
     if not offers:
         await _safe_edit(
             call,
             "❌ Ягон оффер ёфт нашуд (ё FazerCards ҷавоб надод).\n"
             "Дертар бори дигар кӯшиш кунед.",
             InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_ffbr_products")]
+                [InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back)]
             ])
         )
         return
-    lines = ["🔍 <b>Офферҳои FF Brazil (free_fire_br)</b>\n"]
+    lines = [f"🔍 <b>Офферҳои {esc(title)} ({esc(category_id)})</b>\n"]
     for o in offers:
         price = o.get("price_usd")
         price_str = f" — ${price}" if price not in ("", None) else ""
@@ -4496,7 +4515,7 @@ async def a_ffbr_offers(call: CallbackQuery):
         call,
         text,
         InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_ffbr_products")]
+            [InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back)]
         ])
     )
 

@@ -19,6 +19,7 @@ DC Next, ки барномаи Android ба канали махсуси Telegram
 """
 import asyncio
 import html
+import json
 import os
 import random
 import time
@@ -1758,11 +1759,26 @@ async def _watch_problem_customers(bot: Bot):
 
 
 async def _watch_resellers(bot: Bot):
-    """Як мизоҷ ба ID-ҳои зиёди гуногун донат мекунад — эҳтимол фурӯшанда."""
+    """Як мизоҷ ба ID-ҳои зиёди гуногун донат мекунад — эҳтимол фурӯшанда.
+
+    Рӯйхати «аллакай хабар додашуда» дар БАЗА нигоҳ дошта мешавад (на танҳо
+    дар хотира) — вагарна баъди ҲАР рестарти сервер ҳамон огоҳиҳо аз нав
+    мерафтанд ва соҳибро безор мекарданд."""
+    global _alerted_reseller
+    if not _alerted_reseller:
+        # Бори аввал баъди оғоз — аз база бор мекунем
+        raw = await db.get_setting("alerted_resellers")
+        if raw:
+            try:
+                _alerted_reseller = set(json.loads(raw))
+            except Exception:
+                _alerted_reseller = set()
+    changed = False
     for r in await db.get_multi_id_users():
         if r["user_id"] in _alerted_reseller:
             continue
         _alerted_reseller.add(r["user_id"])
+        changed = True
         u = await db.get_user(r["user_id"])
         name = esc(u.get("full_name")) if u and u.get("full_name") else "—"
         uname = f"@{u['username']}" if u and u.get("username") else "—"
@@ -1775,6 +1791,12 @@ async def _watch_resellers(bot: Bot):
             f"Ин мизоҷ эҳтимол худаш ба дигарон мефурӯшад. "
             f"Нархи шахсӣ пешниҳод кунед — то ба ҷои дигар наравад."
         ))
+    if changed:
+        try:
+            await db.set_setting("alerted_resellers",
+                                 json.dumps(sorted(_alerted_reseller)))
+        except Exception as e:
+            logger.error(f"alerted_resellers сабт нашуд: {e}")
 
 
 async def _report_unknown_statuses(bot: Bot):
