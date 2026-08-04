@@ -1634,6 +1634,68 @@ async def _alert(bot: Bot, text: str):
             logger.error(f"Огоҳӣ ба админ {admin_id} нарасид: {e}")
 
 
+AUDIT_EVERY = 3            # баъди ҳар чанд сабад санҷиш кунем
+
+
+async def _audit_carts(bot: Bot):
+    """
+    Санҷиши ХУДКОРИ ҳисоби сабад — баъди ҳар 3 хариди сабадӣ.
+
+    Маҳз ҳамон хатоҳоеро мегирад, ки дастӣ ёфта шуданд: сабад аз баланс
+    маблағи пурра мегирифт, вале як фармоиш месохт; ва тахфиф ба ҷамъ
+    татбиқ мешуд, вале нархи донаҳо бетағйир мемонд.
+
+    Ҷои сабти «то куҷо санҷидем» дар settings аст — то баъди рестарти
+    сервер санҷиш аз аввал сар нашавад ва як харид ду бор санҷида нашавад.
+    """
+    try:
+        last_id = int(await db.get_setting("audit_last_order_id") or 0)
+    except Exception:
+        last_id = 0
+    groups = await db.get_cart_groups_after(last_id)
+    if len(groups) < AUDIT_EVERY:
+        return                       # ҳанӯз 3 сабад ҷамъ нашуд
+
+    lines, problems = [], 0
+    for g in groups[:AUDIT_EVERY]:
+        total = round(float(g["total"]), 2)
+        bad = []
+        if g["users"] != 1:
+            bad.append(f"дар як гурӯҳ {g['users']} мизоҷи гуногун")
+        if g["pms"] != 1:
+            bad.append(f"дар як гурӯҳ {g['pms']} тариқи пардохт")
+        if total <= 0:
+            bad.append("ҷамъи нарх сифр ё манфӣ")
+        paid_note = ""
+        if g["pm"] == "referral_balance":
+            tx = await db.find_purchase_tx(g["user_id"], g["created"])
+            if not tx:
+                bad.append("камкунии баланс ёфт нашуд")
+            else:
+                paid = round(abs(float(tx["amount"])), 2)
+                paid_note = f" · аз баланс: {paid:.2f}"
+                if abs(paid - total) >= 0.01:
+                    bad.append(f"аз баланс {paid:.2f} кам шуд, вале "
+                               f"фармоишҳо {total:.2f} — фарқи "
+                               f"{abs(paid - total):.2f} сом")
+        mark = "✅" if not bad else "❗️"
+        lines.append(f"{mark} #{g['first_id']}–#{g['last_id']} · {g['n']} дона · "
+                     f"{total:.2f} сом{paid_note}")
+        for b in bad:
+            problems += 1
+            lines.append(f"     ⚠️ {b}")
+
+    checked = groups[:AUDIT_EVERY]
+    await db.set_setting("audit_last_order_id", str(max(g["last_id"] for g in checked)))
+
+    head = ("🧮 <b>Санҷиши ҳисоби 3 сабади охирин</b>\n\n" if not problems
+            else f"🚨 <b>САНҶИШ ХАТО ЁФТ ({problems})!</b>\n\n")
+    tail = ("\n\nҲама ҳисобҳо дурустанд ✅" if not problems
+            else "\n\n❗️ Инро дастӣ санҷед — эҳтимол мизоҷ камтар "
+                 "гирифтааст ё зиёдтар пардохтааст.")
+    await _alert(bot, head + "\n".join(lines) + tail)
+
+
 async def _watch_losses(bot: Bot):
     """Фурӯш ба зарар — ҳамон рӯз, на дар ҳисоботи шаб."""
     for o in await db.get_loss_orders():
@@ -1837,7 +1899,7 @@ async def recheck_loop(bot: Bot, interval_seconds: int = 180):
             await _report_unknown_statuses(bot)
 
             # Огоҳиҳои дигар — ҳар кадом ҷудо, то хатои яке бақияро нахобонад
-            for watch in (_watch_losses, _watch_payment_feed,
+            for watch in (_audit_carts, _watch_losses, _watch_payment_feed,
                           _watch_problem_customers, _watch_resellers):
                 try:
                     await watch(bot)

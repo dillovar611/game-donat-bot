@@ -1501,6 +1501,49 @@ async def mark_nudge_sent(user_id: int):
             )
 
 
+# ==================== САНҶИШИ ХУДКОРИ ҲИСОБИ САБАД ====================
+async def get_cart_groups_after(after_id: int, limit: int = 20) -> list:
+    """
+    Гурӯҳҳои сабад (як харид = якчанд фармоиш бо як order_group_id), ки
+    баъд аз фармоиши `after_id` сохта шудаанд — бо ҷамъи нархашон.
+
+    `users` ва `pms` барои санҷиш лозиманд: дар як гурӯҳ бояд ЯК мизоҷ ва
+    ЯК тариқи пардохт бошад. Агар зиёд бошад, дар сохтани фармоиш хатост.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT order_group_id AS gid, COUNT(*) AS n, "
+                "COALESCE(SUM(price),0) AS total, MIN(id) AS first_id, "
+                "MAX(id) AS last_id, COUNT(DISTINCT user_id) AS users, "
+                "MIN(user_id) AS user_id, COUNT(DISTINCT payment_method) AS pms, "
+                "MIN(payment_method) AS pm, MIN(created_at) AS created "
+                "FROM orders WHERE order_group_id IS NOT NULL AND id > %s "
+                "GROUP BY order_group_id ORDER BY first_id LIMIT %s",
+                (after_id, limit)
+            )
+            return await cur.fetchall()
+
+
+async def find_purchase_tx(user_id: int, created_at, window_min: int = 10):
+    """
+    Камкунии баланси ба ин харид наздиктарин. Камкунӣ бе `order_id` сабт
+    мешавад (дар лаҳзаи камкунӣ фармоиш ҳанӯз вуҷуд надорад), пас аз рӯи
+    мизоҷ ва ВАҚТ меёбем.
+    """
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT amount, created_at FROM balance_transactions "
+                "WHERE user_id=%s AND tx_type='purchase' "
+                "AND created_at BETWEEN %s - INTERVAL %s MINUTE "
+                "                   AND %s + INTERVAL %s MINUTE "
+                "ORDER BY ABS(TIMESTAMPDIFF(SECOND, created_at, %s)) LIMIT 1",
+                (user_id, created_at, window_min, created_at, window_min, created_at)
+            )
+            return await cur.fetchone()
+
+
 # ==================== МАЪЛУМОТ БАРОИ ОГОҲИҲОИ ХУДКОР ====================
 async def get_loss_orders(hours: int = 24, limit: int = 20) -> list:
     """
