@@ -499,6 +499,8 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
     _gid = order.get("game_id") or ""
     if _gid.startswith("FFID:"):
         retry_cb = f"okffid_{order['id']}"
+    elif _gid.startswith("FFBR:"):
+        retry_cb = f"okffbr_{order['id']}"
     elif _gid.startswith("PUBG:"):
         retry_cb = f"okpubg_{order['id']}"
     elif _gid.startswith("STARS:"):
@@ -844,6 +846,12 @@ async def _dispatch_donate_call(order: dict):
         if game_id.startswith("FFID:"):
             player_id = game_id.replace("FFID:", "")
             success, api_order_id = await ff_api.auto_donate_ffid(
+                player_id, order["offer_id"], order.get("api_order_id") or "", order_id
+            )
+            return success, api_order_id, False, None
+        if game_id.startswith("FFBR:"):
+            player_id = game_id.replace("FFBR:", "")
+            success, api_order_id = await ff_api.auto_donate_ffbr(
                 player_id, order["offer_id"], order.get("api_order_id") or "", order_id
             )
             return success, api_order_id, False, None
