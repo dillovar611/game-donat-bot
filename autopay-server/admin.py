@@ -177,9 +177,39 @@ async def a_products_menu(call: CallbackQuery):
         [InlineKeyboardButton(text="🔫 Standoff 2",   callback_data="a_standoff_products")],
         [InlineKeyboardButton(text="⭐ Stars/Premium", callback_data="a_tg_products")],
         [InlineKeyboardButton(text="🎁 Комбоҳо",       callback_data="a_combos")],
+        [InlineKeyboardButton(text="📋 Категорияҳои FazerCards", callback_data="fazer_categories")],
         [InlineKeyboardButton(text="🔙 Бозгашт",      callback_data="a_back")],
     ])
     await _safe_edit(call, "💎 <b>Идоракунии маҳсулотҳо</b>\n\nХизматро интихоб кунед:", kb)
+
+
+@router.callback_query(F.data == "fazer_categories")
+async def a_fazer_categories(call: CallbackQuery):
+    """Ҳамаи категорияҳои FazerCards-ро бо category_id нишон медиҳад — то
+    соҳиб бозии наверо (масалан Mobile Legends) ва category_id-ашро ёбад."""
+    if not is_admin(call.from_user.id):
+        return
+    await call.answer("⏳ Мегирам...")
+    cats = await ff_api.list_categories()
+    back_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")]
+    ])
+    if not cats:
+        await _safe_edit(
+            call,
+            "❌ Категорияҳо ёфт нашуданд (FazerCards ҷавоб надод ё endpoint дигар аст).\n"
+            "Ба ман бигӯед — ман аз логи бот роҳи дурустро меёбам.",
+            back_kb
+        )
+        return
+    lines = [f"📋 <b>Категорияҳои FazerCards ({len(cats)} дона)</b>\n"]
+    for c in cats:
+        lines.append(f"🎮 {esc(c['name'])}\n🔑 <code>{esc(c['id'])}</code>\n")
+    lines.append("👆 category_id-ро пахш кунед → нусхабардорӣ мешавад.")
+    text = "\n".join(lines)
+    if len(text) > 4000:
+        text = text[:3900] + "\n\n… (рӯйхат дароз аст — ба ман бигӯед кадом бозиро меҷӯед)"
+    await _safe_edit(call, text, back_kb)
 
 
 # ==================== РАҚАМИ КОРТИ ДУШАНБЕ СИТИ ====================

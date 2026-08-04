@@ -732,6 +732,53 @@ async def list_offers(category_id: str) -> list:
     return out
 
 
+async def list_categories() -> list:
+    """Ҳамаи категорияҳои FazerCards-ро рӯйхат мекунад — то соҳиб category_id-и
+    бозии наверо (масалан Mobile Legends) ёбад. Ҳар элемент: {id, name}.
+
+    Endpoint-и дақиқро намедонем, пас якчанд роҳи эҳтимолиро санҷида, аввалин
+    ҷавоби кориро бармегардонем (дар лог қайд мешавад ки кадомаш кор кард)."""
+    if not config.FAZER_KEY:
+        return []
+    headers = {"X-API-Key": config.FAZER_KEY, "Content-Type": "application/json"}
+    candidates = [
+        f"{config.FAZER_BASE}/topups/categories",
+        f"{config.FAZER_BASE}/categories",
+        f"{config.FAZER_BASE}/topups/category",
+    ]
+    for url in candidates:
+        try:
+            async with aiohttp.ClientSession() as s:
+                async with s.get(
+                    url, headers=headers,
+                    timeout=aiohttp.ClientTimeout(total=20)
+                ) as r:
+                    data = await r.json(content_type=None)
+        except Exception as e:
+            logger.warning(f"FazerCards list_categories {url} хато: {e}")
+            continue
+        raw = []
+        if isinstance(data, dict):
+            raw = data.get("categories") or data.get("data") \
+                or data.get("result") or []
+        elif isinstance(data, list):
+            raw = data
+        if not raw:
+            continue
+        out = []
+        for c in raw:
+            if not isinstance(c, dict):
+                continue
+            cid = c.get("id") or c.get("category_id") or c.get("slug") or ""
+            name = c.get("name") or c.get("title") or c.get("label") or ""
+            out.append({"id": str(cid), "name": str(name)})
+        if out:
+            logger.info(f"FazerCards categories аз {url}: {len(out)} дона")
+            return out
+    logger.error("FazerCards list_categories: ягон endpoint кор накард")
+    return []
+
+
 async def get_nickname_ffbr(player_id: str) -> str:
     """Номи аккаунти FF Brazil. Мисли FFID — агар категорияи BR санҷишро
     дастгирӣ накунад, категорияи кории СНГ-ро мекӯшад."""
