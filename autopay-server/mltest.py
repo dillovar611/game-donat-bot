@@ -144,12 +144,58 @@ def main():
     if found:
         print("🎯 ИН САТРРО ба «⚙️ Танзимоти API» гузоред:")
         print(f"\n   {cid} | {found[0]}\n")
-    else:
-        print("⚠️ Ягон ҷуфти ном номи аккаунтро надод.")
-        print("   Эҳтимол ин категория санҷиши номро дастгирӣ намекунад —")
-        print("   ин ҲАНӮЗ маънои онро надорад, ки донат кор намекунад.")
-        print(f"   Бо ҳамин кӯшиш кунед: {cid} | player_id | server_id")
-        print("   ва бо ЯК хариди хурди воқеӣ санҷед.")
+        return
+
+    print("ℹ️ Санҷиши ном дастрас набуд (ин ОДДӢ аст — бо FF Indonesia низ")
+    print("   ҳамин буд, вале донат хуб кор кард).")
+    print("   Акнун аз худи FazerCards мепурсем, кадом майдон ЛОЗИМ аст.\n")
+    _ask_required_fields(base, cid, player_id, server_id)
+
+
+def _ask_required_fields(base: str, cid: str, player_id: str, server_id: str):
+    """Аз FazerCards мепурсад, кадом майдонҳо ЛОЗИМанд.
+
+    Фармоиш бо майдони бемаънӣ фиристода мешавад — API онро рад мекунад ва
+    дар матни хато одатан номи майдонҳои лозимиро менависад. Азбаски ID-и
+    воқеӣ дар дархост НЕСТ, донат шуда наметавонад ва пул сарф намешавад.
+    """
+    status, data = _call(f"{base}/topups/offers?category_id={cid}")
+    offers = _offers_of(data)
+    if not offers:
+        print("❌ Оффер гирифта нашуд.")
+        return
+    cheapest = min(
+        offers,
+        key=lambda o: float(o.get("price_usd") or o.get("price") or 9999)
+    )
+    offer_id = str(cheapest.get("id") or cheapest.get("offer_id") or "")
+    print(f"   оффери озмоишӣ: {cheapest.get('name', '—')} "
+          f"(${cheapest.get('price_usd') or cheapest.get('price')})\n")
+
+    print("=" * 52)
+    print("3️⃣  КАДОМ МАЙДОН ЛОЗИМ АСТ?")
+    print("=" * 52)
+    probes = [
+        ("майдонҳои холӣ", {}),
+        ("майдони бемаънӣ", {"__probe__": "1"}),
+        ("танҳо player_id", {"player_id": player_id}),
+    ]
+    for note, fields in probes:
+        status, data = _call(
+            f"{base}/topups/order",
+            {"category_id": cid, "offer_id": offer_id, "fields": fields},
+        )
+        msg = ""
+        if isinstance(data, dict):
+            msg = str(data.get("error") or data.get("message")
+                      or data.get("detail") or data)[:300]
+        print(f"\n▸ {note} → {status}")
+        print(f"  {msg}")
+
+    print("\n" + "=" * 52)
+    print("📸 Ин экранро ба ман фиристед — аз матни хато номи")
+    print("   майдонҳои дурустро мефаҳмам.")
+    print("=" * 52)
 
 
 if __name__ == "__main__":
