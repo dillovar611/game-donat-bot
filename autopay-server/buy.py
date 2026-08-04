@@ -318,11 +318,21 @@ async def show_products(call: CallbackQuery, state: FSMContext):
         return
 
     buttons = []
+    has_custom = False
     for p in products:
         label = p.get("label") or f"💎 {p['amount']}"
         tag = "🔥 Маъмултарин — " if p.get("is_featured") else ""
+        # Нархи ШАХСИИ мизоҷ (агар бошад) — ҳамон нархе, ки саҳифаи
+        # маҳсулот ва сабад истифода мебаранд. Пештар ин ҷо нархи УМУМӢ
+        # нишон дода мешуд: мизоҷи VIP дар рӯйхат як нарх, дар сабад
+        # нархи дигар медид ва ҳисоб гӯё хато менамуд.
+        custom_price = await db.get_custom_price(call.from_user.id, p["id"])
+        price = custom_price if custom_price is not None else float(p["price"])
+        if custom_price is not None:
+            has_custom = True
+            tag = "💎 " + tag
         buttons.append([InlineKeyboardButton(
-            text=f"{tag}{label} — {p['price']:.2f} сом",
+            text=f"{tag}{label} — {price:.2f} сом",
             callback_data=f"prod_{p['id']}"
         )])
     buttons.append([InlineKeyboardButton(text="🛒 Якчанд маҳсулот интихоб кардан", callback_data="cart_start")])
@@ -331,7 +341,9 @@ async def show_products(call: CallbackQuery, state: FSMContext):
 
     await _safe_edit(
         call,
-        "💎 <b>Алмазҳои Free Fire</b>\n\nМаҳсулотро интихоб кунед:",
+        "💎 <b>Алмазҳои Free Fire</b>\n\nМаҳсулотро интихоб кунед:"
+        + ("\n\n💎 <b>Нархи шахсии шумо</b> — маҳсулоти нишонадор бо "
+           "нархи махсуси шумо аст." if has_custom else ""),
         InlineKeyboardMarkup(inline_keyboard=buttons)
     )
     await state.set_state(BuyState.choose_product)
