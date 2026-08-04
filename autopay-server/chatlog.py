@@ -158,9 +158,15 @@ def get_info(user_id: int) -> dict:
     return {}
 
 
-async def record(bot, message, chat_id: int, who: str, name: str, username: str = ""):
+async def record(bot, message, chat_id: int, who: str, name: str,
+                 username: str = "", src: str = "biz"):
     """
     Паёмро сабт мекунад. `who`: "client" ё "owner".
+
+    `src` — КАДОМ бот ин паёмро гирифт: "biz" (чати business) ё "sup"
+    (боти алоқа). Ин ҲАТМӢ аст: рақами паём дар ҳар чат аз 1 сар
+    мешавад, пас ду бот метавонанд рақами ЯКХЕЛА дошта бошанд. Бе ин
+    аломат паёми як бот паёми дигарро мепӯшонд ва гум мешуд.
     Расми фиристодашуда ба папкаи ҳамон мизоҷ бор карда мешавад.
     Хатогӣ ҳељ гоҳ ба боти асосӣ намебарояд — сабт набояд ҷавобдиҳиро вайрон кунад.
     """
@@ -173,6 +179,7 @@ async def record(bot, message, chat_id: int, who: str, name: str, username: str 
             "who": who,
             "name": name,
             "text": text,
+            "src": src,
         }
         if message.photo:
             entry["photo"] = await _save_media(
@@ -249,7 +256,7 @@ async def _save_media(bot, file_id: str, chat_id: int, sub: str, fname: str) -> 
         return ""
 
 
-def record_edit(chat_id: int, message_id: int, new_text: str):
+def record_edit(chat_id: int, message_id: int, new_text: str, src: str = "biz"):
     """
     Ислоҳи паёмро сабт мекунад ва матни КӮҲНАро бармегардонад
     (ё None, агар паёми аслӣ дар сабт набошад).
@@ -257,17 +264,18 @@ def record_edit(chat_id: int, message_id: int, new_text: str):
     try:
         old = None
         for ev in _read_events(chat_id):
-            if ev.get("mid") == message_id and ev.get("t") in ("msg", "edit"):
+            if (ev.get("mid") == message_id and ev.get("src", "biz") == src
+                    and ev.get("t") in ("msg", "edit")):
                 old = ev.get("text", "")
         _append(chat_id, {"t": "edit", "mid": message_id, "ts": time.time(),
-                          "text": new_text, "old": old})
+                          "text": new_text, "old": old, "src": src})
         return old
     except Exception as e:
         logger.error(f"chatlog.record_edit хато ({chat_id}): {e}")
         return None
 
 
-def record_delete(chat_id: int, message_ids: list):
+def record_delete(chat_id: int, message_ids: list, src: str = "biz"):
     """
     Несткунии паёмҳоро сабт мекунад ва бармегардонад:
       [{mid, text, who, known, media}, ...]
@@ -284,6 +292,8 @@ def record_delete(chat_id: int, message_ids: list):
     try:
         state = {}
         for ev in _read_events(chat_id):
+            if ev.get("src", "biz") != src:
+                continue
             mid = ev.get("mid")
             if ev.get("t") == "msg":
                 state[mid] = {"text": ev.get("text", ""), "who": ev.get("who", "?"),
@@ -304,7 +314,8 @@ def record_delete(chat_id: int, message_ids: list):
             out.append({"mid": mid, "text": txt, "who": st.get("who", "?"),
                         "known": known, "media": media})
             _append(chat_id, {"t": "del", "mid": mid, "ts": time.time(),
-                              "text": txt or media, "who": st.get("who", "?")})
+                              "text": txt or media, "who": st.get("who", "?"),
+                              "src": src})
     except Exception as e:
         logger.error(f"chatlog.record_delete хато ({chat_id}): {e}")
     return out
@@ -319,23 +330,25 @@ def build_thread(user_id: int) -> list:
     msgs, order = {}, []
     for ev in _read_events(user_id):
         mid, t = ev.get("mid"), ev.get("t")
+        key = (ev.get("src", "biz"), mid)
         if t == "msg":
-            if mid not in msgs:
-                order.append(mid)
-                msgs[mid] = {"mid": mid, "ts": ev.get("ts", 0),
+            if key not in msgs:
+                order.append(key)
+                msgs[key] = {"mid": mid, "src": ev.get("src", "biz"), "ts": ev.get("ts", 0),
                              "who": ev.get("who", "?"), "name": ev.get("name", ""),
                              "text": ev.get("text", ""), "photo": ev.get("photo", ""),
                              "file": ev.get("file", ""), "fpath": ev.get("fpath", ""),
                              "edited": [], "deleted": False}
-        elif t == "edit" and mid in msgs:
-            m = msgs[mid]
+        elif t == "edit" and key in msgs:
+            m = msgs[key]
             m["edited"].append({"old": m["text"], "new": ev.get("text", ""),
                                 "ts": ev.get("ts", 0)})
             m["text"] = ev.get("text", "")
-        elif t == "del" and mid in msgs:
-            msgs[mid]["deleted"] = True
-            msgs[mid]["deleted_ts"] = ev.get("ts", 0)
-    return [msgs[m] for m in order]
+        elif t == "del" and key in msgs:
+            msgs[key]["deleted"] = True
+            msgs[key]["deleted_ts"] = ev.get("ts", 0)
+    # Аз рӯи ВАҚТ тартиб медиҳем — вагарна паёмҳои ду бот омехта мешаванд
+    return sorted((msgs[k] for k in order), key=lambda m: m["ts"])
 
 
 def list_chats() -> list:

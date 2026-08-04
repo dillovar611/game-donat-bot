@@ -194,7 +194,7 @@ async def owner_reply(message: Message):
         return
     await message.reply("✅ Ҷавоб фиристода шуд.")
     await chatlog.record(bot, message, uid, "owner",
-                         message.from_user.full_name or "Мо")
+                         message.from_user.full_name or "Мо", src="sup")
 
 
 # ==================== ПАЁМИ МИЗОҶ ====================
@@ -238,7 +238,7 @@ async def from_client(message: Message):
     _save_map()
 
     await chatlog.record(bot, message, uid, "client", name,
-                         message.from_user.username or "")
+                         message.from_user.username or "", src="sup")
 
 
 async def main():
