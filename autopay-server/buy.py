@@ -909,6 +909,34 @@ async def _combo_breakdown_text(combo_id: int | None) -> str:
     return "\n\n🎁 <b>Дар дохили комбо (дастӣ иҷро кунед):</b>\n" + "\n".join(lines)
 
 
+def _rescale_cart_items(items: list, new_total: float) -> list:
+    """
+    Нархи ҳар донаи сабадро мутаносибан ба ҷамъи НАВ мутобиқ мекунад.
+
+    Чаро лозим: тахфиф ва «сентҳои нодир» ба ҶАМЪИ УМУМӢ татбиқ мешаванд,
+    вале фармоишҳо аз рӯи нархи ҲАР ДОНА сохта мешаванд. Бе ин мутобиқат
+    ҷамъи фармоишҳо аз маблағи воқеан пардохтшуда фарқ мекард — ҳисобот
+    даромади бештар нишон медод ва мукофоти реферал аз маблағи калонтар
+    ҳисоб мешуд.
+
+    Донаи охирин боқимондаро мегирад, то ҷамъ АЙНАН баробар шавад (агар
+    ҳар донаро алоҳида гирд кунем, як-ду тин фарқ мемонад).
+    """
+    if not items:
+        return items
+    old_total = round(sum(float(i["price"]) for i in items), 2)
+    new_total = round(float(new_total), 2)
+    if old_total <= 0 or abs(old_total - new_total) < 0.005:
+        return items
+    out, acc = [], 0.0
+    for i in items[:-1]:
+        p = round(float(i["price"]) * new_total / old_total, 2)
+        acc = round(acc + p, 2)
+        out.append({**i, "price": p})
+    out.append({**items[-1], "price": round(new_total - acc, 2)})
+    return out
+
+
 async def _apply_winback_discount(user_id: int, price: float) -> tuple[float, str]:
     """
     Агар мизоҷ тахфифи фаъоли баргардонӣ дошта бошад (мизоҷи хомӯшшуда,
@@ -962,6 +990,15 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
         price, disc_pct, disc_amt = data["price"], 0.0, 0.0
         price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
         await state.update_data(price=price)
+    # Сабад: нарх дар боло иваз шуда метавонад (тахфиф, сентҳои нодир) —
+    # нархи ҳар донаро ҳам мутобиқ мекунем, вагарна ҷамъи фармоишҳо аз
+    # маблағи воқеан пардохтшуда фарқ мекунад
+    if is_cart and data.get("cart_items"):
+        scaled = _rescale_cart_items(data["cart_items"], price)
+        if scaled is not data["cart_items"]:
+            await state.update_data(cart_items=scaled)
+            data["cart_items"] = scaled
+
     order_id = data.get("product_id") or "cart" + str(uuid.uuid4())[:8]
     eskhata_note = ""
     discount_note = winback_note

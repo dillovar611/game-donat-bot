@@ -657,7 +657,11 @@ async def credit_referral_for_order(order_id: int, percent: float = None):
                     # Referrer нест — кредит лозим нест, флагро бармегардонем
                     await conn.rollback()
                     return 0.0, None
-                reward = float(order["price"]) * percent / 100
+                # ГИРД мекунем: сутуни баланс DECIMAL(10,2) аст ва MySQL
+                # худаш гирд мекунад, вале Python ба мизоҷ рақами гирднашуда
+                # менависад — 1.345 дар база 1.35 мешуд, дар паём 1.34.
+                # Фарқи як тин дар ҳар мукофот ҷамъ мешавад.
+                reward = round(float(order["price"]) * percent / 100, 2)
                 await cur.execute(
                     "UPDATE users SET referral_balance = referral_balance + %s WHERE id=%s",
                     (reward, referrer_id)
@@ -1924,6 +1928,11 @@ async def get_daily_report() -> dict:
             await cur.execute(
                 "SELECT label, COUNT(*) AS cnt, COALESCE(SUM(price),0) AS rev, "
                 "COALESCE(SUM(cost_tjs),0) AS cost, "
+                # Даромади ТАНҲО он фармоишҳое, ки арзишашон маълум аст —
+                # фоида бояд аз ҲАМОН фармоишҳо ҳисоб шавад. Пештар ин ҷо
+                # даромади ҲАМА гирифта мешуд: агар аз 10 фармоиш танҳо
+                # 3-тояш арзиш медошт, фоида чанд баробар калон менамуд.
+                "COALESCE(SUM(CASE WHEN cost_tjs IS NOT NULL THEN price END),0) AS rev_c, "
                 "SUM(CASE WHEN cost_tjs IS NOT NULL THEN 1 ELSE 0 END) AS with_cost "
                 "FROM orders WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s "
                 "GROUP BY label ORDER BY rev DESC LIMIT 5",
@@ -1933,8 +1942,9 @@ async def get_daily_report() -> dict:
             for r in await cur.fetchall():
                 rev = float(r["rev"])
                 cost = float(r["cost"])
+                rev_c = float(r["rev_c"])
                 with_cost = r["with_cost"]
-                margin_percent = round((rev - cost) / cost * 100, 1) if with_cost and cost > 0 else None
+                margin_percent = round((rev_c - cost) / cost * 100, 1) if with_cost and cost > 0 else None
                 top_products.append({
                     "label": r["label"] or "—",
                     "count": r["cnt"],
