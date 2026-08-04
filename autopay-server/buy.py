@@ -952,6 +952,113 @@ async def _apply_winback_discount(user_id: int, price: float) -> tuple[float, st
     return new_price, note
 
 
+# ==================== АВТОПАРДОХТИ МУШТАРАК ====================
+# FF СНГ автопардохти пурра дошт (пардохт аз огоҳии банк худкор ёфта,
+# худкор донат мешавад). Ин ду функсия ҳамон флоуро ба FFID, FFBR, PUBG,
+# Stars, Premium низ медиҳанд — то онҳо ҳам бо DC/Alif ХУДКОР тасдиқ ва
+# донат шаванд, на бо тасдиқи дастии админ.
+async def _autopay_requisites(call: CallbackQuery, state: FSMContext, data: dict,
+                              method: str, game_id_marker: str, amount,
+                              title: str, back_cb: str):
+    """Фармоиши 'awaiting_autopay' месозад ва экрани пардохтро нишон медиҳад.
+    Танҳо барои DC/Alif даъват мешавад."""
+    base_price, _winback = await _apply_winback_discount(
+        call.from_user.id, round(float(data["price"]), 2))
+    price = await _unique_autopay_price(base_price)
+    await state.update_data(price=price, payment_method=method)
+
+    method_name = "🏙 Душанбе Сити" if method == "dushanbe_city" else "💳 Алиф"
+    await _notify_rozigiho(
+        call.bot, call.from_user, title, data["label"],
+        price, method_name, str(data.get("product_id", ""))
+    )
+
+    awaiting_order_id = await db.create_awaiting_order(
+        user_id=call.from_user.id,
+        game_id=game_id_marker,
+        nickname=data.get("nickname", ""),
+        amount=amount,
+        price=price,
+        label=data["label"],
+        offer_id=data.get("offer_id", ""),
+        payment_method=method,
+    )
+    await state.update_data(autopay_order_id=awaiting_order_id)
+
+    if method == "dushanbe_city":
+        dc_card = await db.get_dc_card_number()
+        pay_url = (
+            f"http://pay.expresspay.tj/?A={dc_card}&s={price:g}"
+            f"&c=card_{awaiting_order_id}&f1=133"
+        )
+    else:
+        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Пардохт", url=pay_url)],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back_cb)],
+    ])
+    await _safe_edit(
+        call,
+        f"💳 <b>{method_name}</b>\n\n"
+        f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
+        f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n"
+        f"🆔 Фармоиш: #{awaiting_order_id}\n\n"
+        f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
+        f"2️⃣ Маблағи <b>дақиқ {price:.2f} сом</b>-ро пардохт кунед "
+        f"(на кам, на зиёд — тин ба тин!)\n"
+        f"3️⃣ Расми чекро ба ҳамин чат фиристед\n\n"
+        f"⚡ Пас аз фиристодани чек, пардохти шумо <b>худкор</b> тафтиш "
+        f"мешавад ва маҳсулот худкор фиристода мешавад — интизории админ "
+        f"лозим нест!\n\n"
+        f"⏳ Шумо <b>20 дақиқа</b> вақт доред.",
+        kb
+    )
+
+
+async def _autopay_receive_check(message: Message, data: dict) -> bool:
+    """Агар фармоиши автопардохт бошад, чекро коркард мекунад ва пардохтро
+    ҷустуҷӯ мекунад. True = коркард шуд (ба флоуи дастӣ гузаштан лозим нест).
+    Барои ҳамаи маҳсулот муштарак — донат аз рӯи game_id-и худи фармоиш
+    (FFID:/FFBR:/PUBG:/STARS:/PREMIUM:) ба хизмати дуруст мераванд."""
+    autopay_order_id = data.get("autopay_order_id")
+    if not autopay_order_id:
+        return False
+    import autopay
+    order = await db.get_order(autopay_order_id)
+    if not order or order["status"] not in ("awaiting_autopay", "expired"):
+        await message.answer(
+            "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол аллакай коркард шудааст).\n"
+            f"Агар пардохт карда бошед: {config.SUPPORT_USERNAME}",
+            parse_mode="HTML"
+        )
+        return True
+    file_id = message.photo[-1].file_id
+    autopay_hash = await _hash_photo(message)
+    if not await db.set_autopay_check(autopay_order_id, file_id, autopay_hash or None):
+        await message.answer(
+            "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол аллакай коркард шудааст).\n"
+            f"Агар пардохт карда бошед: {config.SUPPORT_USERNAME}",
+            parse_mode="HTML"
+        )
+        return True
+    await message.answer(
+        f"✅ <b>Чек қабул шуд!</b>\n\n"
+        f"🆔 Фармоиш: #{autopay_order_id}\n\n"
+        f"🔍 Системаи мо ҳоло пардохти шуморо <b>худкор</b> ҷустуҷӯ "
+        f"мекунад — одатан 5-30 сония мегирад.\n"
+        f"Натиҷа ҳозир хабар дода мешавад...",
+        parse_mode="HTML"
+    )
+    await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
+    kod = await db.find_kod_for_order(autopay_order_id) \
+        or await db.find_unmatched_kod(float(order["price"]), autopay.MAX_AGE_MINUTES)
+    if kod:
+        order = await db.get_order(autopay_order_id)
+        asyncio.create_task(autopay.run_donate(message.bot, order, kod))
+    return True
+
+
 @router.callback_query(F.data == "terms_accept", BuyState.choose_payment)
 async def show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
@@ -1603,6 +1710,16 @@ async def ffid_terms_reject(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "ffid_terms_accept", FFIDBuyState.choose_payment)
 async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    method = data.get("pending_payment_method", "alif")
+    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
+    if method in ("dushanbe_city", "alif"):
+        await _autopay_requisites(
+            call, state, data, method,
+            game_id_marker=f"FFID:{data['player_id']}",
+            amount=data.get("amount", 0),
+            title="🔥 Free Fire Indonesia", back_cb="ffid_id_ok")
+        await state.set_state(FFIDBuyState.wait_check)
+        return
     price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
     await state.update_data(price=price)
@@ -1663,6 +1780,10 @@ async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
 async def ffid_receive_check(message: Message, state: FSMContext):
     data = await state.get_data()
     await state.clear()
+
+    # ==== АВТОПАРДОХТ (DC/Alif): чек омад → ҷустуҷӯи худкори пардохт ====
+    if await _autopay_receive_check(message, data):
+        return
 
     file_id = message.photo[-1].file_id
     check_hash = await _hash_photo(message)
@@ -1926,6 +2047,16 @@ async def pubg_terms_reject(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "pubg_terms_accept", PUBGBuyState.choose_payment)
 async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    method = data.get("pending_payment_method", "alif")
+    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
+    if method in ("dushanbe_city", "alif"):
+        await _autopay_requisites(
+            call, state, data, method,
+            game_id_marker=f"PUBG:{data['player_id']}",
+            amount=data.get("amount", 0),
+            title="🎮 PUBG Mobile", back_cb="pubg_id_ok")
+        await state.set_state(PUBGBuyState.wait_check)
+        return
     price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
     await state.update_data(price=price)
@@ -1985,6 +2116,10 @@ async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
 async def pubg_receive_check(message: Message, state: FSMContext):
     data = await state.get_data()
     await state.clear()
+
+    # ==== АВТОПАРДОХТ (DC/Alif): чек омад → ҷустуҷӯи худкори пардохт ====
+    if await _autopay_receive_check(message, data):
+        return
 
     file_id = message.photo[-1].file_id
     check_hash = await _hash_photo(message)
@@ -2241,6 +2376,16 @@ async def stars_terms_reject(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "stars_terms_accept", StarsBuyState.choose_payment)
 async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    method = data.get("pending_payment_method", "alif")
+    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
+    if method in ("dushanbe_city", "alif"):
+        await _autopay_requisites(
+            call, state, data, method,
+            game_id_marker=f"STARS:{data['tg_username']}",
+            amount=data["amount"],
+            title="⭐ Telegram Stars", back_cb="stars_id_ok")
+        await state.set_state(StarsBuyState.wait_check)
+        return
     price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
     await state.update_data(price=price)
@@ -2299,6 +2444,10 @@ async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
 async def stars_receive_check(message: Message, state: FSMContext):
     data = await state.get_data()
     await state.clear()
+
+    # ==== АВТОПАРДОХТ (DC/Alif): чек омад → ҷустуҷӯи худкори пардохт ====
+    if await _autopay_receive_check(message, data):
+        return
 
     file_id = message.photo[-1].file_id
     check_hash = await _hash_photo(message)
@@ -2534,6 +2683,16 @@ async def premium_terms_reject(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "premium_terms_accept", PremiumBuyState.choose_payment)
 async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    method = data.get("pending_payment_method", "alif")
+    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
+    if method in ("dushanbe_city", "alif"):
+        await _autopay_requisites(
+            call, state, data, method,
+            game_id_marker=f"PREMIUM:{data['tg_username']}",
+            amount=data["months"],
+            title="💎 Telegram Premium", back_cb="premium_id_ok")
+        await state.set_state(PremiumBuyState.wait_check)
+        return
     price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
     await state.update_data(price=price)
@@ -2592,6 +2751,10 @@ async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
 async def premium_receive_check(message: Message, state: FSMContext):
     data = await state.get_data()
     await state.clear()
+
+    # ==== АВТОПАРДОХТ (DC/Alif): чек омад → ҷустуҷӯи худкори пардохт ====
+    if await _autopay_receive_check(message, data):
+        return
 
     file_id = message.photo[-1].file_id
     check_hash = await _hash_photo(message)
@@ -3643,6 +3806,16 @@ async def ffbr_terms_reject(call: CallbackQuery, state: FSMContext):
 @router.callback_query(F.data == "ffbr_terms_accept", FFBRBuyState.choose_payment)
 async def ffbr_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
+    method = data.get("pending_payment_method", "alif")
+    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
+    if method in ("dushanbe_city", "alif"):
+        await _autopay_requisites(
+            call, state, data, method,
+            game_id_marker=f"FFBR:{data['player_id']}",
+            amount=data.get("amount", 0),
+            title="🇧🇷 Free Fire Brazil", back_cb="ffbr_id_ok")
+        await state.set_state(FFBRBuyState.wait_check)
+        return
     price, disc_pct, disc_amt = data["price"], 0.0, 0.0
     price, winback_note = await _apply_winback_discount(call.from_user.id, round(float(price), 2))
     await state.update_data(price=price)
@@ -3703,6 +3876,10 @@ async def ffbr_show_requisites(call: CallbackQuery, state: FSMContext):
 async def ffbr_receive_check(message: Message, state: FSMContext):
     data = await state.get_data()
     await state.clear()
+
+    # ==== АВТОПАРДОХТ (DC/Alif): чек омад → ҷустуҷӯи худкори пардохт ====
+    if await _autopay_receive_check(message, data):
+        return
 
     file_id = message.photo[-1].file_id
     check_hash = await _hash_photo(message)

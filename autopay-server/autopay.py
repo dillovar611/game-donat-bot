@@ -305,6 +305,19 @@ async def handle_dc_scan_message(message: Message):
                 asyncio.create_task(run_donate(message.bot, order, synth_kod))
 
 
+def _confirm_cb(order: dict) -> str:
+    """Callback-и тугмаи «Тасдиқ — донат кун» аз рӯи хизмати фармоиш.
+    Ҳар хизмат ҳандлери худро дорад (API-и ҷудогона) — агар ҳамеша `ok_`
+    фиристем, фармоиши FFID/FFBR/PUBG/Stars/Premium ба API-и FF СНГ мерафт."""
+    gid = order.get("game_id") or ""
+    for prefix, cb in (("FFID:", "okffid"), ("FFBR:", "okffbr"),
+                       ("PUBG:", "okpubg"), ("STARS:", "okstars"),
+                       ("PREMIUM:", "okpremium")):
+        if gid.startswith(prefix):
+            return f"{cb}_{order['id']}"
+    return f"ok_{order['id']}"
+
+
 async def _notify_admins_wrong_amount(bot: Bot, order: dict, summa: float, kod: str):
     """Фармоиш ёфт шуд, вале маблағ мувофиқ нест — донати худкор НАМЕШАВАД."""
     text = (
@@ -496,19 +509,7 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
     # Тугмаи "Дубора донат" бояд ба ҳандлери ДУРУСТИ хидмат равад (на ҳамеша
     # ba FF СНГ) — вагарна харидҳои FFID/PUBG/Stars/Premium-и аз баланс ба
     # API-и нодуруст мераванд ва боз ноком мешаванд
-    _gid = order.get("game_id") or ""
-    if _gid.startswith("FFID:"):
-        retry_cb = f"okffid_{order['id']}"
-    elif _gid.startswith("FFBR:"):
-        retry_cb = f"okffbr_{order['id']}"
-    elif _gid.startswith("PUBG:"):
-        retry_cb = f"okpubg_{order['id']}"
-    elif _gid.startswith("STARS:"):
-        retry_cb = f"okstars_{order['id']}"
-    elif _gid.startswith("PREMIUM:"):
-        retry_cb = f"okpremium_{order['id']}"
-    else:
-        retry_cb = f"ok_{order['id']}"
+    retry_cb = _confirm_cb(order)
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔄 Дубора донат", callback_data=retry_cb)],
         [InlineKeyboardButton(text="✅ Дастӣ тасдиқ кардам", callback_data=f"manual_{order['id']}")],
@@ -665,10 +666,11 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
             except Exception as e:
                 logger.error(f"Паёми оғози донат ба {user_id} нарасид: {e}")
 
-            donate_coro = ff_api.auto_donate(
-                fresh_order["game_id"], fresh_order["offer_id"], fresh_order.get("api_order_id") or "",
-                order_id
-            )
+            # Ҳар хизмат API-и худро дорад (FFID/FFBR/PUBG/Stars/Premium) —
+            # ниг. _dispatch_donate_call. Пештар ин ҷо ҳамеша auto_donate-и
+            # FF СНГ даъват мешуд, пас фармоиши хизмати дигар ба категорияи
+            # нодуруст мерафт.
+            donate_coro = _dispatch_donate_call(fresh_order)
             if progress_msg:
                 success, api_order_id, uncertain, cost_usd = await _run_with_live_progress_text(progress_msg, header, donate_coro)
             else:
@@ -779,10 +781,8 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
                     f"{fresh_order.get('status')} — донат гузаронида шуд"
                 )
                 return
-            success, api_order_id, uncertain, cost_usd = await ff_api.auto_donate(
-                fresh_order["game_id"], fresh_order["offer_id"], fresh_order.get("api_order_id") or "",
-                order_id
-            )
+            # Ба API-и ДУРУСТИ хизмат (на ҳамеша FF СНГ) — ниг. _dispatch_donate_call
+            success, api_order_id, uncertain, cost_usd = await _dispatch_donate_call(fresh_order)
             logger.info(f"[COST-DEBUG] run_donate_for_escalated: order={order_id} success={success} cost_usd={cost_usd!r}")
             if api_order_id:
                 await db.set_order_api_id(order_id, api_order_id)
@@ -1062,8 +1062,12 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
                     f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
                     f"Чекро тафтиш кунед: агар пул воқеан омада бошад — «Тасдиқ»."
                 )
+                # Тугмаи тасдиқ бояд ба ҳандлери ДУРУСТИ хизмат равад —
+                # вагарна фармоиши FFID/FFBR/PUBG/Stars/Premium ба API-и
+                # FF СНГ мерафт ва донат ноком мешуд
                 kb = InlineKeyboardMarkup(inline_keyboard=[
-                    [InlineKeyboardButton(text="✅ Тасдиқ — донат кун", callback_data=f"ok_{order['id']}")],
+                    [InlineKeyboardButton(text="✅ Тасдиқ — донат кун",
+                                          callback_data=_confirm_cb(order))],
                     [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order['id']}")],
                 ])
                 for admin_id in config.ADMIN_IDS:
