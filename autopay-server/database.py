@@ -2814,16 +2814,28 @@ async def set_autopay_check(order_id: int, file_id: str, check_hash: str = None)
             return cur.rowcount > 0
 
 
-async def find_unmatched_kod(summa: float, max_age_minutes: int = 15):
-    """Kod-и пардохти аллакай омада (вале ҳанӯз ба фармоиш пайванднашуда)
-    бо ҳамин маблағро меёбад — барои ҳолате ки пардохт ПЕШ аз чек омад."""
+async def claim_unmatched_kod(summa: float, order_id: int, max_age_minutes: int = 15):
+    """Атомикӣ: Kod-и пардохти омада (ҳанӯз пайванднашуда) бо ҳамин маблағро
+    ба ин фармоиш БАНД мекунад ва бармегардонад.
+
+    Пеш ин танҳо SELECT буд — ду фармоиши ҳамзамон бо ҳамон нарх метавонистанд
+    ҳамон як kod-ро гиранд ва ҳарду донат шаванд (як пардохт → ду донат).
+    Акнун UPDATE...LIMIT 1 kod-ро атомикӣ мегирад: танҳо ЯКЕ мувафақ мешавад."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "SELECT kod FROM dc_kods WHERE matched_order_id IS NULL "
-                "AND summa=%s AND received_at >= NOW() - INTERVAL %s MINUTE "
+                "UPDATE dc_kods SET matched_order_id=%s "
+                "WHERE matched_order_id IS NULL AND summa=%s "
+                "AND received_at >= NOW() - INTERVAL %s MINUTE "
                 "ORDER BY received_at ASC LIMIT 1",
-                (summa, max_age_minutes)
+                (order_id, summa, max_age_minutes)
+            )
+            if cur.rowcount == 0:
+                return None
+            await cur.execute(
+                "SELECT kod FROM dc_kods WHERE matched_order_id=%s "
+                "ORDER BY received_at ASC LIMIT 1",
+                (order_id,)
             )
             row = await cur.fetchone()
             return row[0] if row else None
@@ -2965,6 +2977,24 @@ async def claim_order_for_reject(order_id: int) -> bool:
             await cur.execute(
                 "UPDATE orders SET status='rejected' WHERE id=%s "
                 "AND status NOT IN ('confirmed','rejected','donating')",
+                (order_id,)
+            )
+            return cur.rowcount > 0
+
+
+async def claim_order_for_donate_attempt(order_id: int) -> bool:
+    """Атомикӣ: фармоишро барои ЯК кӯшиши донат банд мекунад — ҳам аз
+    'paid' (тасдиқи аввал), ҳам аз 'failed' (тугмаи «Дубора донат»).
+
+    Пеш аз ин, тугмаи «Дубора донат» (статус='failed') ҳељ claim
+    намегирифт — ду пахши паси ҳам ду донат месохт. Акнун пахши дуюм
+    статусро дигар 'paid'/'failed' намебинад (аллакай 'donating' шуд) ва
+    False мегирад. Фармоиши 'donating' (донати зинда) низ банд намешавад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET status='donating', donating_at=NOW() "
+                "WHERE id=%s AND status IN ('paid','failed')",
                 (order_id,)
             )
             return cur.rowcount > 0

@@ -157,6 +157,12 @@ def _parse_notification(text: str):
 @router.message(F.chat.id == config.NOTIFIER_CHAT_ID)
 async def handle_dc_notification(message: Message):
     text = message.text or message.caption or ""
+    # DCSCAN — паёми санҷиши даврии барномаи телефон. Дар як Router aiogram
+    # ҳамин handler-и аввал ҳамаи паёмҳои ин каналро мегирад, пас
+    # handle_dc_scan_message ҳаргиз худаш иҷро намешуд — пардохтҳое, ки
+    # notification-и оддӣ гум кард, барқарор намешуданд. Ин ҷо равона мекунем.
+    if text.startswith("DCSCAN"):
+        return await handle_dc_scan_message(message)
     parsed = _parse_notification(text)
     if not parsed:
         return
@@ -967,7 +973,13 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
         # маҳз дар вақти донат рестарт шуда буд) — ба 'paid' бармегардонем,
         # то боз кӯшиш карда шаванд ----
         try:
-            await db.recover_stuck_donating_orders(3)
+            # 25 дақиқа — на 3. Донати воқеӣ то 10 дақ (FazerCards) ё то
+            # ~20 дақ (бо fallback-и MooGold) давом мекунад. Бо 3 дақиқа
+            # фармоиши ЗИНДА ба 'paid' бармегашт ва админ метавонист онро
+            # дубора тасдиқ карда, донати дуюм (харҷи дучанд) созад. 25 дақ
+            # аз ҳадди аксари вақти донат зиёдтар аст — танҳо фармоише, ки
+            # сервер ҳангоми рестарт нимкора монд, барқарор мешавад.
+            await db.recover_stuck_donating_orders(25)
         except Exception as e:
             logger.error(f"Хатогӣ дар барқарорсозии 'donating': {e}")
 

@@ -1035,6 +1035,12 @@ async def _autopay_receive_check(message: Message, data: dict) -> bool:
         return True
     file_id = message.photo[-1].file_id
     autopay_hash = await _hash_photo(message)
+    # Чеки такрорӣ: агар ҳамин расм аллакай ба фармоиши ФАЪОЛИ дигар (ё аз
+    # ҳисоби дигар) пайваст бошад — манъ. Пеш ин танҳо дар роҳи дастӣ буд;
+    # дар автопардохт кушода монда буд ва мизоҷ метавонист чеки кӯҳнаро
+    # фиристад, пул нафиристад ва баъди эскалатсия донати ройгон гирад.
+    if await _block_if_duplicate_check(message, autopay_hash):
+        return True
     if not await db.set_autopay_check(autopay_order_id, file_id, autopay_hash or None):
         await message.answer(
             "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол аллакай коркард шудааст).\n"
@@ -1052,7 +1058,7 @@ async def _autopay_receive_check(message: Message, data: dict) -> bool:
     )
     await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
     kod = await db.find_kod_for_order(autopay_order_id) \
-        or await db.find_unmatched_kod(float(order["price"]), autopay.MAX_AGE_MINUTES)
+        or await db.claim_unmatched_kod(float(order["price"]), autopay_order_id, autopay.MAX_AGE_MINUTES)
     if kod:
         order = await db.get_order(autopay_order_id)
         asyncio.create_task(autopay.run_donate(message.bot, order, kod))
@@ -1229,6 +1235,9 @@ async def receive_check(message: Message, state: FSMContext):
         # Изи ангушти чекро низ сабт мекунем — то абзори админии
         # «Ҷустуҷӯи чек» ин фармоишро баъдан ёфта тавонад
         autopay_hash = await _hash_photo(message)
+        # Чеки такрорӣ — манъ (мисли _autopay_receive_check)
+        if await _block_if_duplicate_check(message, autopay_hash):
+            return
         if not await db.set_autopay_check(autopay_order_id, file_id, autopay_hash or None):
             await message.answer(
                 "⚠️ Ин фармоиш дигар фаъол нест (эҳтимол аллакай коркард шудааст).\n"
@@ -1249,7 +1258,7 @@ async def receive_check(message: Message, state: FSMContext):
         # аввал Kod-и ба ҳамин фармоиш резервшуда (аз коменти card_XXXX),
         # баъд ҳамчун эҳтиёт — аз рӯи маблағ
         kod = await db.find_kod_for_order(autopay_order_id) \
-            or await db.find_unmatched_kod(float(order["price"]), autopay.MAX_AGE_MINUTES)
+            or await db.claim_unmatched_kod(float(order["price"]), autopay_order_id, autopay.MAX_AGE_MINUTES)
         if kod:
             order = await db.get_order(autopay_order_id)
             asyncio.create_task(autopay.run_donate(message.bot, order, kod))
@@ -3313,7 +3322,7 @@ async def topup_receive_check(message: Message, state: FSMContext):
     )
     await _offer_game(message, "⏳ Пардохти шумо ҳозир тафтиш шуда истодааст...")
     kod = await db.find_kod_for_order(autopay_order_id) \
-        or await db.find_unmatched_kod(float(order["price"]), autopay.MAX_AGE_MINUTES)
+        or await db.claim_unmatched_kod(float(order["price"]), autopay_order_id, autopay.MAX_AGE_MINUTES)
     if kod:
         order = await db.get_order(autopay_order_id)
         asyncio.create_task(autopay.run_donate(message.bot, order, kod))

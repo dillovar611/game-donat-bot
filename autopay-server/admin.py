@@ -1106,8 +1106,12 @@ async def a_order_view(call: CallbackQuery):
         f"💵 {order['price']:.2f} сомонӣ\n"
         f"📊 Ҳолат: {order['status']}"
     )
+    # Тугмаи тасдиқ бояд ба ҳандлери ДУРУСТИ хизмат равад (okffid_/okml_/…),
+    # на ҳамеша ok_ (FF СНГ) — вагарна фармоиши FFID/ML/PUBG/Stars/Premium
+    # ба API-и нодуруст мерафт ва донат ноком мешуд
+    import autopay
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Тасдиқ (донат)", callback_data=f"ok_{order_id}")],
+        [InlineKeyboardButton(text="✅ Тасдиқ (донат)", callback_data=autopay._confirm_cb(order))],
         [InlineKeyboardButton(text="❌ Рад кардан",     callback_data=f"no_{order_id}")],
         [InlineKeyboardButton(text="🔙 Бозгашт",         callback_data="a_pending_orders")],
     ])
@@ -1261,7 +1265,7 @@ async def order_confirm(call: CallbackQuery):
     # дар ҳамин лаҳза DCSCAN/DCNOTIF низ ҳамин пардохтро ёфта, худкор
     # коркард карда истода бошад (ё аллакай оғоз кардааст), ду бор донат
     # нашавад (яке аз ду тараф claim-ро мебарад)
-    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+    if order["status"] not in ("confirmed", "rejected") and not await db.claim_order_for_donate_attempt(order_id):
         await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст (DCSCAN)!", show_alert=True)
         return
 
@@ -1643,6 +1647,14 @@ async def order_manual(call: CallbackQuery):
     # дигар аллакай пахш кардааст, ё шумо иштибоҳан дубора пахш кардед)
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+        return
+    # Агар донати ХУДКОР ҳозир дар ҷараён бошад, дастӣ тасдиқ накунед —
+    # вагарна мизоҷ ду маротиба маҳсулот мегирад ва шумо ду бор пул медиҳед
+    if order["status"] == "donating":
+        await call.answer(
+            "⏳ Донати худкор ҳанӯз дар ҷараён аст — 1-2 дақиқа сабр кунед, "
+            "баъд натиҷаро бинед. Агар ҳанӯз нашуд, он гоҳ дастӣ тасдиқ кунед.",
+            show_alert=True)
         return
 
     await db.update_order_status(order_id, "confirmed")
@@ -2937,7 +2949,7 @@ async def order_confirm_ffid(call: CallbackQuery):
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
         return
-    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+    if order["status"] not in ("confirmed", "rejected") and not await db.claim_order_for_donate_attempt(order_id):
         await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
         return
 
@@ -3516,7 +3528,7 @@ async def order_confirm_pubg(call: CallbackQuery):
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
         return
-    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+    if order["status"] not in ("confirmed", "rejected") and not await db.claim_order_for_donate_attempt(order_id):
         await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
         return
 
@@ -3774,7 +3786,7 @@ async def order_confirm_stars(call: CallbackQuery):
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
         return
-    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+    if order["status"] not in ("confirmed", "rejected") and not await db.claim_order_for_donate_attempt(order_id):
         await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
         return
 
@@ -3873,7 +3885,7 @@ async def order_confirm_premium(call: CallbackQuery):
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
         return
-    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+    if order["status"] not in ("confirmed", "rejected") and not await db.claim_order_for_donate_attempt(order_id):
         await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
         return
 
@@ -4382,7 +4394,7 @@ async def order_confirm_ffbr(call: CallbackQuery):
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
         return
-    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+    if order["status"] not in ("confirmed", "rejected") and not await db.claim_order_for_donate_attempt(order_id):
         await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
         return
 
@@ -4722,7 +4734,7 @@ async def order_confirm_ml(call: CallbackQuery):
     if order["status"] in ("confirmed", "rejected"):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
         return
-    if order["status"] in ("paid", "donating") and not await db.claim_paid_order_for_autodonate(order_id):
+    if order["status"] not in ("confirmed", "rejected") and not await db.claim_order_for_donate_attempt(order_id):
         await call.answer("ℹ️ Ин фармоиш ҳозир аллакай худкор коркард шуда истодааст!", show_alert=True)
         return
 
