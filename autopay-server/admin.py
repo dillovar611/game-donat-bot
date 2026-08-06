@@ -723,17 +723,16 @@ async def a_my_work(call: CallbackQuery):
     # Маҳдудият то ба ҳадди 4096 аломати Telegram нарасем
     limit = 30 if days <= 7 else 40
     orders = await db.get_orders_needing_admin(days=days, limit=limit)
-    quiet_on = (await db.get_setting("quiet_hours") or "1") == "1"
-    quiet_label = "🌙 Хомӯшии шабона: ФАЪОЛ" if quiet_on else "🔔 Хомӯшии шабона: ХОМӮШ"
     filter_row = [
         InlineKeyboardButton(
             text=(f"▪️{lbl}" if d == days else lbl),
             callback_data=f"a_my_work_d{d}")
         for d, lbl in _WORK_RANGES
     ]
+    # Тугмаи «Хомӯшии шабона» бардошта шуд — акнун огоҳиҳо ҳамеша фавран
+    # бо расми чек меоянд (аз ҷумла шабона).
     tail_rows = [
         filter_row,
-        [InlineKeyboardButton(text=quiet_label, callback_data="a_toggle_quiet")],
         [InlineKeyboardButton(text="🧹 Бастани фармоишҳои кӯҳна",
                               callback_data="a_archive_menu")],
         [InlineKeyboardButton(text="🔄 Навсозӣ", callback_data=f"a_my_work_d{days}")],
@@ -1794,7 +1793,20 @@ async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, 
     except Exception as e:
         logger.error(f"Хабар ба корбар нашуд: {e}")
 
-    caption = f"❌ <b>Фармоиши #{order_id} рад карда шуд.</b>"
+    # Маълумоти мизоҷро нигоҳ медорем — вагарна баъди рад танҳо рақами
+    # фармоиш мемонад ва маълум намешавад КӢ буд, чиро харид (соҳиб гуфт
+    # «ба ғайр аз рақами фармоиш ягон маълумот намемонад»).
+    u = await db.get_user(order["user_id"])
+    uname = f"@{u['username']}" if u and u.get("username") else "—"
+    full = esc(u.get("full_name")) if u and u.get("full_name") else "—"
+    pm = _PM_LABELS.get(order.get("payment_method"), order.get("payment_method") or "—")
+    caption = (
+        f"❌ <b>Фармоиши #{order_id} рад карда шуд.</b>\n\n"
+        f"👤 Харидор: {full} ({esc(uname)})\n"
+        f"🆔 ID: <code>{order['user_id']}</code>\n"
+        f"🎁 {esc(order.get('label') or '—')} → <code>{esc(order.get('game_id') or '—')}</code>\n"
+        f"💵 {float(order.get('price') or 0):.2f} сом · {esc(pm)}"
+    )
     if reason_clean:
         caption += f"\n📝 Сабаб: {esc(reason_clean)}"
     try:
