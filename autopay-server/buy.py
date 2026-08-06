@@ -4347,3 +4347,263 @@ async def ml_receive_check(message: Message, state: FSMContext):
 @router.message(MLBuyState.wait_check)
 async def ml_wrong_check(message: Message, state: FSMContext):
     await message.answer("⚠️ Лутфан <b>расми</b> чекро фиристед (на матн).", parse_mode="HTML")
+
+
+# ════════════════════════════════════════════════════════
+#         НАСТРОЙКАИ FF (маҳсулоти рақамӣ — видео + силка)
+# ════════════════════════════════════════════════════════
+# Мизоҷ платформаро интихоб мекунад → видеои намоишӣ мебинад → пул медиҳад
+# → админ огоҳ мешавад ва бо тугма силкаи каналро мефиристад. То админ
+# тугмаро напахшад, силка ба мизоҷ НАМЕРАВАД (маҳсулот баргардонашаванда
+# нест, пас озод кардани дастӣ бехатар аст).
+_FFSET_PLATFORMS = {
+    "ios":     ("📱 iPhone (iOS)", "ios"),
+    "android": ("🤖 Android",      "android"),
+}
+
+
+async def _ffset_cfg(platform: str) -> dict:
+    """Танзимоти платформаро аз settings мегирад: видео (file_id), нарх, силка."""
+    video = await db.get_setting(f"ffset_{platform}_video")
+    price = await db.get_setting(f"ffset_{platform}_price")
+    link = await db.get_setting(f"ffset_{platform}_link")
+    try:
+        price_f = float(price) if price else 0.0
+    except ValueError:
+        price_f = 0.0
+    return {"video": video or "", "price": price_f, "link": link or ""}
+
+
+class FFSetupState(StatesGroup):
+    wait_check = State()
+
+
+@router.callback_query(F.data == "ffset_menu")
+async def ffset_menu(call: CallbackQuery, state: FSMContext):
+    await state.clear()
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=name, callback_data=f"ffset_plat_{key}")]
+        for key, (name, _) in _FFSET_PLATFORMS.items()
+    ] + [[InlineKeyboardButton(text="🔙 Бозгашт", callback_data="back_main")]])
+    await _safe_edit(
+        call,
+        "⚙️ <b>Настройкаи Free Fire</b>\n\n"
+        "Тайёркунии беҳтарини ҳассосият (чувствительность) барои бозии беҳтар.\n\n"
+        "Дастгоҳатонро интихоб кунед:",
+        kb
+    )
+
+
+@router.callback_query(F.data.startswith("ffset_plat_"))
+async def ffset_platform(call: CallbackQuery, state: FSMContext):
+    platform = call.data.rsplit("_", 1)[1]
+    if platform not in _FFSET_PLATFORMS:
+        await call.answer("❌ Номаълум", show_alert=True)
+        return
+    cfg = await _ffset_cfg(platform)
+    name = _FFSET_PLATFORMS[platform][0]
+    if cfg["price"] <= 0 or not cfg["link"]:
+        await call.answer("⚠️ Ин маҳсулот ҳоло тайёр нест. Баъдтар кӯшиш кунед.", show_alert=True)
+        return
+    await state.update_data(ffset_platform=platform, price=cfg["price"],
+                            label=f"⚙️ Настройкаи FF — {name}")
+    caption = (
+        f"⚙️ <b>Настройкаи FF — {name}</b>\n\n"
+        f"🎥 Дар видео тарзи кор нишон дода шудааст.\n"
+        f"💵 Нарх: <b>{cfg['price']:.2f} сомонӣ</b>\n\n"
+        f"Пас аз пардохт, силкаи канали пӯшида ба шумо фиристода мешавад "
+        f"(баъди тасдиқи админ — одатан чанд дақиқа).\n\n"
+        f"Тариқи пардохтро интихоб кунед:"
+    )
+    balance = await db.get_referral_balance(call.from_user.id)
+    kb_rows = [
+        [InlineKeyboardButton(text="🏙 Душанбе Сити", callback_data="ffset_pay_dc")],
+        [InlineKeyboardButton(text="💳 Алиф",          callback_data="ffset_pay_alif")],
+    ]
+    if balance >= cfg["price"]:
+        kb_rows.append([InlineKeyboardButton(
+            text=f"💰 Аз баланс ({balance:.2f} сом)", callback_data="ffset_pay_balance")])
+    kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="ffset_menu")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    # Видеоро мефиристем (агар танзим шуда бошад), вагарна танҳо матн
+    try:
+        if cfg["video"]:
+            await call.message.answer_video(cfg["video"], caption=caption,
+                                            reply_markup=kb, parse_mode="HTML")
+            await call.answer()
+            return
+    except Exception as e:
+        logger.error(f"ffset видео нашуд: {e}")
+    await _safe_edit(call, caption, kb)
+
+
+async def _ffset_notify_admin(bot, user, order_id: int, platform: str,
+                              price: float, method_name: str, check_file_id=None):
+    """Ба админ огоҳӣ бо тугмаи «Додани силка» мефиристад."""
+    name = _FFSET_PLATFORMS.get(platform, (platform,))[0]
+    uname = f"@{user.username}" if user.username else "—"
+    caption = (
+        f"⚙️ <b>Настройкаи FF — пардохт омад!</b>\n\n"
+        f"👤 Харидор: {esc(user.full_name)} ({esc(uname)})\n"
+        f"🆔 ID: <code>{user.id}</code>\n"
+        f"📱 Дастгоҳ: {name}\n"
+        f"💵 Маблағ: <b>{price:.2f} сомонӣ</b> · {method_name}\n"
+        f"🆔 Фармоиш: #{order_id}\n\n"
+        f"👇 Барои фиристодани силка ба мизоҷ, тугмаро пахш кунед. "
+        f"То напахшед, силка НАМЕРАВАД."
+    )
+    kb_rows = [
+        [InlineKeyboardButton(text="🔗 Додани силка ба мизоҷ", callback_data=f"ffsetrel_{order_id}")],
+        [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order_id}")],
+    ]
+    if user.username:
+        kb_rows.append([InlineKeyboardButton(text="💬 ЛС ба клент", url=f"https://t.me/{user.username}")])
+    kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    for admin_id in config.ADMIN_IDS:
+        try:
+            if check_file_id:
+                await bot.send_photo(admin_id, check_file_id, caption=caption,
+                                     reply_markup=kb, parse_mode="HTML")
+            else:
+                await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"ffset огоҳӣ ба админ {admin_id} нарасид: {e}")
+
+
+@router.callback_query(F.data == "ffset_pay_balance")
+async def ffset_pay_balance(call: CallbackQuery, state: FSMContext):
+    uid = call.from_user.id
+    if uid in _balance_pay_in_flight:
+        await call.answer("⏳ Фармоиши қаблиатон дар кор аст — сабр кунед.", show_alert=True)
+        return
+    _balance_pay_in_flight.add(uid)
+    try:
+        data = await state.get_data()
+        platform = data.get("ffset_platform")
+        price = data.get("price")
+        if not platform or price is None:
+            await call.answer("❌ State тамом шуд, аз нав сар кунед!", show_alert=True)
+            return
+        if await db.get_referral_balance(uid) < price:
+            await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
+            return
+        bal_after = await db.deduct_referral_balance(uid, price)
+        if bal_after is None:
+            await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
+            return
+        await state.clear()
+        try:
+            order_id = await db.create_order(
+                user_id=uid, game_id=f"FFSETUP:{platform}", nickname="",
+                amount=0, price=price, label=data["label"],
+                offer_id="", payment_method="referral_balance",
+            )
+            await db.mark_order_paid_with_balance(order_id)
+        except Exception as e:
+            logger.error(f"ffset_pay_balance: фармоиш нашуд ({uid}): {e}")
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await call.bot.send_message(
+                        admin_id,
+                        f"⚠️ <b>Хатои настройкаи FF аз баланс — ДАСТӢ ҳал кунед!</b>\n\n"
+                        f"👤 ID: <code>{uid}</code>\n"
+                        f"💵 {price:.2f} сом кам шуд, вале фармоиш сохта НАШУД.",
+                        parse_mode="HTML")
+                except Exception:
+                    pass
+            await call.message.answer("⚠️ Мушкили техникӣ. Админ хабардор аст 🙏")
+            return
+        await call.message.answer(
+            f"✅ <b>Пардохт аз баланс қабул шуд!</b>\n\n"
+            f"🆔 Фармоиш: #{order_id}\n"
+            f"💰 Баланси боқимонда: <b>{bal_after:.2f} сом</b>\n\n"
+            f"🔗 Силкаи канал ба зудӣ фиристода мешавад (баъди тасдиқи админ). 🙏",
+            parse_mode="HTML")
+        await _ffset_notify_admin(call.bot, call.from_user, order_id, platform,
+                                  price, "💰 Аз баланс", None)
+    finally:
+        _balance_pay_in_flight.discard(uid)
+
+
+@router.callback_query(F.data.in_({"ffset_pay_dc", "ffset_pay_alif"}))
+async def ffset_show_requisites(call: CallbackQuery, state: FSMContext):
+    data = await state.get_data()
+    platform = data.get("ffset_platform")
+    price = data.get("price")
+    if not platform or price is None:
+        await call.answer("❌ State тамом шуд, аз нав сар кунед!", show_alert=True)
+        return
+    method = "dushanbe_city" if call.data == "ffset_pay_dc" else "alif"
+    # Нархи каме нодир — то админ пардохтро осон мувофиқ кунад
+    price = round(float(price) + random.randint(1, 99) / 100, 2)
+    await state.update_data(price=price, payment_method=method)
+    if method == "dushanbe_city":
+        method_name = "🏙 Душанбе Сити"
+        dc_card = await db.get_dc_card_number()
+        pay_url = f"http://pay.expresspay.tj/?A={dc_card}&s={price:g}&c=card_ffset&f1=133"
+    else:
+        method_name = "💳 Алиф"
+        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text=f"💳 Пардохти {method_name}", url=pay_url)],
+        [InlineKeyboardButton(text="📸 Чекро фиристодам", callback_data="ffset_sent")],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="ffset_menu")],
+    ])
+    await _safe_edit(
+        call,
+        f"💳 <b>{method_name}</b>\n\n"
+        f"🎁 {esc(data['label'])}\n"
+        f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n\n"
+        f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
+        f"2️⃣ Маблағи дақиқ пардохт кунед\n"
+        f"3️⃣ «📸 Чекро фиристодам»-ро пахш карда, расми чекро фиристед\n\n"
+        f"🔗 Баъди тасдиқ, силкаи канал ба шумо меравад.",
+        kb
+    )
+
+
+@router.callback_query(F.data == "ffset_sent")
+async def ffset_ask_check(call: CallbackQuery, state: FSMContext):
+    await call.answer()
+    await call.message.answer("📸 Лутфан расми чекро фиристед:")
+    await state.set_state(FFSetupState.wait_check)
+
+
+@router.message(FFSetupState.wait_check, F.photo)
+async def ffset_receive_check(message: Message, state: FSMContext):
+    data = await state.get_data()
+    await state.clear()
+    platform = data.get("ffset_platform")
+    price = data.get("price")
+    if not platform or price is None:
+        await message.answer("⚠️ Фармоиш фаъол нест, аз нав сар кунед.")
+        return
+    file_id = message.photo[-1].file_id
+    check_hash = await _hash_photo(message)
+    if await _block_if_duplicate_check(message, check_hash):
+        return
+    try:
+        order_id = await db.create_order(
+            user_id=message.from_user.id, game_id=f"FFSETUP:{platform}", nickname="",
+            amount=0, price=price, label=data["label"],
+            offer_id="", payment_method=data.get("payment_method", ""),
+        )
+        await db.set_order_check(order_id, file_id, check_hash)
+    except Exception as e:
+        logger.error(f"ffset_receive_check: фармоиш нашуд: {e}")
+        await message.answer("⚠️ Хатои система. Бо дастгирӣ тамос гиред.")
+        return
+    await message.answer(
+        f"✅ <b>Чек қабул шуд!</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n\n"
+        f"🔗 Пас аз тасдиқи админ, силкаи канал ба шумо фиристода мешавад. 🙏",
+        parse_mode="HTML")
+    _pm = data.get("payment_method")
+    method_name = "🏙 Душанбе Сити" if _pm == "dushanbe_city" else "💳 Алиф"
+    await _ffset_notify_admin(message.bot, message.from_user, order_id, platform,
+                              price, method_name, file_id)
+
+
+@router.message(FFSetupState.wait_check)
+async def ffset_wrong_check(message: Message, state: FSMContext):
+    await message.answer("⚠️ Лутфан <b>расми</b> чекро фиристед (на матн).", parse_mode="HTML")

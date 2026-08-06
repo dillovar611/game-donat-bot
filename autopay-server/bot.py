@@ -146,6 +146,7 @@ def main_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🎮 Бозиҳо",      callback_data="games_menu"),
          InlineKeyboardButton(text="✈️ Telegram",    callback_data="telegram_menu")],
+        [InlineKeyboardButton(text="⚙️ НАСТРОЙКАИ FF", callback_data="ffset_menu")],
         [InlineKeyboardButton(text="👤 Профил",      callback_data="profile_menu"),
          InlineKeyboardButton(text="🤝 Реферал",     callback_data="referral_menu")],
         [InlineKeyboardButton(text="⭐ Отзив",       url=config.REVIEW_CHANNEL_URL),

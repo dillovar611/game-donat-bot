@@ -178,6 +178,7 @@ async def a_products_menu(call: CallbackQuery):
         [InlineKeyboardButton(text="🔫 Standoff 2",   callback_data="a_standoff_products")],
         [InlineKeyboardButton(text="⭐ Stars/Premium", callback_data="a_tg_products")],
         [InlineKeyboardButton(text="🎁 Комбоҳо",       callback_data="a_combos")],
+        [InlineKeyboardButton(text="⚙️ Настройкаи FF",  callback_data="a_ffset_products")],
         [InlineKeyboardButton(text="📋 Категорияҳои FazerCards", callback_data="fazer_categories")],
         [InlineKeyboardButton(text="🔙 Бозгашт",      callback_data="a_back")],
     ])
@@ -5276,3 +5277,195 @@ async def a_ml_test_fields_run(message: Message, state: FSMContext):
     lines.append(f"👆 Дар «⚙️ Танзимоти API» нависед:\n"
                  f"<code>{esc(cat)} | {esc(found[0]['fields'])}</code>")
     await wait.edit_text("\n".join(lines)[:4000], parse_mode="HTML")
+
+
+# ════════════════════════════════════════════════════════
+#         НАСТРОЙКАИ FF — админ (озод кардани силка + танзим)
+# ════════════════════════════════════════════════════════
+_FFSET_PLAT_NAMES = {"ios": "📱 iPhone (iOS)", "android": "🤖 Android"}
+
+
+@router.callback_query(F.data.startswith("ffsetrel_"))
+async def a_ffset_release(call: CallbackQuery):
+    """Силкаи каналро ба мизоҷ мефиристад (танҳо баъди пахши админ)."""
+    if not is_admin(call.from_user.id):
+        await call.answer("❌ Иҷозат нест!", show_alert=True)
+        return
+    order_id = int(call.data.split("_")[1])
+    order = await db.get_order(order_id)
+    if not order:
+        await call.answer("❌ Фармоиш ёфт нашуд!", show_alert=True)
+        return
+    if order["status"] in ("confirmed", "rejected"):
+        await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+        return
+    gid = order.get("game_id") or ""
+    platform = gid.replace("FFSETUP:", "") if gid.startswith("FFSETUP:") else ""
+    link = await db.get_setting(f"ffset_{platform}_link")
+    if not link:
+        await call.answer("⚠️ Силка танзим нашудааст! Аввал дар «Танзимот» силкаро гузоред.", show_alert=True)
+        return
+    name = _FFSET_PLAT_NAMES.get(platform, platform)
+    try:
+        await call.bot.send_message(
+            order["user_id"],
+            f"🔗 <b>Настройкаи FF — {name}</b>\n\n"
+            f"Инак силкаи канали пӯшида:\n{link}\n\n"
+            f"🙏 Ташаккур барои харид! Агар савол дошта бошед, нависед.",
+            parse_mode="HTML", disable_web_page_preview=False)
+    except Exception as e:
+        logger.error(f"ffset силка ба мизоҷ нарасид: {e}")
+        await call.answer("⚠️ Ба мизоҷ фиристода нашуд (шояд ботро баста).", show_alert=True)
+        return
+    await db.update_order_status(order_id, "confirmed")
+    await db.set_confirmed_at(order_id)
+    await call.answer("✅ Силка фиристода шуд!")
+    new_caption = (
+        f"✅ <b>Настройкаи FF — силка фиристода шуд!</b>\n\n"
+        f"🆔 Фармоиш: #{order_id}\n"
+        f"👤 Мизоҷ: <code>{order['user_id']}</code>\n"
+        f"📱 {name} · {float(order.get('price') or 0):.2f} сом"
+    )
+    try:
+        await call.message.edit_caption(caption=new_caption, reply_markup=None, parse_mode="HTML")
+    except Exception:
+        try:
+            await call.message.edit_text(new_caption, reply_markup=None, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"ffset навсозии паём нашуд: {e}")
+
+
+# -------- Танзимоти маҳсулот (видео / нарх / силка) --------
+class FFSetAdminState(StatesGroup):
+    set_video = State()
+    set_price = State()
+    set_link  = State()
+
+
+@router.callback_query(F.data == "a_ffset_products")
+async def a_ffset_products(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    rows = []
+    for plat, name in _FFSET_PLAT_NAMES.items():
+        price = await db.get_setting(f"ffset_{plat}_price")
+        link = await db.get_setting(f"ffset_{plat}_link")
+        video = await db.get_setting(f"ffset_{plat}_video")
+        status = "🟢" if (price and link) else "🔴"
+        rows.append([InlineKeyboardButton(
+            text=f"{status} {name} — {price or '?'} сом",
+            callback_data=f"ffsetcfg_{plat}")])
+    rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_products_menu")])
+    await _safe_edit(
+        call,
+        "⚙️ <b>Настройкаи FF — танзимот</b>\n\n"
+        "🟢 = тайёр (нарх + силка ҳаст) · 🔴 = нопурра\n\n"
+        "Платформаро барои танзим интихоб кунед:",
+        InlineKeyboardMarkup(inline_keyboard=rows)
+    )
+
+
+@router.callback_query(F.data.startswith("ffsetcfg_"))
+async def a_ffset_cfg(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    plat = call.data.split("_")[1]
+    name = _FFSET_PLAT_NAMES.get(plat, plat)
+    price = await db.get_setting(f"ffset_{plat}_price") or "—"
+    link = await db.get_setting(f"ffset_{plat}_link") or "—"
+    video = await db.get_setting(f"ffset_{plat}_video")
+    video_s = "✅ ҳаст" if video else "❌ нест"
+    await _safe_edit(
+        call,
+        f"⚙️ <b>{name}</b>\n\n"
+        f"🎥 Видео: {video_s}\n"
+        f"💵 Нарх: <b>{esc(price)}</b> сом\n"
+        f"🔗 Силка: <code>{esc(link)}</code>",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🎥 Видеоро гузоштан", callback_data=f"ffsetvid_{plat}")],
+            [InlineKeyboardButton(text="💵 Нархро гузоштан",  callback_data=f"ffsetprice_{plat}")],
+            [InlineKeyboardButton(text="🔗 Силкаро гузоштан", callback_data=f"ffsetlink_{plat}")],
+            [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_ffset_products")],
+        ])
+    )
+
+
+@router.callback_query(F.data.startswith("ffsetvid_"))
+async def a_ffset_set_video(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await state.update_data(ffset_plat=call.data.split("_")[1])
+    await state.set_state(FFSetAdminState.set_video)
+    await call.answer()
+    await call.bot.send_message(call.from_user.id,
+        "🎥 Видеои намоиширо ба ҳамин чат фиристед (ҳамчун видео):")
+
+
+@router.message(FFSetAdminState.set_video, F.video)
+async def a_ffset_save_video(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    plat = data.get("ffset_plat")
+    await db.set_setting(f"ffset_{plat}_video", message.video.file_id)
+    await state.clear()
+    await message.answer(f"✅ Видео барои {_FFSET_PLAT_NAMES.get(plat, plat)} захира шуд!")
+
+
+@router.message(FFSetAdminState.set_video)
+async def a_ffset_video_wrong(message: Message):
+    await message.answer("⚠️ Лутфан <b>видео</b> фиристед.", parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("ffsetprice_"))
+async def a_ffset_set_price(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await state.update_data(ffset_plat=call.data.split("_")[1])
+    await state.set_state(FFSetAdminState.set_price)
+    await call.answer()
+    await call.bot.send_message(call.from_user.id, "💵 Нархро бо сомонӣ нависед (масалан 50):")
+
+
+@router.message(FFSetAdminState.set_price)
+async def a_ffset_save_price(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    try:
+        price = round(float(message.text.strip().replace(",", ".")), 2)
+        if price <= 0:
+            raise ValueError()
+    except ValueError:
+        await message.answer("⚠️ Рақами дуруст нависед (масалан 50):")
+        return
+    data = await state.get_data()
+    plat = data.get("ffset_plat")
+    await db.set_setting(f"ffset_{plat}_price", f"{price:.2f}")
+    await state.clear()
+    await message.answer(f"✅ Нарх барои {_FFSET_PLAT_NAMES.get(plat, plat)}: {price:.2f} сом")
+
+
+@router.callback_query(F.data.startswith("ffsetlink_"))
+async def a_ffset_set_link(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await state.update_data(ffset_plat=call.data.split("_")[1])
+    await state.set_state(FFSetAdminState.set_link)
+    await call.answer()
+    await call.bot.send_message(call.from_user.id,
+        "🔗 Силкаи каналро фиристед (масалан https://t.me/+xxxxx):")
+
+
+@router.message(FFSetAdminState.set_link)
+async def a_ffset_save_link(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    link = message.text.strip()
+    if not link.startswith("http"):
+        await message.answer("⚠️ Силкаи дуруст фиристед (бо http сар шавад):")
+        return
+    data = await state.get_data()
+    plat = data.get("ffset_plat")
+    await db.set_setting(f"ffset_{plat}_link", link)
+    await state.clear()
+    await message.answer(f"✅ Силка барои {_FFSET_PLAT_NAMES.get(plat, plat)} захира шуд!")
