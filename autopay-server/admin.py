@@ -1807,6 +1807,12 @@ async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, 
         f"🎁 {esc(order.get('label') or '—')} → <code>{esc(order.get('game_id') or '—')}</code>\n"
         f"💵 {float(order.get('price') or 0):.2f} сом · {esc(pm)}"
     )
+    # Фармоиши аз БАЛАНС — пул худкор барнамегардад (қоидаи соҳиб), пас
+    # ёдрас мекунем, то фаромӯш нашавад
+    if order.get("payment_method") == "referral_balance":
+        caption += (f"\n\n💰 <b>Диққат:</b> ин фармоиш АЗ БАЛАНС пардохт "
+                    f"шуда буд. Агар лозим бошад, {float(order.get('price') or 0):.2f} "
+                    f"сомро ДАСТӢ ба балансаш баргардонед.")
     if reason_clean:
         caption += f"\n📝 Сабаб: {esc(reason_clean)}"
     try:

@@ -3463,11 +3463,33 @@ async def standoff_pay_balance(call: CallbackQuery, state: FSMContext):
             await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
             return
         await state.clear()
-        order_id = await db.create_order(
-            user_id=uid, game_id=f"SO2:{data['player_id']}", nickname="",
-            amount=data["amount"], price=price, label=data["label"],
-            offer_id="", payment_method="referral_balance",
-        )
+        # try/except — мисли pay_with_balance: агар баъди кам шудани баланс
+        # сохтани фармоиш хато диҳад, пул БЕСАДО гум нашавад, балки админ
+        # огоҳ шавад (қоидаи соҳиб — худкор барнамегардонем)
+        try:
+            order_id = await db.create_order(
+                user_id=uid, game_id=f"SO2:{data['player_id']}", nickname="",
+                amount=data["amount"], price=price, label=data["label"],
+                offer_id="", payment_method="referral_balance",
+            )
+            await db.mark_order_paid_with_balance(order_id)
+        except Exception as e:
+            logger.error(f"standoff_pay_balance: сохтани фармоиш нашуд ({uid}): {e}")
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await call.bot.send_message(
+                        admin_id,
+                        f"⚠️ <b>Хатои харид аз баланс (Standoff) — ДАСТӢ ҳал кунед!</b>\n\n"
+                        f"👤 ID: <code>{uid}</code>\n"
+                        f"💵 {price:.2f} сом аз баланс кам шуд, вале фармоиш сохта НАШУД.\n"
+                        f"🎁 {esc(data.get('label', '—'))}\n"
+                        f"Хато: {esc(str(e))[:200]}",
+                        parse_mode="HTML")
+                except Exception:
+                    pass
+            await call.message.answer(
+                "⚠️ Мушкили техникӣ шуд. Админ хабардор аст ва зуд ҳал мекунад 🙏")
+            return
         new_balance = await db.get_referral_balance(uid)
         await call.message.answer(
             f"✅ <b>Пардохт аз баланс қабул шуд!</b>\n\n"
