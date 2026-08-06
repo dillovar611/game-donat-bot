@@ -3057,6 +3057,12 @@ def _purchase_intent_from_state(current_state: str | None, data: dict) -> dict |
     if current_state.startswith("FFIDBuyState"):
         game_id = f"FFID:{data.get('player_id', '')}"
         nickname = data.get("nickname", "")
+    elif current_state.startswith("FFBRBuyState"):
+        game_id = f"FFBR:{data.get('player_id', '')}"
+        nickname = data.get("nickname", "")
+    elif current_state.startswith("MLBuyState"):
+        game_id = f"ML:{data.get('player_id', '')}:{data.get('server_id', '')}"
+        nickname = data.get("nickname", "")
     elif current_state.startswith("PUBGBuyState"):
         game_id = f"PUBG:{data.get('player_id', '')}"
         nickname = ""

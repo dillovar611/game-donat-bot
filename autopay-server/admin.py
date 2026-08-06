@@ -3280,6 +3280,8 @@ async def a_combo_item_toggle(call: CallbackQuery, state: FSMContext):
     Ин аз он ҷилавгирӣ мекунад, ки як пахши тасодуфӣ маҳсулоти нохостаро
     ба комбо ҳамеша илова кунад бе роҳи осони бозгашт.
     """
+    if not is_admin(call.from_user.id):
+        return
     pid = call.data.split("_")[2]
     data = await state.get_data()
     qty_map = dict(data.get("combo_qty", {}))
@@ -3294,6 +3296,8 @@ async def a_combo_item_toggle(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("combo_padd_"), ComboState.add_items)
 async def a_combo_item_add(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
     pid = call.data.split("_")[2]
     data = await state.get_data()
     qty_map = dict(data.get("combo_qty", {}))
@@ -3305,6 +3309,8 @@ async def a_combo_item_add(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data.startswith("combo_pminus_"), ComboState.add_items)
 async def a_combo_item_minus(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
     pid = call.data.split("_")[2]
     data = await state.get_data()
     qty_map = dict(data.get("combo_qty", {}))
@@ -3319,6 +3325,8 @@ async def a_combo_item_minus(call: CallbackQuery, state: FSMContext):
 
 @router.callback_query(F.data == "combo_custom_add", ComboState.add_items)
 async def a_combo_custom_add(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
     await _safe_edit(
         call,
         "✍️ Номи ашёи дастиро нависед (масалан: Пропуски прокачка):",
