@@ -2923,13 +2923,18 @@ async def is_kod_seen(kod: str) -> bool:
             return (await cur.fetchone()) is not None
 
 
-async def record_kod(kod: str, summa: float):
+async def record_kod(kod: str, summa: float) -> bool:
+    """Kod-ро сабт мекунад. True = НАВ буд, False = аллакай буд.
+    `kod` PRIMARY KEY аст, пас INSERT IGNORE атомикӣ такрорро мебандад —
+    ин ягона санҷиши бехатар аст (is_kod_seen+INSERT ду қадами ҷудо буд ва
+    агар барномаи телефон ҳамон огоҳиро ду бор фиристад, ҳарду мегузаштанд)."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
                 "INSERT IGNORE INTO dc_kods (kod, summa) VALUES (%s,%s)",
                 (kod, summa)
             )
+            return cur.rowcount > 0
 
 
 async def mark_kod_matched(kod: str, order_id: int):

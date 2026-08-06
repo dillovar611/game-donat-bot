@@ -168,10 +168,11 @@ async def handle_dc_notification(message: Message):
         return
     summa, kod, order_ref = parsed
 
-    if await db.is_kod_seen(kod):
+    # Атомикӣ: record_kod худаш такрорро мебандад (INSERT IGNORE + rowcount).
+    # Ду қадами is_kod_seen→record_kod равзанаи такрор дошт.
+    if not await db.record_kod(kod, summa):
         logger.info(f"Autopay: Kod {kod} такрорист — нодида гирифта шуд")
         return
-    await db.record_kod(kod, summa)
 
     # ==== Роҳи асосӣ: РАҚАМИ ФАРМОИШ аз коменти пардохт (card_8848) ====
     if order_ref:
@@ -262,9 +263,8 @@ async def handle_dc_scan_message(message: Message):
             continue
 
         synth_kod = f"DCSCAN{order_ref or '0'}-{time_s.replace(':', '')}-{int(summa * 100)}"
-        if await db.is_kod_seen(synth_kod):
+        if not await db.record_kod(synth_kod, summa):
             continue
-        await db.record_kod(synth_kod, summa)
 
         if emoji == "✅" and order_ref:
             order = await db.get_order(int(order_ref))
