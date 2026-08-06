@@ -636,10 +636,15 @@ async def credit_balance_topup(order_id: int, user_id: int, amount: float) -> bo
             raise
 
 
-async def deduct_referral_balance(user_id: int, amount: float) -> bool:
+async def deduct_referral_balance(user_id: int, amount: float):
     """
     Аз баланси корбар маблаг кам мекунад, ФАҦАТ агар баланс кофӣ бошад.
-    True агар муваффақ шуд, False агар баланс кам бошад. Дар ЯК транзаксия.
+    Дар ЯК транзаксия. Бармегардонад:
+      • балансро БАЪДИ кам кардан (float) агар муваффақ шуд;
+      • None агар баланс кам бошад.
+    Ин баланси дақиқ дар ДОХИЛИ ҳамон транзаксия хонда мешавад — то паёми
+    админ рақами дурустро нишон диҳад, на балансе, ки фармоиши ҳамзамони
+    дигар дертар тағйир додааст (race дар НАМОИШ).
     """
     async with pool.acquire() as conn:
         await conn.begin()
@@ -652,10 +657,14 @@ async def deduct_referral_balance(user_id: int, amount: float) -> bool:
                 )
                 if cur.rowcount == 0:
                     await conn.rollback()
-                    return False
+                    return None
                 await _log_balance_tx(cur, user_id, -amount, "purchase")
+                await cur.execute(
+                    "SELECT referral_balance FROM users WHERE id=%s", (user_id,))
+                row = await cur.fetchone()
+                bal_after = float(row[0]) if row else 0.0
             await conn.commit()
-            return True
+            return bal_after
         except Exception:
             await conn.rollback()
             raise

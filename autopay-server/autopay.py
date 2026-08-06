@@ -378,7 +378,14 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
     payment_line = f"💳 Тариқи пардохт: {_PM_LABELS_SHORT.get(payment_method, payment_method or '—')}\n"
     balance_line = ""
     if payment_method == "referral_balance":
-        current_balance = await db.get_referral_balance(order["user_id"])
+        # Баланси дақиқ аз лаҳзаи харид (дар order["bal_after"] аз buy.py).
+        # Агар набошад (роҳи кӯҳна/такрор), ба хониши ҷорӣ бармегардем —
+        # вале хониши ҷорӣ ҳангоми фармоишҳои ҳамзамон рақами ГАЛАТ медиҳад.
+        snap = order.get("bal_after")
+        if snap is not None:
+            current_balance = float(snap)
+        else:
+            current_balance = await db.get_referral_balance(order["user_id"])
         old_balance = current_balance + float(order["price"])
         balance_line = (
             f"👛 Баланси корбар буд: {old_balance:.2f} сомонӣ\n"
@@ -1206,8 +1213,8 @@ async def _complete_pending_purchase(bot: Bot, user_id: int, pending: dict):
     пуршударо худаш истифода бурда метавонад.
     """
     price = float(pending["price"])
-    ok = await db.deduct_referral_balance(user_id, price)
-    if not ok:
+    bal_after = await db.deduct_referral_balance(user_id, price)
+    if bal_after is None:
         logger.warning(
             f"Хариди интизорӣ барои {user_id}: баланс кофӣ нест ({price} сом) — гузаронида шуд"
         )
@@ -1228,6 +1235,8 @@ async def _complete_pending_purchase(bot: Bot, user_id: int, pending: dict):
         )
         await db.mark_order_paid_with_balance(order_id)
         order = await db.get_order(order_id)
+        if order:
+            order["bal_after"] = bal_after  # барои паёми дурусти админ
     except Exception as e:
         logger.error(f"Хариди интизорӣ: сохтани фармоиш нашуд ({user_id}, {price}): {e}")
         try:
@@ -1776,12 +1785,25 @@ async def _watch_payment_feed(bot: Bot):
 
 
 async def _watch_problem_customers(bot: Bot):
-    """Мизоҷе, ки такроран фармоишаш рад мешавад — шояд мушкиле дорад."""
+    """Мизоҷе, ки такроран фармоишаш рад мешавад — шояд мушкиле дорад.
+
+    Рӯйхати «хабар додашуда» дар БАЗА нигоҳ дошта мешавад — вагарна баъди
+    ҲАР рестарт ҳамон огоҳиҳо аз нав мерафтанд ва соҳибро безор мекарданд."""
+    global _alerted_reject
+    if not _alerted_reject:
+        raw = await db.get_setting("alerted_rejects")
+        if raw:
+            try:
+                _alerted_reject = set(tuple(x) for x in json.loads(raw))
+            except Exception:
+                _alerted_reject = set()
+    changed = False
     for r in await db.get_repeat_rejected_users():
         key = (r["user_id"], r["last_id"])
         if key in _alerted_reject:
             continue
         _alerted_reject.add(key)
+        changed = True
         u = await db.get_user(r["user_id"])
         name = esc(u.get("full_name")) if u and u.get("full_name") else "—"
         uname = f"@{u['username']}" if u and u.get("username") else "—"
@@ -1793,6 +1815,12 @@ async def _watch_problem_customers(bot: Bot):
             f"Шояд ӯ чизеро нафаҳмидааст ё мушкиле дорад — "
             f"агар худатон нависед, шояд мизоҷи доимӣ шавад."
         ))
+    if changed:
+        try:
+            await db.set_setting("alerted_rejects",
+                                 json.dumps(sorted(list(_alerted_reject))))
+        except Exception as e:
+            logger.error(f"alerted_rejects сабт нашуд: {e}")
 
 
 async def _watch_resellers(bot: Bot):

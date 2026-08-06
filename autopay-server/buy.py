@@ -57,7 +57,7 @@ router = Router()
 
 
 async def _balance_pay_cart(call: CallbackQuery, uid: int, data: dict,
-                            cart_items: list, total: float):
+                            cart_items: list, total: float, bal_after: float = None):
     """
     Сабад аз баланс пардохта шуд — барои ҳар дона фармоиши алоҳида бо як
     group_id месозад ва ба админ бо тугмаҳои гурӯҳӣ мефиристад.
@@ -100,7 +100,9 @@ async def _balance_pay_cart(call: CallbackQuery, uid: int, data: dict,
             "⚠️ Мушкили техникӣ шуд. Админ хабардор аст ва зуд ҳал мекунад 🙏")
         return
 
-    new_balance = await db.get_referral_balance(uid)
+    # Баланси дақиқи лаҳзаи харид (аз транзаксияи кам кардан) — на хониши
+    # алоҳида, ки фармоиши ҳамзамон онро тағйир дода метавонад
+    new_balance = bal_after if bal_after is not None else await db.get_referral_balance(uid)
     ids_text = ", ".join(f"#{i}" for i in order_ids)
     items_text = "\n".join(f"  • {esc(i['label'])} — {float(i['price']):.2f} сом"
                            for i in cart_items)
@@ -2867,8 +2869,8 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
             return
 
         # Аввал маблаГро аз баланс кам мекунем (атомикӣ — танҳо агар кофӣ бошад)
-        ok = await db.deduct_referral_balance(uid, price)
-        if not ok:
+        bal_after = await db.deduct_referral_balance(uid, price)
+        if bal_after is None:
             await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
             return
 
@@ -2881,7 +2883,7 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
         cart_items = data.get("cart_items")
         if cart_items:
             await state.clear()
-            await _balance_pay_cart(call, uid, data, cart_items, price)
+            await _balance_pay_cart(call, uid, data, cart_items, price, bal_after)
             return
 
         await state.clear()
@@ -2972,7 +2974,10 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
             return
 
         combo_breakdown = await _combo_breakdown_text(data.get("combo_id"))
-        new_balance = balance - price
+        # Баланси ДАҚИҚ аз худи транзаксияи кам кардан (на аз хониши алоҳида,
+        # ки фармоиши ҳамзамони дигар онро тағйир дода метавонад)
+        new_balance = bal_after
+        balance = round(bal_after + price, 2)
 
         if data.get("combo_id"):
             # Комбо — донати худкор НЕСТ (метавонад ашёи дастӣ дошта бошад),
@@ -3028,6 +3033,11 @@ async def pay_with_balance(call: CallbackQuery, state: FSMContext):
         )
         import autopay
         order = await db.get_order(order_id)
+        # Баланси дақиқи лаҳзаи харидро ба худи фармоиш (дар хотира) мегузорем,
+        # то паёми «АВТОТАСДИҚ» рақами дурустро нишон диҳад — на балансе, ки
+        # то лаҳзаи фиристодани паём фармоиши ҳамзамони дигар тағйир додааст
+        if order:
+            order["bal_after"] = bal_after
         asyncio.create_task(autopay.run_donate_from_balance(call.bot, order))
     finally:
         _balance_pay_in_flight.discard(uid)
@@ -3465,7 +3475,8 @@ async def standoff_pay_balance(call: CallbackQuery, state: FSMContext):
         if await db.get_referral_balance(uid) < price:
             await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
             return
-        if not await db.deduct_referral_balance(uid, price):
+        bal_after = await db.deduct_referral_balance(uid, price)
+        if bal_after is None:
             await call.answer("❌ Балансатон кофӣ нест!", show_alert=True)
             return
         await state.clear()
@@ -3496,7 +3507,7 @@ async def standoff_pay_balance(call: CallbackQuery, state: FSMContext):
             await call.message.answer(
                 "⚠️ Мушкили техникӣ шуд. Админ хабардор аст ва зуд ҳал мекунад 🙏")
             return
-        new_balance = await db.get_referral_balance(uid)
+        new_balance = bal_after
         await call.message.answer(
             f"✅ <b>Пардохт аз баланс қабул шуд!</b>\n\n"
             f"🆔 Фармоиш: #{order_id}\n🎁 {esc(data['label'])}\n"
