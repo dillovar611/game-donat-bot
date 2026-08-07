@@ -230,7 +230,7 @@ async def a_dc_base(call: CallbackQuery, state: FSMContext):
     Лозим шуд, чунки ExpressPay зердомени pay.expresspay.tj-ро қатъ кард."""
     if not is_admin(call.from_user.id):
         return
-    current = await db.get_setting("dc_pay_base") or "https://expresspay.tj/ (пешфарз)"
+    current = await db.get_setting("dc_pay_base") or "https://pay.dc.tj/ (пешфарз)"
     await _safe_edit(
         call,
         f"🔗 <b>Домени пардохти Душанбе Сити</b>\n\n"

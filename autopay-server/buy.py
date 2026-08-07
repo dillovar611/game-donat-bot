@@ -942,14 +942,14 @@ def _rescale_cart_items(items: list, new_total: float) -> list:
 async def _dc_pay_url(dc_card: str, price: float, comment: str) -> str:
     """Линки пардохти Душанбе Сити (ExpressPay)-ро месозад.
 
-    Асоси линк (домен) дар settings нигоҳ дошта мешавад — то агар ExpressPay
-    доменро иваз кунад (мисли қатъи зердомени pay.expresspay.tj), соҳиб
-    онро БЕ ДЕПЛОЙ, аз панели админ иваз карда тавонад.
-    Пешфарз ба домени асосии кории expresspay.tj гузошта шудааст."""
-    base = await db.get_setting("dc_pay_base") or "https://expresspay.tj/"
+    Асоси линк (домен) дар settings нигоҳ дошта мешавад — то агар домен боз
+    иваз шавад, соҳиб онро БЕ ДЕПЛОЙ, аз панели админ иваз карда тавонад.
+    Домени нав (тасдиқшуда): https://pay.dc.tj/ бо ҳарфи ХУРДИ a=."""
+    base = await db.get_setting("dc_pay_base") or "https://pay.dc.tj/"
     if not base.endswith("/"):
         base += "/"
-    return f"{base}?A={dc_card}&s={price:g}&c={comment}&f1=133"
+    # Диққат: параметр ҳарфи ХУРД a= аст (на A=) — сервери pay.dc.tj ҳаминро мехоҳад
+    return f"{base}?a={dc_card}&s={price:g}&c={comment}&f1=133"
 
 
 async def _apply_winback_discount(user_id: int, price: float) -> tuple[float, str]:
