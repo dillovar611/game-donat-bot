@@ -20,6 +20,7 @@ from aiogram.fsm.storage.memory import MemoryStorage
 
 import config
 import database as db
+import pemoji
 from buy import router as buy_router, esc
 from games import router as minigames_router
 from admin import router as admin_router
@@ -471,13 +472,17 @@ async def cmd_start(message: Message, command: CommandObject):
 
 def _welcome_text(user, greeted: bool = True) -> str:
     """Матни хушомадгуи кӯтоҳ — тафсилоти пурра дар тугмаи «ℹ️ Маълумот»."""
-    hello = f"👋 Хуш омадед, <b>{esc(user.full_name)}</b>!\n\n" if greeted else f"👋 <b>{esc(user.full_name)}</b>\n\n"
+    _spark = pemoji.pe(pemoji.SPARKLES, "✨")
+    hello = (
+        f"👋 Хуш омадед, <b>{esc(user.full_name)}</b>! {_spark}\n\n" if greeted
+        else f"👋 <b>{esc(user.full_name)}</b> {_spark}\n\n"
+    )
     return (
         f"{hello}"
         f"🆔 ID-и шумо: <code>{user.id}</code>\n\n"
-        f"⚡ Донати худкор — то 1 дақиқа!\n"
-        f"🔒 Бехатар 100% · 💳 Пардохти осон\n\n"
-        f"🎁 Баъзе харидорон ТАСОДУФАН тӯҳфаи ройгон мегиранд!\n\n"
+        f"{pemoji.pe(pemoji.FIRE, '⚡')} Донати худкор — то 1 дақиқа!\n"
+        f"{pemoji.pe(pemoji.CHECK, '🔒')} Бехатар 100% · 💳 Пардохти осон\n\n"
+        f"{pemoji.pe(pemoji.PARTY, '🎁')} Баъзе харидорон ТАСОДУФАН тӯҳфаи ройгон мегиранд!\n\n"
         f"👇 Аз меню интихоб кунед:"
     )
 

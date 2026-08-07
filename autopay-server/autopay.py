@@ -481,7 +481,7 @@ async def _handle_donate_failure(bot: Bot, order: dict, kod: str,
     try:
         if api_order_id:
             customer_text = (
-                f"⏳ <b>Пардохти шумо қабул шуд — донат каме дертар мерасад.</b>\n\n"
+                f"{pemoji.pe(pemoji.CHECK, '✅')} <b>Пардохти шумо қабул шуд — донат каме дертар мерасад.</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n\n"
                 f"Фармоиши шумо ба система фиристода шудааст ва бот ҳар "
                 f"чанд дақиқа ҳолати онро месанҷад. Ҳамин ки тайёр шавад, "
@@ -1453,7 +1453,7 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int,
         try:
             await bot.send_message(
                 winner_id,
-                f"🎉🎁 <b>Муборак! Шумо тӯҳфаи ройгон гирифтед!</b>\n\n"
+                f"{pemoji.pe(pemoji.PARTY, '🎉')}🎁 <b>Муборак! Шумо тӯҳфаи ройгон гирифтед!</b>\n\n"
                 f"Ҳамчун ташаккур барои харидатон, мағозаи мо тасодуфан шуморо "
                 f"интихоб кард ва тӯҳфаро БЕПУЛ фиристод! 🎊\n\n"
                 f"🎁 Тӯҳфа: <b>{label}</b>\n"
@@ -1718,7 +1718,7 @@ async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost
 
     if not customer_text:
         customer_text = (
-            f"🎉 <b>Хушхабар — донати шумо анҷом ёфт!</b>\n\n"
+            f"{pemoji.pe(pemoji.PARTY, '🎉')} <b>Хушхабар — донати шумо анҷом ёфт!</b> {pemoji.pe(pemoji.CHECK, '✅')}\n\n"
             f"🆔 Фармоиш: #{order_id}\n"
             f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
             f"Каме таъхир шуд, вале ҳама чиз дуруст расид. "

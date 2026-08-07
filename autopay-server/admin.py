@@ -1579,7 +1579,7 @@ async def _do_donate_group(call: CallbackQuery, orders: list):
         try:
             await call.bot.send_message(
                 orders[0]["user_id"],
-                f"✅ <b>Муваффақ! Маҳсулотҳо фиристода шуданд!</b>\n\n"
+                f"{pemoji.pe(pemoji.CHECK, '✅')} <b>Муваффақ! Маҳсулотҳо фиристода шуданд!</b>\n\n"
                 f"{lines}\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
                 f"⭐ Лутфан отзив гузоред:",
@@ -1681,7 +1681,7 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
         try:
             await call.bot.send_message(
                 order["user_id"],
-                f"✅ <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
+                f"{pemoji.pe(pemoji.CHECK, '✅')} <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{order['game_id']}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
@@ -3237,7 +3237,7 @@ async def _do_donate_ffid(call: CallbackQuery, order: dict, player_id: str, wait
         try:
             await call.bot.send_message(
                 order["user_id"],
-                f"✅ <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
+                f"{pemoji.pe(pemoji.CHECK, '✅')} <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{player_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
@@ -3823,7 +3823,7 @@ async def _do_donate_pubg(call: CallbackQuery, order: dict, player_id: str, wait
         try:
             await call.bot.send_message(
                 order["user_id"],
-                f"✅ <b>Муваффақ! UC фиристода шуд!</b>\n\n"
+                f"{pemoji.pe(pemoji.CHECK, '✅')} <b>Муваффақ! UC фиристода шуд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"🎁 {order['label']} → <code>{player_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
@@ -4071,7 +4071,7 @@ async def order_confirm_stars(call: CallbackQuery):
         try:
             await call.bot.send_message(
                 order["user_id"],
-                f"✅ <b>Муваффақ! {order['label']} фиристода шуд!</b>\n\n"
+                f"{pemoji.pe(pemoji.CHECK, '✅')} <b>Муваффақ! {order['label']} фиристода шуд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"📱 Барои: @{tg_username}\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
@@ -4170,7 +4170,7 @@ async def order_confirm_premium(call: CallbackQuery):
         try:
             await call.bot.send_message(
                 order["user_id"],
-                f"✅ <b>Муваффақ! {order['label']} фиристода шуд!</b>\n\n"
+                f"{pemoji.pe(pemoji.CHECK, '✅')} <b>Муваффақ! {order['label']} фиристода шуд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"📱 Барои: @{tg_username}\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
@@ -4690,7 +4690,7 @@ async def _do_donate_ffbr(call: CallbackQuery, order: dict, player_id: str, wait
         try:
             await call.bot.send_message(
                 order["user_id"],
-                f"✅ <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
+                f"{pemoji.pe(pemoji.CHECK, '✅')} <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{player_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
@@ -5029,7 +5029,7 @@ async def _do_donate_ml(call: CallbackQuery, order: dict, player_id: str,
         try:
             await call.bot.send_message(
                 order["user_id"],
-                f"✅ <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
+                f"{pemoji.pe(pemoji.CHECK, '✅')} <b>Муваффақ! Алмазҳо фиристода шуданд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{player_id}</code> / <code>{server_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
