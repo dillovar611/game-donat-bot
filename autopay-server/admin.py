@@ -164,6 +164,7 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🕶 Ноаён кардани силка",  callback_data="a_dc_mask")],
         [InlineKeyboardButton(text="🎁 Тӯҳфаи тасодуфӣ",      callback_data="a_giveaway")],
         [InlineKeyboardButton(text="💰 Идоракунии баланс",    callback_data="a_balance_menu")],
+        [InlineKeyboardButton(text="🧪 Санҷиши эмоҷии премиум", callback_data="a_prememoji")],
     ])
 
 
@@ -1178,6 +1179,90 @@ async def a_health(call: CallbackQuery):
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")],
     ]
     await _safe_edit(call, text, InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+# ── Санҷиши эмоҷии премиум (custom emoji) ──────────────────────────────
+# Телеграм танҳо ба ботҳое иҷозат медиҳад эмоҷии премиум фиристанд, ки
+# username-ашон дар Fragment харида шудааст. Ин санҷиш бе харид маълум
+# мекунад: админ як паём бо эмоҷии премиум мефиристад, бот кӯшиш мекунад
+# ҳамонро баргардонад — агар кор кард, бот иҷозат дорад.
+class PremEmojiState(StatesGroup):
+    waiting = State()
+
+
+@router.callback_query(F.data == "a_prememoji")
+async def a_prememoji(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await state.set_state(PremEmojiState.waiting)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_back")],
+    ])
+    await _safe_edit(
+        call,
+        "🧪 <b>Санҷиши эмоҷии премиум</b>\n\n"
+        "Ба ман <b>як паём</b> фиристед, ки дар он <b>эмоҷии премиум</b> "
+        "(эмоҷии аниматсионӣ) бошад:\n\n"
+        "• Агар Телеграм Премиум доред — танҳо як эмоҷии аниматсиониро нависед.\n"
+        "• Ё аз ягон канал паёме, ки эмоҷии премиум дорад, ба ман <b>forward</b> кунед.\n\n"
+        "Ман кӯшиш мекунам ҳамон эмоҷиро <b>баргардонам</b> — то фаҳмем "
+        "боти шумо иҷозат дорад ё не.\n\n"
+        "<i>Ин санҷиш ба фармоишу пул ҳеҷ дахл надорад.</i>",
+        kb,
+    )
+    await call.answer()
+
+
+@router.message(PremEmojiState.waiting)
+async def a_prememoji_recv(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.clear()
+    ents = message.entities or message.caption_entities or []
+    ce = [e for e in ents if e.type == "custom_emoji"]
+    src_text = message.text or message.caption or ""
+    if not ce or not src_text:
+        await message.answer(
+            "⚠️ Дар ин паём эмоҷии премиум наёфтам.\n\n"
+            "Эмоҷии оддӣ (👍🔥) кор намекунад — бояд эмоҷии <b>аниматсионии "
+            "премиум</b> бошад.\n\n"
+            "Бори дигар: <b>/admin → 🧪 Санҷиши эмоҷии премиум</b>.",
+            parse_mode="HTML",
+        )
+        return
+    from aiogram.exceptions import TelegramBadRequest
+    try:
+        # Худи эмоҷиро бо ҳамон custom_emoji entities бармегардонем
+        await message.answer(src_text, entities=ce)
+    except TelegramBadRequest as e:
+        err = str(e)
+        await message.answer(
+            "❌ <b>Кор накард.</b>\n\n"
+            "Боти шумо эмоҷии премиум фиристода <b>наметавонад</b> — эҳтимол "
+            "username-и он дар <b>Fragment</b> харида нашудааст (ин қоидаи "
+            "худи Телеграм аст).\n\n"
+            f"<i>Хатои техникӣ:</i> <code>{esc(err)}</code>\n\n"
+            "Пас бе харидани username дар Fragment гузоштани эмоҷии премиум "
+            "имконнопазир аст.",
+            parse_mode="HTML",
+        )
+        return
+    except Exception as e:
+        logger.error(f"prememoji test error: {e}")
+        await message.answer(
+            f"⚠️ Хатои ногаҳонӣ: <code>{esc(str(e))}</code>",
+            parse_mode="HTML",
+        )
+        return
+    await message.answer(
+        "✅ <b>Кор кард!</b> 🎉\n\n"
+        "Боти шумо метавонад эмоҷии премиум фиристад — яъне username-и он "
+        "ба шарти Fragment ҷавобгӯ аст.\n\n"
+        "Акнун агар хоҳед, ман эмоҷиҳои аниматсиониро ба паёмҳои асосии "
+        "бот (саломдиҳӣ, «Донат муваффақ шуд», сабад) илова мекунам — бот "
+        "намуди зебо ва «премиум» мегирад. Танҳо бигӯед. 🚀",
+        parse_mode="HTML",
+    )
 
 
 @router.callback_query(F.data == "a_pending_orders")
