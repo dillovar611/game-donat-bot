@@ -161,6 +161,7 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="💎 Нархи шахсии мизоҷ", callback_data="a_custom_price")],
         [InlineKeyboardButton(text="💳 Рақами корти ДС",     callback_data="a_dc_card")],
         [InlineKeyboardButton(text="🔗 Домени пардохти ДС",  callback_data="a_dc_base")],
+        [InlineKeyboardButton(text="🕶 Ноаён кардани силка",  callback_data="a_dc_mask")],
         [InlineKeyboardButton(text="🎁 Тӯҳфаи тасодуфӣ",      callback_data="a_giveaway")],
         [InlineKeyboardButton(text="💰 Идоракунии баланс",    callback_data="a_balance_menu")],
     ])
@@ -222,6 +223,78 @@ class DCCardState(StatesGroup):
 
 class DCBaseState(StatesGroup):
     change = State()
+
+
+class DCMaskState(StatesGroup):
+    change = State()
+
+
+@router.callback_query(F.data == "a_dc_mask")
+async def a_dc_mask(call: CallbackQuery, state: FSMContext):
+    """Домени ноаён (редирект)-ро фаъол/хомӯш мекунад."""
+    if not is_admin(call.from_user.id):
+        return
+    current = await db.get_setting("dc_mask_base")
+    status = f"🟢 ФАЪОЛ: <code>{esc(current)}</code>" if current else "🔴 ХОМӮШ (силкаи оддии pay.dc.tj)"
+    kb_rows = [[InlineKeyboardButton(text="✏️ Домени ноаёнро гузоштан/иваз", callback_data="a_dc_mask_set")]]
+    if current:
+        kb_rows.append([InlineKeyboardButton(text="🔴 Хомӯш кардан (силкаи оддӣ)", callback_data="a_dc_mask_off")])
+    kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")])
+    await _safe_edit(
+        call,
+        f"🕶 <b>Ноаён кардани силкаи пардохт</b>\n\n"
+        f"Ҳозира: {status}\n\n"
+        f"Вақте ФАЪОЛ бошад, мизоҷ ба ҷои <code>pay.dc.tj/?a=корт...</code> "
+        f"як силкаи кӯтоҳ мебинад (масалан <code>pay.wineclo.com/aX7k2</code>) — "
+        f"корт ва домен пинҳон мемонанд.\n\n"
+        f"⚠️ Аввал сервери редиректро (dcredirect) насб ва санҷед, баъд ин ҷо "
+        f"домени редиректро гузоред.",
+        InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    )
+
+
+@router.callback_query(F.data == "a_dc_mask_off")
+async def a_dc_mask_off(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    await db.set_setting("dc_mask_base", "")
+    await call.answer("🔴 Ноаёнкунӣ хомӯш шуд — силкаи оддӣ истифода мешавад.", show_alert=True)
+    await a_dc_mask(call, None)
+
+
+@router.callback_query(F.data == "a_dc_mask_set")
+async def a_dc_mask_set(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await _safe_edit(
+        call,
+        "🕶 <b>Домени редиректро нависед</b>\n\n"
+        "Масалан: <code>https://pay.wineclo.com</code>\n\n"
+        "❗️ Аввал боварӣ ҳосил кунед, ки редирект кор мекунад "
+        "(як силкаи санҷиширо кушоед). Агар ғалат гузоред, пардохт вайрон "
+        "мешавад — вале метавонед фавран «Хомӯш кардан»-ро пахш кунед.",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_dc_mask")]
+        ])
+    )
+    await state.set_state(DCMaskState.change)
+
+
+@router.message(DCMaskState.change)
+async def a_dc_mask_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    base = message.text.strip()
+    if not base.startswith("http"):
+        await message.answer("⚠️ Домени дуруст нависед (бо http/https сар шавад).")
+        return
+    await db.set_setting("dc_mask_base", base)
+    await state.clear()
+    await message.answer(
+        f"✅ Ноаёнкунӣ ФАЪОЛ шуд:\n<code>{esc(base)}</code>\n\n"
+        f"Акнун мизоҷон силкаи кӯтоҳро мебинанд. Як хариди DC санҷед!\n"
+        f"Агар кор накунад — «🕶 Ноаён кардани силка → Хомӯш кардан».",
+        parse_mode="HTML")
 
 
 @router.callback_query(F.data == "a_dc_base")

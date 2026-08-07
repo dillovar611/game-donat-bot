@@ -949,7 +949,21 @@ async def _dc_pay_url(dc_card: str, price: float, comment: str) -> str:
     if not base.endswith("/"):
         base += "/"
     # Диққат: параметр ҳарфи ХУРД a= аст (на A=) — сервери pay.dc.tj ҳаминро мехоҳад
-    return f"{base}?a={dc_card}&s={price:g}&c={comment}&f1=133"
+    real_url = f"{base}?a={dc_card}&s={price:g}&c={comment}&f1=133"
+
+    # Силкаи ноаён: агар домени редирект (масалан pay.wineclo.com) танзим
+    # шуда бошад, ба ҷои линки воқеӣ як токени кӯтоҳ бармегардонем — мизоҷ
+    # корт ва pay.dc.tj-ро намебинад. Агар танзим НАШУДА бошад ё хато диҳад,
+    # линки воқеиро бармегардонем — пас пардохт ҳеҷ гоҳ вайрон намешавад.
+    mask = await db.get_setting("dc_mask_base")
+    if mask:
+        try:
+            token = await db.create_pay_token(real_url)
+            m = mask if mask.endswith("/") else mask + "/"
+            return f"{m}{token}"
+        except Exception as e:
+            logger.error(f"_dc_pay_url: токени ноаён нашуд, линки оддӣ: {e}")
+    return real_url
 
 
 async def _apply_winback_discount(user_id: int, price: float) -> tuple[float, str]:

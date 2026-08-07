@@ -223,6 +223,16 @@ async def init_db():
                     received_at DATETIME DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            # ---- Силкаҳои ноаён (redirect): токен → линки воқеии pay.dc.tj ----
+            # Мизоҷ танҳо pay.wineclo.com/<токен>-ро мебинад; сервер онро ба
+            # линки воқеӣ равона мекунад (корт ва домен пинҳон мемонанд).
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS pay_links (
+                    token VARCHAR(24) PRIMARY KEY,
+                    url TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
 
             # ---- Standoff 2: голд (донати ДАСТӢ — donatov.net API надорад,
             # пас offer_id нест; соҳиб худаш иҷро мекунад) ----
@@ -2930,6 +2940,38 @@ async def is_kod_seen(kod: str) -> bool:
         async with conn.cursor() as cur:
             await cur.execute("SELECT 1 FROM dc_kods WHERE kod=%s", (kod,))
             return (await cur.fetchone()) is not None
+
+
+async def create_pay_token(url: str) -> str:
+    """Барои линки воқеӣ як токени кӯтоҳ месозад ва бармегардонад (барои
+    силкаи ноаён). Редиректи pay.wineclo.com ин токенро ба линки воқеӣ
+    иваз мекунад."""
+    import secrets
+    token = secrets.token_urlsafe(8)[:12]
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO pay_links (token, url) VALUES (%s,%s)",
+                (token, url))
+    return token
+
+
+async def get_pay_url(token: str):
+    """Линки воқеиро аз токен мегирад (барои сервери редирект)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT url FROM pay_links WHERE token=%s", (token,))
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+
+async def cleanup_pay_tokens(days: int = 3):
+    """Токенҳои кӯҳнаро тоза мекунад (аз 3 рӯз калон) — база варам накунад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "DELETE FROM pay_links WHERE created_at < NOW() - INTERVAL %s DAY",
+                (days,))
 
 
 async def record_kod(kod: str, summa: float) -> bool:
