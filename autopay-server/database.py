@@ -30,8 +30,9 @@ async def create_pool():
         db=config.DB_NAME,
         autocommit=True,
         charset="utf8mb4",
-        minsize=1,
-        maxsize=10,
+        minsize=3,
+        maxsize=40,   # 10 барои ҳаҷми баланд кам буд — пайвастҳо навбат
+                      # мекашиданд ва барои баъзе мизоҷон бот "намекард"
         init_command="SET time_zone = '+05:00'",
     )
     logger.info("✅ База пайваст шуд (timezone: +05:00 Тоҷикистон)")

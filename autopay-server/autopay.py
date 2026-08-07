@@ -1057,8 +1057,17 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
       - фармоишҳои 'autopay_search' (чек омада, пардохт ёфт нашуда) > 10 дақ →
         чек ба админ барои тафтиши ДАСТӢ (бо тугмаҳои Тасдиқ/Рад)
     """
+    global _last_paylink_cleanup
     while True:
         await asyncio.sleep(interval_seconds)
+
+        # ---- Тозакунии токенҳои силкаи ноаён (ҳар ~соат) ----
+        if time.monotonic() - _last_paylink_cleanup > 3600:
+            _last_paylink_cleanup = time.monotonic()
+            try:
+                await db.cleanup_pay_tokens(3)
+            except Exception as e:
+                logger.error(f"Тозакунии pay_links нашуд: {e}")
 
         # ---- Фармоишҳое, ки дар 'donating' гир мондаанд (масалан сервер
         # маҳз дар вақти донат рестарт шуда буд) — ба 'paid' бармегардонем,
@@ -1753,6 +1762,7 @@ async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost
 # вале сутуни нав дар база барои ҳар огоҳӣ сохтан лозим намеояд.
 _alerted_loss: set = set()
 _alerted_reject: set = set()
+_last_paylink_cleanup = 0.0
 _alerted_reseller: set = set()
 _last_feed_alert = 0.0
 
