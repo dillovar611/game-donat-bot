@@ -483,13 +483,15 @@ async def combo_pick(call: CallbackQuery, state: FSMContext):
         )])
     kb_rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="combo_list")])
     kb = InlineKeyboardMarkup(inline_keyboard=kb_rows)
+    warning = await _combo_levelup_warning(combo_id)
     await _safe_edit(
         call,
         f"🛒 <b>Тасдиқи фармоиш</b>\n\n"
         f"🆔 ID: <code>{data['player_id']}</code>\n"
         f"{nick_line}"
         f"🎁 Комбо: <b>{combo['label']}</b>\n"
-        f"💵 Нарх: <b>{data['price']:.2f} сомонӣ</b>\n\n"
+        f"💵 Нарх: <b>{data['price']:.2f} сомонӣ</b>\n"
+        f"{warning}\n"
         f"💰 Тариқи пардохтро интихоб кунед:",
         kb
     )
@@ -864,6 +866,37 @@ async def _unique_autopay_price(base_price: float) -> float:
         if candidate not in active:
             return candidate
     return round(base_price + 0.99, 2)
+
+
+_LEVELUP_KEYWORDS = ("прокачка", "пропуск", "level", "левел", "лвл", "проп")
+
+
+async def _combo_levelup_warning(combo_id: int | None) -> str:
+    """Агар комбо «Пропуск прокачка» (Level-Up Pass) дошта бошад, як огоҳии
+    ТАРСНОК бармегардонад — чунки прокачка дар ҳар аккаунт танҳо ЯК бор
+    зада мешавад ва агар такрор харанд, пулашон месӯзад."""
+    if not combo_id:
+        return ""
+    try:
+        items = await db.get_combo_items(combo_id)
+    except Exception:
+        return ""
+    found = False
+    for it in items or []:
+        label = (it.get("custom_label") or it.get("product_label") or "").lower()
+        if any(k in label for k in _LEVELUP_KEYWORDS):
+            found = True
+            break
+    if not found:
+        return ""
+    return (
+        "\n\n⚠️❗️ <b>ДИҚҚАТИ ҶИДДӢ — Пропуск прокачка!</b>\n"
+        "🔴 Пропуск прокачка дар ҳар аккаунт ФАҚАТ <b>ЯК БОР</b> зада мешавад!\n\n"
+        "Агар аккаунти шумо <b>аллакай прокачка шуда бошад</b> ва боз харед — "
+        "<b>ПУЛАТОН МЕСӮЗАД</b> ва баргардонида НАМЕШАВАД!\n\n"
+        "✅ Пеш аз харид ҲАТМАН боварӣ ҳосил кунед, ки аккаунтатон ҳанӯз "
+        "прокачка нашудааст.\n"
+    )
 
 
 async def _combo_breakdown_text(combo_id: int | None) -> str:
