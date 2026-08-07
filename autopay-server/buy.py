@@ -115,36 +115,13 @@ async def _balance_pay_cart(call: CallbackQuery, uid: int, data: dict,
         f"🔄 Фармоишҳо ба зудӣ иҷро мешаванд. 🙏",
         parse_mode="HTML")
 
-    username = f"@{call.from_user.username}" if call.from_user.username else "—"
-    caption = (
-        f"💰 <b>Фармоиши нав (сабад) — АЗ БАЛАНС пардохт шуд!</b>\n\n"
-        f"🆔 Фармоишҳо: <b>{ids_text}</b>\n"
-        f"👤 Корбар: {esc(call.from_user.full_name)} (<code>{uid}</code>)\n"
-        f"📱 Username: {esc(username)}\n\n"
-        f"🎮 Free Fire\n"
-        f"🆔 ID: <code>{data['player_id']}</code>\n"
-        f"👤 Ном: <b>{esc(data.get('nickname') or '—')}</b>\n\n"
-        f"{items_text}\n\n"
-        f"💵 Ҷамъи умумӣ: <b>{total:.2f} сом</b>\n"
-        f"💰 Баланси боқимонда: <b>{new_balance:.2f} сом</b>"
-    )
-    kb_rows = [
-        [InlineKeyboardButton(text="✅ Тасдиқи ҳамаи гурӯҳ — донат кун",
-                              callback_data=f"okgroup_{group_id}")],
-        [InlineKeyboardButton(text="❌ Рад кардани ҳамаи гурӯҳ",
-                              callback_data=f"nogroup_{group_id}")],
-    ]
-    if call.from_user.username:
-        kb_rows.append([InlineKeyboardButton(
-            text="💬 ЛС ба клент", url=f"https://t.me/{call.from_user.username}")])
-    for admin_id in config.ADMIN_IDS:
-        try:
-            await call.bot.send_message(
-                admin_id, caption,
-                reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_rows),
-                parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Ба админ {admin_id} нарасид: {e}")
+    # Сабади FF СНГ аз баланс — донати ХУДКОР (бе тасдиқи дастии админ).
+    # Ҳамаи донаҳо худкор донат мешаванд ва як паёми ҷамъбастӣ меояд.
+    # (Комбо/дастӣ ба ин ҷо намерасанд — buy.py онҳоро филтр мекунад.)
+    import autopay
+    orders = [await db.get_order(oid) for oid in order_ids]
+    orders = [o for o in orders if o]
+    asyncio.create_task(autopay.run_donate_group_from_balance(call.bot, orders))
 
 
 async def _offer_game(message: Message, note: str = ""):

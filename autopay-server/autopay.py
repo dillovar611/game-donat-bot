@@ -966,6 +966,90 @@ async def run_donate_from_balance(bot: Bot, order: dict):
         await _handle_donate_failure(bot, order, "", api_order_id, uncertain)
 
 
+async def run_donate_group_from_balance(bot: Bot, orders: list):
+    """Сабади FF СНГ, ки аз БАЛАНС пардохт шудааст — ҳамаи донаҳоро ХУДКОР
+    донат мекунад (бе тасдиқи дастии админ). Як паёми ҷамъбастӣ ба мизоҷ ва
+    як ба админ. Баланс аллакай атомикӣ кам шудааст дар buy.py.
+
+    Танҳо сабадҳои FF СНГ ба ин ҷо мераванд (buy.py филтр мекунад) — пас
+    ҳамаашон автодонатшавандаанд."""
+    if not orders:
+        return
+    user_id = orders[0]["user_id"]
+    ok_items, fail_items = [], []
+    for order in orders:
+        order_id = order["id"]
+        await db.update_order_status(order_id, "donating")
+        async with _donate_semaphore:
+            success, api_order_id, uncertain, cost_usd = await _dispatch_donate_call(order)
+        if api_order_id:
+            await db.set_order_api_id(order_id, api_order_id)
+        if success:
+            await db.update_order_status(order_id, "confirmed")
+            await db.set_confirmed_at(order_id)
+            if cost_usd:
+                await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
+            try:
+                reward, referrer_id = await db.credit_referral_for_order(order_id)
+                if reward and referrer_id:
+                    await bot.send_message(
+                        referrer_id,
+                        f"🤝 <b>Мукофоти реферралӣ!</b>\n\n"
+                        f"💰 Дусти шумо фармоиш дод ва шумо <b>{reward:.2f} сом</b> "
+                        f"ба балансатон гирифтед!", parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"credit_referral (гурӯҳ) хато #{order_id}: {e}")
+            ok_items.append(order)
+        else:
+            await db.update_order_status(order_id, "failed")
+            if uncertain:
+                await db.flag_order_uncertain(order_id)
+            _recheck_settled.discard(order_id)
+            try:
+                await db.reset_recheck_state(order_id)
+            except Exception as e:
+                logger.error(f"reset_recheck_state #{order_id}: {e}")
+            fail_items.append(order)
+
+    # ---- Паём ба мизоҷ (як бор барои ҳама) ----
+    if ok_items:
+        lines = "\n".join(f"  {esc(o['label'])}" for o in ok_items)
+        try:
+            await bot.send_message(
+                user_id,
+                f"🎉 <b>Донат анҷом ёфт! Маҳсулотҳо фиристода шуданд!</b>\n\n"
+                f"{lines}\n\n🙏 Ташаккур барои харид!\n\n⭐ Лутфан отзив гузоред:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⭐ Отзив гузоштан",
+                                          callback_data=f"review_{ok_items[0]['id']}")]
+                ]), parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Паёми сабад (аз баланс) ба {user_id} нарасид: {e}")
+    if fail_items:
+        lines = "\n".join(f"  ⚠️ {esc(o['label'])} (#{o['id']})" for o in fail_items)
+        try:
+            await bot.send_message(
+                user_id,
+                f"⚠️ <b>Баъзе маҳсулотҳо нашуданд:</b>\n\n{lines}\n\n"
+                f"Админ дар ҷараёни ҳал кардан аст. 🙏", parse_mode="HTML")
+        except Exception:
+            pass
+
+    # ---- Паёми ҷамъбастӣ ба админ ----
+    res = [f"✅ {o['label']} — #{o['id']}" for o in ok_items] + \
+          [f"❌ {o['label']} — #{o['id']}" for o in fail_items]
+    user = await db.get_user(user_id)
+    uname = f"@{user['username']}" if user and user.get("username") else "—"
+    head = "⚡ <b>АВТОТАСДИҚ — сабад аз баланс</b>\n\n" \
+           f"👤 {esc(user.get('full_name') if user else '—')} ({esc(uname)})\n" \
+           f"🆔 <code>{user_id}</code>\n\n"
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, head + "\n".join(res), parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Ҳисоботи сабад ба админ {admin_id} нарасид: {e}")
+
+
 async def expiry_loop(bot: Bot, interval_seconds: int = 60):
     """
     Ҳар дақиқа:
