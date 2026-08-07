@@ -35,6 +35,7 @@ from aiogram.types import (Message, InlineKeyboardMarkup, InlineKeyboardButton,
 import config
 import database as db
 import ff_api
+import pemoji
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -375,7 +376,7 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
     api_line = f"🆔 ID FazerCards: <code>{api_order_id}</code>\n" if api_order_id else ""
 
     payment_method = order.get("payment_method")
-    payment_line = f"💳 Тариқи пардохт: {_PM_LABELS_SHORT.get(payment_method, payment_method or '—')}\n"
+    payment_line = f"💳 Тариқи пардохт: {pemoji.pm_label_html(payment_method)}\n"
     balance_line = ""
     if payment_method == "referral_balance":
         # Баланси дақиқ аз лаҳзаи харид (дар order["bal_after"] аз buy.py).
@@ -393,7 +394,7 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
         )
 
     text = (
-        f"⚡ <b>АВТОТАСДИҚ — Донат муваффақ шуд!</b>\n\n"
+        f"{pemoji.pe(pemoji.CHECK, '✅')} <b>АВТОТАСДИҚ — Донат муваффақ шуд!</b> {pemoji.pe(pemoji.PARTY, '🎉')}\n\n"
         f"👤 Харидор: {esc(full_name)}\n"
         f"📱 Username: {esc(username)}\n"
         f"🆔 ID Telegram: <code>{order['user_id']}</code>\n"

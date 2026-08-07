@@ -30,6 +30,7 @@ import config
 import database as db
 import ff_api
 import receipt  # генератори расми чеки муваффақ (Pillow)
+import pemoji
 
 logger = logging.getLogger(__name__)
 router = Router()
@@ -2023,7 +2024,7 @@ async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, 
     u = await db.get_user(order["user_id"])
     uname = f"@{u['username']}" if u and u.get("username") else "—"
     full = esc(u.get("full_name")) if u and u.get("full_name") else "—"
-    pm = _PM_LABELS.get(order.get("payment_method"), order.get("payment_method") or "—")
+    pm = pemoji.pm_label_html(order.get("payment_method"))
     caption = (
         f"❌ <b>Фармоиши #{order_id} рад карда шуд.</b>\n\n"
         f"👤 Харидор: {full} ({esc(uname)})\n"
@@ -2283,7 +2284,7 @@ async def a_daily_report(call: CallbackQuery):
     ) or "   —"
 
     payment_lines = "\n".join(
-        f"   {_PM_LABELS.get(p['method'], p['method'])}: {p['confirmed']} ✅ / {p['rejected']} ❌"
+        f"   {pemoji.pm_label_html(p['method'])}: {p['confirmed']} ✅ / {p['rejected']} ❌"
         for p in stats.get("payment_breakdown", [])
     ) or "   —"
 
@@ -2966,7 +2967,7 @@ async def a_order_search_show(message: Message, state: FSMContext):
         "referral_balance": "💰 Аз баланс",
         "giveaway": "🎁 Тӯҳфаи ройгон",
     }
-    pm_text = pm_labels.get(order.get("payment_method"), order.get("payment_method") or "—")
+    pm_text = pemoji.pm_label_html(order.get("payment_method"))
 
     text = (
         f"📦 <b>Фармоиши #{order_id}</b>\n\n"
