@@ -1254,13 +1254,33 @@ async def a_prememoji_recv(message: Message, state: FSMContext):
             parse_mode="HTML",
         )
         return
+    # Кодҳои (custom_emoji_id) ҳар эмоҷиро ҷамъ мекунем — то дертар
+    # ба паёмҳои бот вобаста кунем.
+    def _utf16_slice(t: str, off: int, ln: int) -> str:
+        b = t.encode("utf-16-le")
+        return b[off * 2:(off + ln) * 2].decode("utf-16-le", "ignore")
+
+    seen = set()
+    code_lines = []
+    for e in ce:
+        cid = getattr(e, "custom_emoji_id", None)
+        if not cid or cid in seen:
+            continue
+        seen.add(cid)
+        ch = _utf16_slice(src_text, e.offset, e.length) or "❓"
+        code_lines.append(f"{ch} → <code>{cid}</code>")
+    codes_block = "\n".join(code_lines)
     await message.answer(
         "✅ <b>Кор кард!</b> 🎉\n\n"
-        "Боти шумо метавонад эмоҷии премиум фиристад — яъне username-и он "
-        "ба шарти Fragment ҷавобгӯ аст.\n\n"
-        "Акнун агар хоҳед, ман эмоҷиҳои аниматсиониро ба паёмҳои асосии "
-        "бот (саломдиҳӣ, «Донат муваффақ шуд», сабад) илова мекунам — бот "
-        "намуди зебо ва «премиум» мегирад. Танҳо бигӯед. 🚀",
+        "Боти шумо метавонад эмоҷии премиум фиристад — <b>бе харидани "
+        "Fragment</b>!\n\n"
+        "📋 <b>Кодҳои эмоҷиҳои шумо:</b>\n"
+        f"{codes_block}\n\n"
+        "👉 Ин кодҳоро <b>скриншот гиред ва ба чати Claude фиристед</b> — "
+        "ман онҳоро ба паёмҳои асосии бот (саломдиҳӣ, «Донат муваффақ шуд», "
+        "сабад) мегузорам.\n\n"
+        "💡 Барои ҳар эмоҷии нав, ин санҷишро аз нав кунед — ҳар дафъа коди "
+        "нав мебарояд. 🚀",
         parse_mode="HTML",
     )
 
