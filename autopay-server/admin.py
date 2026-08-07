@@ -160,6 +160,7 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🔎 ҶустуҷӮи фармоиш",   callback_data="a_order_search")],
         [InlineKeyboardButton(text="💎 Нархи шахсии мизоҷ", callback_data="a_custom_price")],
         [InlineKeyboardButton(text="💳 Рақами корти ДС",     callback_data="a_dc_card")],
+        [InlineKeyboardButton(text="🔗 Домени пардохти ДС",  callback_data="a_dc_base")],
         [InlineKeyboardButton(text="🎁 Тӯҳфаи тасодуфӣ",      callback_data="a_giveaway")],
         [InlineKeyboardButton(text="💰 Идоракунии баланс",    callback_data="a_balance_menu")],
     ])
@@ -217,6 +218,50 @@ async def a_fazer_categories(call: CallbackQuery):
 # ==================== РАҚАМИ КОРТИ ДУШАНБЕ СИТИ ====================
 class DCCardState(StatesGroup):
     change = State()
+
+
+class DCBaseState(StatesGroup):
+    change = State()
+
+
+@router.callback_query(F.data == "a_dc_base")
+async def a_dc_base(call: CallbackQuery, state: FSMContext):
+    """Домени линки пардохти Душанбе Сити (ExpressPay)-ро иваз мекунад.
+    Лозим шуд, чунки ExpressPay зердомени pay.expresspay.tj-ро қатъ кард."""
+    if not is_admin(call.from_user.id):
+        return
+    current = await db.get_setting("dc_pay_base") or "https://expresspay.tj/ (пешфарз)"
+    await _safe_edit(
+        call,
+        f"🔗 <b>Домени пардохти Душанбе Сити</b>\n\n"
+        f"Ҳозира: <code>{esc(current)}</code>\n\n"
+        f"⚠️ Ин фақат вақте лозим аст, ки ExpressPay доменро иваз кунад.\n\n"
+        f"Асоси линкро нависед (масалан <code>https://expresspay.tj/</code>).\n"
+        f"Бот худаш <code>?A=...&s=...&c=...&f1=133</code>-ро илова мекунад.\n\n"
+        f"❗️ Аввал линкро дар браузер санҷед, ки саҳифаи пардохт кушояд, "
+        f"баъд ин ҷо гузоред.",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_back")]
+        ])
+    )
+    await state.set_state(DCBaseState.change)
+
+
+@router.message(DCBaseState.change)
+async def a_dc_base_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    base = message.text.strip()
+    if not base.startswith("http"):
+        await message.answer("⚠️ Линки дуруст нависед (бо http/https сар шавад).")
+        return
+    await db.set_setting("dc_pay_base", base)
+    await state.clear()
+    await message.answer(
+        f"✅ Домени пардохти ДС иваз шуд ба:\n<code>{esc(base)}</code>\n\n"
+        f"Ҳамаи линкҳои нави пардохт ҳамин доменро истифода мебаранд.\n"
+        f"Як хариди хурд санҷед!",
+        parse_mode="HTML")
 
 
 @router.callback_query(F.data == "a_dc_card")
