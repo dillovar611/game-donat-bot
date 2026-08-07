@@ -166,6 +166,7 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🎁 Тӯҳфаи тасодуфӣ",      callback_data="a_giveaway")],
         [InlineKeyboardButton(text="💰 Идоракунии баланс",    callback_data="a_balance_menu")],
         [InlineKeyboardButton(text="🧪 Санҷиши эмоҷии премиум", callback_data="a_prememoji")],
+        [InlineKeyboardButton(text="🏷 Сарлавҳаи аниматсионӣ", callback_data="a_welcome_title")],
     ])
 
 
@@ -1284,6 +1285,94 @@ async def a_prememoji_recv(message: Message, state: FSMContext):
         "нав мебарояд. 🚀",
         parse_mode="HTML",
     )
+
+
+# ── Сарлавҳаи аниматсионӣ (номи мағоза бо ҳарфҳои премиум) ─────────────
+# Админ калимаро бо ҳарфҳои премиум мефиристад — бот онро ба HTML табдил
+# дода нигоҳ медорад ва дар боли паёми саломдиҳӣ мегузорад. Барои ҳарфҳо
+# ҳам ҳамон қоида: ҳар ҳарф як эмоҷии премиум аст.
+class WelcomeTitleState(StatesGroup):
+    waiting = State()
+
+
+@router.callback_query(F.data == "a_welcome_title")
+async def a_welcome_title(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    current = await db.get_setting("welcome_title")
+    now_line = (
+        f"\n📌 <b>Ҳозира:</b>\n{current}\n" if current
+        else "\n📌 Ҳозира: холӣ (сарлавҳа нест).\n"
+    )
+    await state.set_state(WelcomeTitleState.waiting)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🗑 Тоза кардан (бе сарлавҳа)", callback_data="a_welcome_title_clear")],
+        [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_back")],
+    ])
+    await _safe_edit(
+        call,
+        "🏷 <b>Сарлавҳаи аниматсионӣ</b>\n\n"
+        "Ба ман <b>калимаеро</b> фиристед, ки дар боли паёми саломдиҳӣ "
+        "(дар <code>/start</code>) намоён шавад — масалан номи мағоза бо "
+        "ҳарфҳои <b>премиуми аниматсионӣ</b>.\n\n"
+        "💡 Маслиҳат: ҳарфҳои <b>лотинӣ/русӣ</b> дар бастаҳо ҳастанд; "
+        "ҳарфҳои махсуси тоҷикӣ (ғ, қ, ҳ, ҷ) эҳтимол оддӣ бимонанд.\n"
+        f"{now_line}",
+        kb,
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data == "a_welcome_title_clear")
+async def a_welcome_title_clear(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    await state.clear()
+    await db.set_setting("welcome_title", "")
+    try:
+        import bot as _bot
+        await _bot.refresh_welcome_title()
+    except Exception as e:
+        logger.error(f"refresh_welcome_title (clear) хато: {e}")
+    await call.answer("🗑 Сарлавҳа тоза шуд.", show_alert=True)
+    await _safe_edit(call, "🗑 Сарлавҳаи аниматсионӣ тоза шуд.", admin_menu())
+
+
+@router.message(WelcomeTitleState.waiting)
+async def a_welcome_title_recv(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    await state.clear()
+    if not message.text:
+        await message.answer(
+            "⚠️ Лутфан як паёми <b>матнӣ</b> (калима) фиристед.",
+            parse_mode="HTML",
+        )
+        return
+    # html_text — матнро бо ҳамаи эмоҷиҳои премиум ба HTML табдил медиҳад
+    # (теги <tg-emoji> худаш гузошта мешавад). Пас ҳарфҳои аниматсионӣ
+    # нигоҳ дошта мешаванд.
+    title_html = message.html_text
+    if len(title_html) > 3000:
+        await message.answer("⚠️ Хеле дароз аст — калимаи кӯтоҳтар фиристед.")
+        return
+    await db.set_setting("welcome_title", title_html)
+    try:
+        import bot as _bot
+        await _bot.refresh_welcome_title()
+    except Exception as e:
+        logger.error(f"refresh_welcome_title (set) хато: {e}")
+    await message.answer(
+        "✅ <b>Сарлавҳа гузошта шуд!</b>\n\n"
+        "Акнун <code>/start</code> кунед — бояд дар боло намоён шавад.\n\n"
+        "Инак пешнамоиш:",
+        parse_mode="HTML",
+    )
+    # Пешнамоиши воқеӣ (бо эмоҷиҳои аниматсионӣ)
+    try:
+        await message.answer(title_html, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"preview сарлавҳа нашуд: {e}")
 
 
 @router.callback_query(F.data == "a_pending_orders")
