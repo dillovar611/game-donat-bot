@@ -860,9 +860,12 @@ async def cmd_admin(message: Message):
 
 
 @router.callback_query(F.data == "a_back")
-async def a_back(call: CallbackQuery):
+async def a_back(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
         return
+    # Ҳолати FSM-и админро тоза мекунем — вагарна паёми навбатии админ
+    # (сарлавҳа/калима/эмоҷӣ) нохост фаро гирифта мешавад.
+    await state.clear()
     await _safe_edit(
         call, "🔐 <b>Панели Админ</b>\n\nАз меню интихоб кунед:", admin_menu()
     )
@@ -1397,7 +1400,9 @@ async def a_welcome_title_recv(message: Message, state: FSMContext):
     # (теги <tg-emoji> худаш гузошта мешавад). Пас ҳарфҳои аниматсионӣ
     # нигоҳ дошта мешаванд.
     title_html = message.html_text
-    if len(title_html) > 3000:
+    # Сарлавҳа ба паёми хушомадид (caption) илова мешавад — маҳдудияти
+    # Телеграм барои caption 1024 аломат. Барои эҳтиёт ~700 мемонем.
+    if len(title_html) > 700:
         await message.answer("⚠️ Хеле дароз аст — калимаи кӯтоҳтар фиристед.")
         return
     await db.set_setting("welcome_title", title_html)
@@ -1444,9 +1449,11 @@ def _anim_menu_kb() -> InlineKeyboardMarkup:
 
 
 @router.callback_query(F.data == "a_anim_menu")
-async def a_anim_menu(call: CallbackQuery):
+async def a_anim_menu(call: CallbackQuery, state: FSMContext):
     if not is_admin(call.from_user.id):
         return
+    # Агар админ дар мобайни воридкунӣ баргашт — ҳолатро тоза мекунем.
+    await state.clear()
     await _safe_edit(
         call,
         "🎨 <b>Калимаҳои аниматсионӣ</b>\n\n"

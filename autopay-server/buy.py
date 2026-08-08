@@ -572,7 +572,9 @@ async def cart_start(call: CallbackQuery, state: FSMContext):
     if not products:
         await call.answer("❌ Ҳозир маҳсулот нест!", show_alert=True)
         return
-    await state.update_data(cart={})
+    # Резерви кӯҳнаро тоза мекунем — вагарна мизоҷ метавонад сабади арзонро
+    # пардохта, маҳсулоти сабади КИМАТИ кӯҳнаро гирад (зарар).
+    await state.update_data(cart={}, reserved_order_ids=None, reserved_group_id=None)
     text, kb = await _render_cart_text_and_kb(call.from_user.id, products, {})
     await _safe_edit(call, text, kb)
     await state.set_state(BuyState.choose_cart)
@@ -1124,14 +1126,16 @@ async def _autopay_receive_check(message: Message, data: dict) -> bool:
         reserved = await db.find_reserved_order_for_user(message.from_user.id, 60)
         if reserved and reserved["id"] != autopay_order_id:
             r_id = reserved["id"]
-            file_id = message.photo[-1].file_id
-            r_hash = await _hash_photo(message)
-            if await _block_if_duplicate_check(message, r_hash):
-                return True
-            await db.set_autopay_check(r_id, file_id, r_hash or None)
             r_kod = await db.find_kod_for_order(r_id)
             r_order = await db.get_order(r_id)
-            if r_kod and r_order:
+            # Танҳо агар пардохт воқеан резерв бошад ва фармоиш ҳанӯз фаъол —
+            # вагарна ба флоуи оддии FSM мегузарем (чекро галат намебандем)
+            if r_kod and r_order and r_order["status"] in ("awaiting_autopay", "expired"):
+                file_id = message.photo[-1].file_id
+                r_hash = await _hash_photo(message)
+                if await _block_if_duplicate_check(message, r_hash):
+                    return True
+                await db.set_autopay_check(r_id, file_id, r_hash or None)
                 await message.answer(
                     f"✅ <b>Чек қабул шуд!</b>\n\n"
                     f"🆔 Фармоиш: #{r_id}\n\n"
@@ -1263,6 +1267,21 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
                     reserved.append(_oid)
                 await state.update_data(reserved_group_id=_grp,
                                         reserved_order_ids=reserved)
+            else:
+                # Резерв аллакай ҳаст (масалан такрори экран) — нархро аз
+                # ҳамон фармоишҳои резервшуда мегирем, то линки пардохт бо
+                # фармоишҳо АЙНАН мувофиқ бошад (на нархи аз нав ҳисобшуда).
+                try:
+                    _r_total = 0.0
+                    for _rid in reserved:
+                        _ro = await db.get_order(_rid)
+                        if _ro:
+                            _r_total += float(_ro["price"])
+                    if _r_total > 0:
+                        price = round(_r_total, 2)
+                        await state.update_data(price=price)
+                except Exception as e:
+                    logger.error(f"Нархи резервро гирифта нашуд: {e}")
             pay_url = await _dc_pay_url(dc_card, price, f"card_{_compact_range(reserved)}")
         else:
             pay_url = await _dc_pay_url(dc_card, price, f"card_{order_id}")
@@ -1372,13 +1391,13 @@ async def receive_check(message: Message, state: FSMContext):
         _res = await db.find_reserved_order_for_user(message.from_user.id, 60)
         if _res and _res["id"] != autopay_order_id:
             _rid = _res["id"]
-            _rhash = await _hash_photo(message)
-            if await _block_if_duplicate_check(message, _rhash):
-                return
-            await db.set_autopay_check(_rid, file_id, _rhash or None)
             _rkod = await db.find_kod_for_order(_rid)
             _rorder = await db.get_order(_rid)
-            if _rkod and _rorder:
+            if _rkod and _rorder and _rorder["status"] in ("awaiting_autopay", "expired"):
+                _rhash = await _hash_photo(message)
+                if await _block_if_duplicate_check(message, _rhash):
+                    return
+                await db.set_autopay_check(_rid, file_id, _rhash or None)
                 await message.answer(
                     f"✅ <b>Чек қабул шуд!</b>\n\n🆔 Фармоиш: #{_rid}\n\n"
                     f"🔍 Пардохти шумо ёфт шуд — донат ҲОЗИР сар мешавад. 🚀",

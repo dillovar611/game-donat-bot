@@ -1138,9 +1138,19 @@ async def _stale_paid_orders_loop(bot: Bot):
     while True:
         await asyncio.sleep(5 * 60)
         try:
+            _seen_groups = set()
             for order in await db.get_stale_paid_orders(
                     minutes=20, created_after=autopay._BOT_START_TS):
                 order_id = order["id"]
+                # Сабад: N фармоиш дар як гурӯҳ — то мизоҷ/админро N бор
+                # спам накунем, танҳо ЯК бор барои ҳар гурӯҳ хабар медиҳем
+                # (вале ҳамаро "ёдоварӣ шуд" аломат мегузорем).
+                _gid = order.get("order_group_id")
+                if _gid and _gid in _seen_groups:
+                    await db.mark_stale_reminder_sent(order_id)
+                    continue
+                if _gid:
+                    _seen_groups.add(_gid)
                 try:
                     await db.mark_stale_reminder_sent(order_id)
                     try:
@@ -1350,6 +1360,15 @@ async def main():
     await db.init_db()
     await db.load_welcome_title()
     await db.load_anim_phrases()
+    # Вақти оғози ботро аз ВАҚТИ БАЗА мегирем (на вақти системаи хост) — то
+    # филтрҳои "фармоишҳои баъди рестарт" бо created_at-и база (TZ +05:00)
+    # дуруст ҳамоҳанг шаванд.
+    try:
+        _now = await db.get_db_now()
+        if _now:
+            autopay._BOT_START_TS = _now
+    except Exception as e:
+        logger.error(f"Вақти база гирифта нашуд: {e}")
     me = await bot.get_me()
     BOT_USERNAME = me.username
     # Роутери охирин — баъд аз ҳама, то ҳолатҳои FSM-ро нагирад

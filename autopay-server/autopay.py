@@ -182,6 +182,12 @@ async def handle_dc_notification(message: Message):
         # тасдиқ мешавад. Автопардохт даст намезанад, вале пардохтро
         # "шинос" мешуморем (то огоҳии "ношинос" наравад).
         if order and order.get("order_group_id"):
+            # Пардохти САБАД: kod-ро резерв мекунем (то тозакунӣ фармоишро
+            # нест накунад) ва агар чек ҳанӯз нарасида (pending) — ба админ
+            # гурӯҳро бо тугмаи тасдиқ мефиристем (то пул гум нашавад).
+            await db.mark_kod_matched(kod, order_ref)
+            if order.get("status") == "pending":
+                await _notify_admin_cart_paid(message.bot, order)
             logger.info(f"Autopay: пардохти сабад #{order_ref} — дастӣ тасдиқ мешавад (гурӯҳ)")
             return
         if order and order.get("payment_method") in ("dushanbe_city", "alif"):
@@ -273,6 +279,9 @@ async def handle_dc_scan_message(message: Message):
             order = await db.get_order(int(order_ref))
             # Фармоиши сабад (гурӯҳ) — дастӣ мемонад, автопардохт даст намезанад
             if order and order.get("order_group_id"):
+                await db.mark_kod_matched(synth_kod, int(order_ref))
+                if order.get("status") == "pending":
+                    await _notify_admin_cart_paid(message.bot, order)
                 continue
             if not order or order.get("payment_method") not in ("dushanbe_city", "alif"):
                 continue
@@ -320,7 +329,8 @@ def _confirm_cb(order: dict) -> str:
     gid = order.get("game_id") or ""
     for prefix, cb in (("FFID:", "okffid"), ("FFBR:", "okffbr"),
                        ("ML:", "okml"), ("PUBG:", "okpubg"),
-                       ("STARS:", "okstars"), ("PREMIUM:", "okpremium")):
+                       ("STARS:", "okstars"), ("PREMIUM:", "okpremium"),
+                       ("SO2:", "sdok"), ("FFSETUP:", "ffsetrel")):
         if gid.startswith(prefix):
             return f"{cb}_{order['id']}"
     return f"ok_{order['id']}"
@@ -384,6 +394,46 @@ async def _notify_admins_unmatched(bot: Bot, summa: float, kod: str):
             await bot.send_message(admin_id, text, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Огоҳии пардохти ношинос ба {admin_id} нарасид: {e}")
+
+
+async def _notify_admin_cart_paid(bot: Bot, order: dict):
+    """Пардохти САБАД омад, вале мизоҷ ЧЕК нафиристод. Сабад дастӣ тасдиқ
+    мешавад — пас ба админ гурӯҳро бо тугмаи «Тасдиқи гурӯҳ» мефиристем, то
+    пул гум нашавад (вагарна фармоиши 'pending' ноаён мемонд)."""
+    gid = order.get("order_group_id")
+    if not gid:
+        return
+    try:
+        orders = await db.get_orders_by_group(gid)
+    except Exception:
+        orders = None
+    if not orders:
+        return
+    user = await db.get_user(order["user_id"])
+    username = f"@{user['username']}" if user and user.get("username") else "—"
+    total = sum(float(o["price"]) for o in orders)
+    ids = ", ".join(f"#{o['id']}" for o in orders)
+    items = "\n".join(
+        f"  🎁 {o['label']} → <code>{o['game_id']}</code>" for o in orders)
+    caption = (
+        f"🛒💰 <b>Пардохти САБАД омад — чек нарасид!</b>\n\n"
+        f"Мизоҷ пул дод, вале расми чек нафиристод. Дастӣ тасдиқ кунед "
+        f"(то пул гум нашавад):\n\n"
+        f"🆔 Фармоишҳо: <b>{ids}</b>\n"
+        f"👤 Харидор: {esc(user.get('full_name') if user else '—')} ({esc(username)})\n"
+        f"🆔 ID: <code>{order['user_id']}</code>\n\n"
+        f"{items}\n\n"
+        f"💵 Ҷамъ: <b>{total:.2f} сом</b>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Тасдиқи ҳамаи гурӯҳ — донат кун", callback_data=f"okgroup_{gid}")],
+        [InlineKeyboardButton(text="❌ Рад кардани ҳамаи гурӯҳ", callback_data=f"nogroup_{gid}")],
+    ])
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Огоҳии пардохти сабад ба {admin_id} нарасид: {e}")
 
 
 async def _notify_admin_payment_confirmed(bot: Bot, order: dict, summa: float, kod: str):

@@ -119,6 +119,18 @@ for _d, _id in NUM.items():
 
 _TG_SPAN = _re.compile(r"<tg-emoji\b.*?</tg-emoji>", _re.S)
 
+# Regex-и ЯГОНА аз ҳамаи калидҳо — калидҳои ДАРОЗ (бо VS16) аввал, то нусхаи
+# кӯтоҳ дарунашро нашиканад. Ҷойгузинӣ ЯКбора мешавад — тегҳои навсохта дубора
+# коркард намешаванд (пас нести <tg-emoji> дар <tg-emoji> рух намедиҳад).
+_EMOJI_RE = _re.compile(
+    "|".join(_re.escape(k) for k in sorted(_PREMIUM_MAP, key=len, reverse=True))
+)
+
+
+def _emoji_sub(m):
+    eid, fb = _PREMIUM_MAP[m.group(0)]
+    return f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>'
+
 
 def premiumize(text: str) -> str:
     """Ҳамаи эмоҷиҳои оддии дар _PREMIUM_MAP-ро ба эмоҷии премиуми
@@ -127,22 +139,14 @@ def premiumize(text: str) -> str:
     if not text:
         return text
     # Матнро аз рӯи тегҳои мавҷудаи tg-emoji ҷудо мекунем — то онҳоро
-    # даст назанем.
+    # даст назанем; дар ҳар порчаи оддӣ ЯК гузариши regex.
     out = []
     last = 0
     for m in _TG_SPAN.finditer(text):
-        seg = text[last:m.start()]
-        for k, (eid, fb) in _PREMIUM_MAP.items():
-            if k in seg:
-                seg = seg.replace(k, f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>')
-        out.append(seg)
+        out.append(_EMOJI_RE.sub(_emoji_sub, text[last:m.start()]))
         out.append(m.group(0))  # теги мавҷуда — бетағйир
         last = m.end()
-    seg = text[last:]
-    for k, (eid, fb) in _PREMIUM_MAP.items():
-        if k in seg:
-            seg = seg.replace(k, f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>')
-    out.append(seg)
+    out.append(_EMOJI_RE.sub(_emoji_sub, text[last:]))
     return _apply_vouchers("".join(out))
 
 

@@ -1443,8 +1443,11 @@ async def set_order_check(order_id: int, file_id: str, check_hash: str = None):
     """ID-и расми чекро сабт мекунад ва статусро 'paid' мегузорад."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
+            # Муҳофизат: фармоиши аллакай тамомшуда (confirmed/donating/rejected)-ро
+            # ба 'paid' барнагардон — вагарна дубора донат мешавад.
             await cur.execute(
-                "UPDATE orders SET check_file_id=%s, check_hash=%s, status='paid' WHERE id=%s",
+                "UPDATE orders SET check_file_id=%s, check_hash=%s, status='paid' "
+                "WHERE id=%s AND status NOT IN ('confirmed','donating','rejected')",
                 (file_id, check_hash, order_id)
             )
 
@@ -2415,6 +2418,17 @@ async def fsm_get_data(key: str):
             return row[0] if row else None
 
 
+async def get_db_now():
+    """Вақти ҶОРИИ база (бо time_zone-и пул: +05:00). Барои он ки
+    _BOT_START_TS бо created_at-и база ҳамоҳанг бошад (на бо вақти системаи
+    хости бот, ки метавонад TZ-и дигар дошта бошад)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT NOW()")
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+
 async def fsm_cleanup(hours: int = 6):
     """Ҳолатҳои кӯҳнаи FSM (аз hours соат пештар)-ро нест мекунад — то ҷадвал
     варам накунад. Флоуи харид ~20 дақиқа аст, пас 6 соат бехатар аст."""
@@ -3117,7 +3131,14 @@ async def cleanup_stale_pending_cart(hours: int = 6) -> int:
             await cur.execute(
                 "DELETE FROM orders WHERE status='pending' "
                 "AND order_group_id IS NOT NULL AND check_file_id IS NULL "
-                "AND created_at < NOW() - INTERVAL %s HOUR",
+                "AND created_at < NOW() - INTERVAL %s HOUR "
+                # Гурӯҳҳое, ки пардохташон ёфт шуда (kod резерв) — нест НАКУН
+                "AND order_group_id NOT IN ("
+                "  SELECT gid FROM ("
+                "    SELECT DISTINCT o2.order_group_id AS gid FROM orders o2 "
+                "    JOIN dc_kods k ON k.matched_order_id = o2.id "
+                "    WHERE o2.order_group_id IS NOT NULL"
+                "  ) AS t)",
                 (hours,)
             )
             return cur.rowcount
