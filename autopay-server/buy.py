@@ -1072,7 +1072,7 @@ async def _autopay_requisites(call: CallbackQuery, state: FSMContext, data: dict
     ])
     await _safe_edit(
         call,
-        f"💳 <b>{method_name}</b>\n\n"
+        f"<b>{method_name}</b>\n\n"
         f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
         f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n"
         f"🆔 Фармоиш: #{awaiting_order_id}\n\n"
@@ -1237,7 +1237,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
         ])
         await _safe_edit(
             call,
-            f"💳 <b>{method_name}</b>\n\n"
+            f"<b>{method_name}</b>\n\n"
             f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
             f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n"
             f"🆔 Фармоиш: #{awaiting_order_id}\n\n"
@@ -1260,7 +1260,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
     ])
     await _safe_edit(
         call,
-        f"💳 <b>{method_name}</b>\n\n"
+        f"<b>{method_name}</b>\n\n"
         f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
         f"💵 Маблағ: <b>{price:.2f} сомонӣ</b>\n"
         f"{discount_note}"
@@ -1837,7 +1837,7 @@ async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
     ])
     await _safe_edit(
         call,
-        f"💳 <b>{method_name}</b>\n\n"
+        f"<b>{method_name}</b>\n\n"
         f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
         f"💵 Маблағ: <b>{price:.2f} сомонӣ</b>\n"
         f"{discount_note}"
@@ -2173,7 +2173,7 @@ async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
     ])
     await _safe_edit(
         call,
-        f"💳 <b>{method_name}</b>\n\n"
+        f"<b>{method_name}</b>\n\n"
         f"🎁 Маҷсулот: <b>{data['label']}</b>\n"
         f"💵 Маблағ: <b>{price:.2f} сомонӣ</b>\n"
         f"{discount_note}"
@@ -2502,7 +2502,7 @@ async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
     ])
     await _safe_edit(
         call,
-        f"💳 <b>{method_name}</b>\n\n"
+        f"<b>{method_name}</b>\n\n"
         f"🎁 {data['label']}\n"
         f"💵 Маблағ: <b>{price:.2f} сомонӣ</b>\n"
         f"{discount_note}"
@@ -2809,7 +2809,7 @@ async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
     ])
     await _safe_edit(
         call,
-        f"💳 <b>{method_name}</b>\n\n"
+        f"<b>{method_name}</b>\n\n"
         f"🎁 {data['label']}\n"
         f"💵 Маблағ: <b>{price:.2f} сомонӣ</b>\n"
         f"{discount_note}"
@@ -3342,7 +3342,7 @@ async def topup_choose_method(call: CallbackQuery, state: FSMContext):
     )
     await _safe_edit(
         call,
-        f"💳 <b>{method_name}</b>\n\n"
+        f"<b>{method_name}</b>\n\n"
         f"💰 Пуркунии баланс\n"
         f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n"
         f"🆔 Фармоиш: #{awaiting_order_id}\n"
@@ -3985,7 +3985,7 @@ async def ffbr_show_requisites(call: CallbackQuery, state: FSMContext):
     ])
     await _safe_edit(
         call,
-        f"💳 <b>{method_name}</b>\n\n"
+        f"<b>{method_name}</b>\n\n"
         f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
         f"💵 Маблағ: <b>{price:.2f} сомонӣ</b>\n"
         f"{discount_note}"
@@ -4626,7 +4626,7 @@ async def ffset_show_requisites(call: CallbackQuery, state: FSMContext):
     ])
     await _safe_edit(
         call,
-        f"💳 <b>{method_name}</b>\n\n"
+        f"<b>{method_name}</b>\n\n"
         f"🎁 {esc(data['label'])}\n"
         f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n\n"
         f"{alif_note}"
