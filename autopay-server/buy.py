@@ -976,6 +976,45 @@ async def _dc_pay_url(dc_card: str, price: float, comment: str) -> str:
     return real_url
 
 
+# Силкаи тугмаи «Кушодани Алиф». Пештар силка ба пардохти ПРОВАЙДЕР бо
+# рақами ТЕЛЕФОН мебурд (account=929998174) — мизоҷон иштибоҳ карда пулро
+# ба ҷои дигар мефиристоданд. Акнун тугма ФАҚАТ барномаи Алифро мекушояд,
+# ва мизоҷ худаш ба «На карту» рақами корт ва маблағро мезанад.
+# Домени силка дар settings — то соҳиб онро БЕ ДЕПЛОЙ иваз карда тавонад.
+DEFAULT_ALIF_PAY_URL = "https://alifmobi.page.link/"
+
+
+async def _alif_pay_url() -> str:
+    return (await db.get_setting("alif_pay_url")) or DEFAULT_ALIF_PAY_URL
+
+
+async def _pay_reqs(method: str, price: float, dc_comment: str):
+    """Барои DC/Alif: (силкаи пардохт, матни тугма, қадамҳо)-ро бармегардонад.
+    DC → линки тайёри пардохт; Алиф → кушодани барнома + корт бо дасти мизоҷ."""
+    card = await db.get_dc_card_number()
+    if method == "dushanbe_city":
+        pay_url = await _dc_pay_url(card, price, dc_comment)
+        steps = (
+            f"1️⃣ Тугмаи «💳 Пардохт»-ро пахш кунед\n"
+            f"2️⃣ Маблағи <b>дақиқ {price:.2f} сом</b>-ро пардохт кунед "
+            f"(на кам, на зиёд — тин ба тин!)\n"
+            f"3️⃣ Расми чекро ба ҳамин чат фиристед\n\n"
+        )
+        return pay_url, "💳 Пардохт", steps
+    # Алиф — кушодани барнома, мизоҷ худаш корт ва маблағро мезанад
+    pay_url = await _alif_pay_url()
+    steps = (
+        f"1️⃣ Тугмаи «📲 Кушодани Алиф»-ро пахш кунед\n"
+        f"2️⃣ Дар Алиф: «<b>На карту</b>»-ро интихоб кунед\n"
+        f"3️⃣ Рақами кортро гузоред (пахш кунед — нусха мешавад):\n"
+        f"<code>{card}</code>\n"
+        f"4️⃣ Маблағи <b>дақиқ {price:.2f} сом</b>-ро занед "
+        f"(на кам, на зиёд — тин ба тин!)\n"
+        f"5️⃣ Пардохт кунед ва расми чекро ба ҳамин чат фиристед\n\n"
+    )
+    return pay_url, "📲 Кушодани Алиф", steps
+
+
 async def _apply_winback_discount(user_id: int, price: float) -> tuple[float, str]:
     """
     Агар мизоҷ тахфифи фаъоли баргардонӣ дошта бошад (мизоҷи хомӯшшуда,
@@ -1024,14 +1063,10 @@ async def _autopay_requisites(call: CallbackQuery, state: FSMContext, data: dict
     )
     await state.update_data(autopay_order_id=awaiting_order_id)
 
-    if method == "dushanbe_city":
-        dc_card = await db.get_dc_card_number()
-        pay_url = await _dc_pay_url(dc_card, price, f"card_{awaiting_order_id}")
-    else:
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+    pay_url, pay_btn, steps = await _pay_reqs(method, price, f"card_{awaiting_order_id}")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Пардохт", url=pay_url)],
+        [InlineKeyboardButton(text=pay_btn, url=pay_url)],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back_cb)],
     ])
     await _safe_edit(
@@ -1040,10 +1075,7 @@ async def _autopay_requisites(call: CallbackQuery, state: FSMContext, data: dict
         f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
         f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n"
         f"🆔 Фармоиш: #{awaiting_order_id}\n\n"
-        f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
-        f"2️⃣ Маблағи <b>дақиқ {price:.2f} сом</b>-ро пардохт кунед "
-        f"(на кам, на зиёд — тин ба тин!)\n"
-        f"3️⃣ Расми чекро ба ҳамин чат фиристед\n\n"
+        f"{steps}"
         f"⚡ Пас аз фиристодани чек, пардохти шумо <b>худкор</b> тафтиш "
         f"мешавад ва маҳсулот худкор фиристода мешавад — интизории админ "
         f"лозим нест!\n\n"
@@ -1150,6 +1182,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
 
     order_id = data.get("product_id") or "cart" + str(uuid.uuid4())[:8]
     eskhata_note = ""
+    alif_note = ""
     discount_note = winback_note
 
     if method == "dushanbe_city":
@@ -1165,7 +1198,12 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
             return
     else:
         method_name = "💳 Алиф"
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_url = await _alif_pay_url()
+        _alif_card = await db.get_dc_card_number()
+        alif_note = (
+            f"\n📲 Дар Алиф «<b>На карту</b>» → рақами корт "
+            f"(пахш кунед — нусха мешавад):\n<code>{_alif_card}</code>\n"
+        )
 
     await state.update_data(payment_method=method)
 
@@ -1188,17 +1226,12 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
             payment_method=method,
         )
         await state.update_data(autopay_order_id=awaiting_order_id)
-        if method == "dushanbe_city":
-            # Линки пардохт бо РАҚАМИ ФАРМОИШИ ВОҚЕӢ дар комент — DC онро
-            # дар notification бармегардонад (card§8848) ва бот фармоишро
-            # мустақим аз рӯи он меёбад
-            dc_card = await db.get_dc_card_number()
-            pay_url = await _dc_pay_url(dc_card, price, f"card_{awaiting_order_id}")
-        else:
-            # Алиф — комент надорад, шинохт аз рӯи маблағи нодир
-            pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        # DC → линки пардохт бо коменти card_<id> (аз notification меёбем).
+        # Алиф → кушодани барнома, мизоҷ худаш ба «На карту» корт+маблағ мезанад
+        # (шинохт аз рӯи маблағи нодир).
+        pay_url, pay_btn, steps = await _pay_reqs(method, price, f"card_{awaiting_order_id}")
         kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="💳 Пардохт", url=pay_url)],
+            [InlineKeyboardButton(text=pay_btn, url=pay_url)],
             [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="id_ok")],
         ])
         await _safe_edit(
@@ -1207,10 +1240,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
             f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
             f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n"
             f"🆔 Фармоиш: #{awaiting_order_id}\n\n"
-            f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
-            f"2️⃣ Маблағи <b>дақиқ {price:.2f} сом</b>-ро пардохт кунед "
-            f"(на кам, на зиёд — тин ба тин!)\n"
-            f"3️⃣ Расми чекро ба ҳамин чат фиристед\n\n"
+            f"{steps}"
             f"⚡ Пас аз фиристодани чек, системаи мо пардохти шуморо "
             f"<b>худкор</b> тафтиш мекунад ва алмазҳо худкор фиристода "
             f"мешаванд — интизории админ лозим нест!\n\n"
@@ -1222,8 +1252,9 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
 
     # ==== Тартиби кӯҳна (Алиф / Эсхата / сабад) — бо чек ====
     btn_text = method_name.replace("🏙 ", "").replace("💳 ", "").replace("🏦 ", "")
+    _btn_pay_text = "📲 Кушодани Алиф" if method == "alif" else f"💳 Пардохти {btn_text}"
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"💳 Пардохти {btn_text}", url=pay_url)],
+        [InlineKeyboardButton(text=_btn_pay_text, url=pay_url)],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="id_ok")],
     ])
     await _safe_edit(
@@ -1232,7 +1263,8 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
         f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
         f"💵 Маблағ: <b>{price:.2f} сомонӣ</b>\n"
         f"{discount_note}"
-        f"{eskhata_note}\n"
+        f"{eskhata_note}"
+        f"{alif_note}\n"
         f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
         f"2️⃣ Маблағи дақиқ <b>{price:.2f} сом</b>-ро пардохт кунед\n"
         f"3️⃣ Расми чекро ба ин чат фиристед\n\n"
@@ -1786,7 +1818,7 @@ async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
         # Нархи каме нодир — зидди чеки такрорӣ/дуруғин (ба amount= низ мегузарад)
         price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
         await state.update_data(price=price)
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_url = await _alif_pay_url()  # шохаи мурда — Алиф аз _autopay_requisites меравад
 
     await state.update_data(payment_method=method)
 
@@ -2122,7 +2154,7 @@ async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
         method_name = "💳 Алиф"
         price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
         await state.update_data(price=price)
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_url = await _alif_pay_url()  # шохаи мурда — Алиф аз _autopay_requisites меравад
 
     await state.update_data(payment_method=method)
 
@@ -2451,7 +2483,7 @@ async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
         method_name = "💳 Алиф"
         price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
         await state.update_data(price=price)
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_url = await _alif_pay_url()  # шохаи мурда — Алиф аз _autopay_requisites меравад
 
     await state.update_data(payment_method=method)
 
@@ -2758,7 +2790,7 @@ async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
         method_name = "💳 Алиф"
         price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
         await state.update_data(price=price)
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_url = await _alif_pay_url()  # шохаи мурда — Алиф аз _autopay_requisites меравад
 
     await state.update_data(payment_method=method)
 
@@ -3294,16 +3326,11 @@ async def topup_choose_method(call: CallbackQuery, state: FSMContext):
             offer_id=pending.get("offer_id", ""),
         )
 
-    if method == "dushanbe_city":
-        method_name = "🏙 Душанбе Сити"
-        dc_card = await db.get_dc_card_number()
-        pay_url = await _dc_pay_url(dc_card, price, f"card_{awaiting_order_id}")
-    else:
-        method_name = "💳 Алиф"
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+    method_name = "🏙 Душанбе Сити" if method == "dushanbe_city" else "💳 Алиф"
+    pay_url, pay_btn, steps = await _pay_reqs(method, price, f"card_{awaiting_order_id}")
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Пардохт", url=pay_url)],
+        [InlineKeyboardButton(text=pay_btn, url=pay_url)],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="profile_menu")],
     ])
     pending_line = (
@@ -3317,10 +3344,7 @@ async def topup_choose_method(call: CallbackQuery, state: FSMContext):
         f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n"
         f"🆔 Фармоиш: #{awaiting_order_id}\n"
         f"{pending_line}\n"
-        f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
-        f"2️⃣ Маблағи <b>дақиқ {price:.2f} сом</b>-ро пардохт кунед "
-        f"(на кам, на зиёд — тин ба тин!)\n"
-        f"3️⃣ Расми чекро ба ҳамин чат фиристед\n\n"
+        f"{steps}"
         f"⚡ Пас аз фиристодани чек, системаи мо пардохти шуморо "
         f"<b>худкор</b> тафтиш мекунад ва баланс худкор пур мешавад — "
         f"интизории админ лозим нест!\n\n"
@@ -3561,15 +3585,23 @@ async def standoff_show_requisites(call: CallbackQuery, state: FSMContext):
     price = round(price + random.randint(1, 99) / 100, 2)
     await state.update_data(price=price, payment_method=method)
     order_ref = "so" + str(uuid.uuid4())[:8]
+    alif_note = ""
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
+        pay_btn = "💳 Пардохт кардан"
         dc_card = await db.get_dc_card_number()
         pay_url = await _dc_pay_url(dc_card, price, f"card_{order_ref}")
     else:
         method_name = "💳 Алиф"
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_btn = "📲 Кушодани Алиф"
+        pay_url = await _alif_pay_url()
+        _so_card = await db.get_dc_card_number()
+        alif_note = (
+            f"📲 Дар Алиф «<b>На карту</b>» → рақами корт "
+            f"(пахш кунед — нусха мешавад):\n<code>{_so_card}</code>\n\n"
+        )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="💳 Пардохт кардан", url=pay_url)],
+        [InlineKeyboardButton(text=pay_btn, url=pay_url)],
         [InlineKeyboardButton(text="📸 Чекро фиристодам", callback_data="standoff_sent")],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="standoff_id_ok")],
     ])
@@ -3579,7 +3611,8 @@ async def standoff_show_requisites(call: CallbackQuery, state: FSMContext):
         f"🆔 USER ID: <code>{data['player_id']}</code>\n"
         f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
         f"💵 Маблағ: <b>{price:.2f} сомонӣ</b>\n\n"
-        f"1️⃣ Тугмаи «Пардохт кардан»-ро пахш кунед\n"
+        f"{alif_note}"
+        f"1️⃣ Тугмаи «{pay_btn}»-ро пахш кунед\n"
         f"2️⃣ Маҳз <b>{price:.2f} сом</b>-ро пардозед\n"
         f"3️⃣ Расми чекро ин ҷо фиристед\n\n"
         f"⚠️ Маблағро АЙНАН нигоҳ доред — то фармоишатон зуд ёфт шавад.",
@@ -3933,7 +3966,7 @@ async def ffbr_show_requisites(call: CallbackQuery, state: FSMContext):
         # Нархи каме нодир — зидди чеки такрорӣ/дуруғин (ба amount= низ мегузарад)
         price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
         await state.update_data(price=price)
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_url = await _alif_pay_url()  # шохаи мурда — Алиф аз _autopay_requisites меравад
 
     await state.update_data(payment_method=method)
 
@@ -4568,15 +4601,23 @@ async def ffset_show_requisites(call: CallbackQuery, state: FSMContext):
     # Нархи каме нодир — то админ пардохтро осон мувофиқ кунад
     price = round(float(price) + random.randint(1, 99) / 100, 2)
     await state.update_data(price=price, payment_method=method)
+    alif_note = ""
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
+        pay_btn = "💳 Пардохт"
         dc_card = await db.get_dc_card_number()
         pay_url = await _dc_pay_url(dc_card, price, f"card_ffset")
     else:
         method_name = "💳 Алиф"
-        pay_url = f"https://alifmobi.page.link/providers?id=124&amount={price:.2f}&account=929998174"
+        pay_btn = "📲 Кушодани Алиф"
+        pay_url = await _alif_pay_url()
+        _fs_card = await db.get_dc_card_number()
+        alif_note = (
+            f"📲 Дар Алиф «<b>На карту</b>» → рақами корт "
+            f"(пахш кунед — нусха мешавад):\n<code>{_fs_card}</code>\n\n"
+        )
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=f"💳 Пардохти {method_name}", url=pay_url)],
+        [InlineKeyboardButton(text=pay_btn, url=pay_url)],
         [InlineKeyboardButton(text="📸 Чекро фиристодам", callback_data="ffset_sent")],
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="ffset_menu")],
     ])
@@ -4585,7 +4626,8 @@ async def ffset_show_requisites(call: CallbackQuery, state: FSMContext):
         f"💳 <b>{method_name}</b>\n\n"
         f"🎁 {esc(data['label'])}\n"
         f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n\n"
-        f"1️⃣ Тугмаи «Пардохт»-ро пахш кунед\n"
+        f"{alif_note}"
+        f"1️⃣ Тугмаи «{pay_btn}»-ро пахш кунед\n"
         f"2️⃣ Маблағи дақиқ пардохт кунед\n"
         f"3️⃣ «📸 Чекро фиристодам»-ро пахш карда, расми чекро фиристед\n\n"
         f"🔗 Баъди тасдиқ, силкаи канал ба шумо меравад.",

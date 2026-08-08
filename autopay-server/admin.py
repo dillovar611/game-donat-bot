@@ -162,6 +162,7 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="💎 Нархи шахсии мизоҷ", callback_data="a_custom_price")],
         [InlineKeyboardButton(text="💳 Рақами корти ДС",     callback_data="a_dc_card")],
         [InlineKeyboardButton(text="🔗 Домени пардохти ДС",  callback_data="a_dc_base")],
+        [InlineKeyboardButton(text="📲 Силкаи «Кушодани Алиф»", callback_data="a_alif_url")],
         [InlineKeyboardButton(text="🕶 Ноаён кардани силка",  callback_data="a_dc_mask")],
         [InlineKeyboardButton(text="🎁 Тӯҳфаи тасодуфӣ",      callback_data="a_giveaway")],
         [InlineKeyboardButton(text="💰 Идоракунии баланс",    callback_data="a_balance_menu")],
@@ -337,6 +338,49 @@ async def a_dc_base_save(message: Message, state: FSMContext):
         f"✅ Домени пардохти ДС иваз шуд ба:\n<code>{esc(base)}</code>\n\n"
         f"Ҳамаи линкҳои нави пардохт ҳамин доменро истифода мебаранд.\n"
         f"Як хариди хурд санҷед!",
+        parse_mode="HTML")
+
+
+class AlifUrlState(StatesGroup):
+    change = State()
+
+
+@router.callback_query(F.data == "a_alif_url")
+async def a_alif_url(call: CallbackQuery, state: FSMContext):
+    """Силкаи тугмаи «Кушодани Алиф»-ро иваз мекунад. Ин силка ФАҚАТ
+    барномаи Алифро мекушояд — мизоҷ худаш ба «На карту» корт+маблағро
+    мезанад (аз силкаи кӯҳна, ки ба рақами телефон мебурд, даст кашидем)."""
+    if not is_admin(call.from_user.id):
+        return
+    current = await db.get_setting("alif_pay_url") or "https://alifmobi.page.link/ (пешфарз)"
+    await _safe_edit(
+        call,
+        f"📲 <b>Силкаи «Кушодани Алиф»</b>\n\n"
+        f"Ҳозира: <code>{esc(current)}</code>\n\n"
+        f"Ин силка танҳо <b>барномаи Алифро мекушояд</b>. Мизоҷ худаш дар "
+        f"«На карту» рақами корт ва маблағро мезанад.\n\n"
+        f"Агар силкаи беҳтаре ёбед (масалан рост ба «На карту»), инҷо гузоред.\n"
+        f"❗️ Аввал дар телефон санҷед, ки Алифро кушояд.",
+        InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_back")]
+        ])
+    )
+    await state.set_state(AlifUrlState.change)
+
+
+@router.message(AlifUrlState.change)
+async def a_alif_url_save(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    url = message.text.strip()
+    if not url.startswith("http"):
+        await message.answer("⚠️ Линки дуруст нависед (бо http/https сар шавад).")
+        return
+    await db.set_setting("alif_pay_url", url)
+    await state.clear()
+    await message.answer(
+        f"✅ Силкаи «Кушодани Алиф» иваз шуд ба:\n<code>{esc(url)}</code>\n\n"
+        f"Як хариди хурд бо Алиф санҷед!",
         parse_mode="HTML")
 
 
