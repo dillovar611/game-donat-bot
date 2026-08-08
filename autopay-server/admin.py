@@ -1713,7 +1713,7 @@ async def _do_donate_group(call: CallbackQuery, orders: list):
                 f"{pemoji.pe(pemoji.CHECK, '✅')} <b>Муваффақ! Маҳсулотҳо фиристода шуданд!</b>\n\n"
                 f"{lines}\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"⭐ Лутфан отзив гузоред:",
+                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=_kb_rows),
                 parse_mode="HTML"
             )
@@ -1816,7 +1816,7 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{order['game_id']}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"⭐ Лутфан отзив гузоред:",
+                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🧾 Чеки муваффақ", callback_data=f"receipt_{order_id}")],
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
@@ -2032,7 +2032,7 @@ async def order_manual(call: CallbackQuery):
             f"🆔 Фармоиш: #{order_id}\n"
             f"{order['label']} → <code>{order['game_id']}</code>\n\n"
             f"🙏 Ташаккур барои харид!\n\n"
-            f"⭐ Лутфан отзив гузоред:",
+            f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=_kb_rows),
             parse_mode="HTML"
         )
@@ -3372,7 +3372,7 @@ async def _do_donate_ffid(call: CallbackQuery, order: dict, player_id: str, wait
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{player_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"⭐ Лутфан отзив гузоред:",
+                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
@@ -3958,7 +3958,7 @@ async def _do_donate_pubg(call: CallbackQuery, order: dict, player_id: str, wait
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"🎁 {order['label']} → <code>{player_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"⭐ Лутфан отзив гузоред:",
+                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
@@ -4206,7 +4206,7 @@ async def order_confirm_stars(call: CallbackQuery):
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"📱 Барои: @{tg_username}\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"⭐ Лутфан отзив гузоред:",
+                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
@@ -4305,7 +4305,7 @@ async def order_confirm_premium(call: CallbackQuery):
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"📱 Барои: @{tg_username}\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"⭐ Лутфан отзив гузоред:",
+                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
@@ -4825,7 +4825,7 @@ async def _do_donate_ffbr(call: CallbackQuery, order: dict, player_id: str, wait
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{player_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"⭐ Лутфан отзив гузоред:",
+                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
@@ -5164,7 +5164,7 @@ async def _do_donate_ml(call: CallbackQuery, order: dict, player_id: str,
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{player_id}</code> / <code>{server_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"⭐ Лутфан отзив гузоред:",
+                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
