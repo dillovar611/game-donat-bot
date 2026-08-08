@@ -394,7 +394,7 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
         )
 
     text = pemoji.premiumize(
-        f"{db.anim('autotasdiq', pemoji.pe(pemoji.CHECK, '✅') + ' <b>АВТОТАСДИҚ — Донат муваффақ шуд!</b> ' + pemoji.pe(pemoji.PARTY, '🎉'))}\n\n"
+        f"{pemoji.pe(pemoji.CHECK, '✅')} <b>{db.anim('autotasdiq', 'АВТОТАСДИҚ')} — Донат муваффақ шуд!</b> {pemoji.pe(pemoji.PARTY, '🎉')}\n\n"
         f"👤 Харидор: {esc(full_name)}\n"
         f"📱 Username: {esc(username)}\n"
         f"🆔 ID Telegram: <code>{order['user_id']}</code>\n"
