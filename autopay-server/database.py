@@ -235,6 +235,17 @@ async def init_db():
                 )
             """)
 
+            # ---- Хотираи доимии FSM (то рестарт ҳолати мизоҷонро гум накунад) ----
+            await cur.execute("""
+                CREATE TABLE IF NOT EXISTS fsm_states (
+                    storage_key VARCHAR(255) PRIMARY KEY,
+                    state VARCHAR(255) NULL,
+                    data MEDIUMTEXT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                        ON UPDATE CURRENT_TIMESTAMP
+                )
+            """)
+
             # ---- Standoff 2: голд (донати ДАСТӢ — donatov.net API надорад,
             # пас offer_id нест; соҳиб худаш иҷро мекунад) ----
             await cur.execute("""
@@ -2341,6 +2352,54 @@ def anim(slot: str, default: str = "") -> str:
     """Калимаи аниматсионии слотро (агар админ гузошта бошад) бармегардонад,
     вагарна матни пешфарзи оддиро. Синхронӣ — аз кэш мехонад."""
     return anim_cache.get(slot) or default
+
+
+# ==================== ХОТИРАИ ДОИМИИ FSM ====================
+async def fsm_set_state(key: str, state):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO fsm_states (storage_key, state) VALUES (%s,%s) "
+                "ON DUPLICATE KEY UPDATE state=%s",
+                (key, state, state)
+            )
+
+
+async def fsm_get_state(key: str):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT state FROM fsm_states WHERE storage_key=%s", (key,))
+            row = await cur.fetchone()
+            return row[0] if row and row[0] else None
+
+
+async def fsm_set_data(key: str, data_json: str):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "INSERT INTO fsm_states (storage_key, data) VALUES (%s,%s) "
+                "ON DUPLICATE KEY UPDATE data=%s",
+                (key, data_json, data_json)
+            )
+
+
+async def fsm_get_data(key: str):
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute("SELECT data FROM fsm_states WHERE storage_key=%s", (key,))
+            row = await cur.fetchone()
+            return row[0] if row else None
+
+
+async def fsm_cleanup(hours: int = 6):
+    """Ҳолатҳои кӯҳнаи FSM (аз hours соат пештар)-ро нест мекунад — то ҷадвал
+    варам накунад. Флоуи харид ~20 дақиқа аст, пас 6 соат бехатар аст."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "DELETE FROM fsm_states WHERE updated_at < NOW() - INTERVAL %s HOUR",
+                (hours,)
+            )
 
 
 DEFAULT_DC_CARD_NUMBER = "9762000226598802"

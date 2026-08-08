@@ -16,7 +16,8 @@ from aiogram.types import (
     FSInputFile,
 )
 from aiogram.filters import CommandStart, CommandObject
-from aiogram.fsm.storage.memory import MemoryStorage
+from aiogram.fsm.storage.memory import MemoryStorage  # noqa: F401 (эҳтиётӣ)
+from dbstorage import MySQLStorage
 
 import config
 import database as db
@@ -123,7 +124,7 @@ class SubscriptionMiddleware(BaseMiddleware):
 # ==================== БОТ ====================
 # parse_mode дар ҳар паём алоҳида гузошта мешавад (бо ҳама версияи aiogram 3 кор мекунад)
 bot = Bot(token=config.BOT_TOKEN)
-dp = Dispatcher(storage=MemoryStorage())
+dp = Dispatcher(storage=MySQLStorage())
 
 BOT_USERNAME = config.BOT_USERNAME  # дар main() аз bot.get_me() дуруст карда мешавад
 

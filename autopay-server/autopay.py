@@ -1071,13 +1071,17 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
     while True:
         await asyncio.sleep(interval_seconds)
 
-        # ---- Тозакунии токенҳои силкаи ноаён (ҳар ~соат) ----
+        # ---- Тозакунии токенҳои силкаи ноаён + ҳолатҳои кӯҳнаи FSM (ҳар ~соат) ----
         if time.monotonic() - _last_paylink_cleanup > 3600:
             _last_paylink_cleanup = time.monotonic()
             try:
                 await db.cleanup_pay_tokens(3)
             except Exception as e:
                 logger.error(f"Тозакунии pay_links нашуд: {e}")
+            try:
+                await db.fsm_cleanup(6)
+            except Exception as e:
+                logger.error(f"Тозакунии fsm_states нашуд: {e}")
 
         # ---- Фармоишҳое, ки дар 'donating' гир мондаанд (масалан сервер
         # маҳз дар вақти донат рестарт шуда буд) — ба 'paid' бармегардонем,
