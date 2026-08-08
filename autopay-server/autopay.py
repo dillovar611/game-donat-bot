@@ -190,43 +190,23 @@ async def handle_dc_notification(message: Message):
                 if abs(float(order["price"]) - summa) > 0.011:
                     await _notify_admins_wrong_amount(message.bot, order, summa, kod)
                     return
-                # Kod-ро ба ин фармоиш мебандем (резерв, зидди такрор) — ҳатто
-                # агар фармоиш "мӯҳлаташ гузашта" бошад (мизоҷ бо силкаи
-                # кӯҳна баъд аз якчанд рӯз пул фиристода бошад), то вақте
-                # чекашро фиристад, buy.py ҳамин Kod-ро ёфта тавонад
-                was_expired = order["status"] == "expired"
+                # Комент (card_XXXX) ин фармоишро АНИҚ муайян мекунад ва
+                # маблағ мувофиқ аст — пас пардохт бешубҳа аз они ҳамин
+                # фармоиш аст. ЧЕК ЛОЗИМ НЕСТ — фавран донат мекунем.
+                # Ин мушкили «мизоҷ чекро ба фармоиши ГАЛАТ фиристод»-ро низ
+                # ҳал мекунад (донат аз рӯи худи пардохт меравад, на чек).
                 await db.mark_kod_matched(kod, order_ref)
-                if was_expired:
-                    # Пардохти дерина барои фармоиши аллакай "мӯҳлаташ
-                    # гузашта" — мизоҷро огоҳ мекунем, то чекро фиристад
-                    await db.mark_order_late_recovered(order_ref)
-                    try:
-                        await message.bot.send_message(
-                            order["user_id"],
-                            f"✅ <b>Мо пардохти шуморо ёфтем!</b>\n\n"
-                            f"🆔 Фармоиш: #{order_ref}\n\n"
-                            f"Лутфан расми чекро ба ин чат фиристед, то донат "
-                            f"худкор иҷро шавад. 🙏",
-                            parse_mode="HTML"
-                        )
-                    except Exception as e:
-                        logger.error(f"Огоҳии пардохти дерина ба {order['user_id']} нарасид: {e}")
-                if order["status"] == "autopay_search":
-                    # Чек аллакай омадааст → фавран донат
-                    asyncio.create_task(run_donate(message.bot, order, kod))
-                else:
-                    # Чек ҳанӯз наомадааст → интизор; вақте чек ояд,
-                    # buy.py ҳамин Kod-и резервшударо меёбад
-                    logger.info(f"Autopay: пардохти #{order_ref} омад (статус: {order['status']}), чек интизор")
+                asyncio.create_task(run_donate(message.bot, order, kod))
                 return
             if order.get("status") == "paid":
-                # Фармоиш аллакай ба админ фиристода шуда буд (мӯҳлати
-                # ҷустуҷӯи худкор гузашта), вале ҳоло notification омад —
-                # то бе сабаб дар навбати админ намонад, худкор анҷом медиҳем
+                # Фармоиш аллакай дар навбати админ аст. АВТОМАТ НАМЕКУНЕМ —
+                # шояд админ онро ДАСТӢ иҷро карда, вале тугмаро назада бошад
+                # (донати дучанд = зарар). Танҳо ба админ хабар медиҳем, ки
+                # пул дар банк тасдиқ шуд — худаш «Тасдиқ»-ро занад.
                 if abs(float(order["price"]) - summa) > 0.011:
                     await _notify_admins_wrong_amount(message.bot, order, summa, kod)
                     return
-                asyncio.create_task(run_donate_for_escalated(message.bot, order, kod))
+                await _notify_admin_payment_confirmed(message.bot, order, summa, kod)
                 return
         # order_ref ҳаст, вале фармоиши мувофиқ нест — поён fallback
 
@@ -287,33 +267,14 @@ async def handle_dc_scan_message(message: Message):
                 await _notify_admins_wrong_amount(message.bot, order, summa, synth_kod)
                 continue
             if status == "paid":
-                # Фармоиш аллакай ба админ фиристода шуда буд (мӯҳлати
-                # ҷустуҷӯи худкор гузашта), вале санҷиши даврӣ пардохтро
-                # ёфт — то бе сабаб дар навбати админ намонад, худкор
-                # анҷом медиҳем
-                asyncio.create_task(run_donate_for_escalated(message.bot, order, synth_kod))
+                # Дар навбати админ аст — АВТОМАТ намекунем (шояд дастӣ
+                # иҷро шуда бошад), танҳо ба админ хабар медиҳем.
+                await _notify_admin_payment_confirmed(message.bot, order, summa, synth_kod)
                 continue
-            was_expired = status == "expired"
+            # awaiting/expired/autopay_search — комент фармоишро аниқ
+            # муайян мекунад → чек лозим нест, фавран донат.
             await db.mark_kod_matched(synth_kod, int(order_ref))
-            if was_expired:
-                await db.mark_order_late_recovered(int(order_ref))
-                try:
-                    await message.bot.send_message(
-                        order["user_id"],
-                        f"✅ <b>Мо пардохти шуморо ёфтем!</b>\n\n"
-                        f"🆔 Фармоиш: #{order_ref}\n\n"
-                        f"Лутфан расми чекро ба ин чат фиристед, то донат "
-                        f"худкор иҷро шавад. 🙏",
-                        parse_mode="HTML"
-                    )
-                except Exception as e:
-                    logger.error(f"Огоҳии пардохти дерина (DCSCAN) ба {order['user_id']} нарасид: {e}")
-            if status == "autopay_search":
-                # Чек аллакай омадааст → фавран донат
-                asyncio.create_task(run_donate(message.bot, order, synth_kod))
-            else:
-                # Чек ҳанӯз наомадааст → интизор (мисли DCNOTIF-и оддӣ)
-                logger.info(f"Autopay(DCSCAN): пардохти #{order_ref} ёфт шуд, чек интизор")
+            asyncio.create_task(run_donate(message.bot, order, synth_kod))
 
         elif emoji == "❓":
             order = await db.find_awaiting_order_by_price(summa, "alif", MAX_AGE_MINUTES)
@@ -366,6 +327,38 @@ async def _notify_admins_unmatched(bot: Bot, summa: float, kod: str):
             await bot.send_message(admin_id, text, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Огоҳии пардохти ношинос ба {admin_id} нарасид: {e}")
+
+
+async def _notify_admin_payment_confirmed(bot: Bot, order: dict, summa: float, kod: str):
+    """Пардохт барои фармоише ки аллакай дар навбати админ аст (paid) дар
+    банк тасдиқ шуд. АВТОМАТ донат намекунем (шояд админ дастӣ иҷро карда
+    бошад) — танҳо ба админ тугмаи «Тасдиқ» бо хабари «пул омад» медиҳем."""
+    order_id = order["id"]
+    user = await db.get_user(order["user_id"])
+    username = f"@{user['username']}" if user and user.get("username") else "—"
+    caption = (
+        f"💰 <b>Пардохт дар банк ТАСДИҚ шуд — фармоиши #{order_id}</b>\n\n"
+        f"Ин фармоиш дар навбати шумост ва акнун пулаш дар банк дида шуд "
+        f"(<b>{summa:.2f} сом</b>).\n\n"
+        f"👤 Харидор: {esc(user.get('full_name') if user else '—')} ({esc(username)})\n"
+        f"🆔 ID: <code>{order['user_id']}</code>\n"
+        f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
+        f"⚠️ Агар шумо инро аллакай ДАСТӢ иҷро карда бошед — «Рад» кунед "
+        f"(то дучанд нашавад). Вагарна «Тасдиқ»."
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Тасдиқ — донат кун", callback_data=_confirm_cb(order))],
+        [InlineKeyboardButton(text="❌ Рад — дастӣ иҷро шуд", callback_data=f"no_{order_id}")],
+    ])
+    for admin_id in config.ADMIN_IDS:
+        try:
+            if order.get("check_file_id"):
+                await bot.send_photo(admin_id, order["check_file_id"],
+                                     caption=caption, reply_markup=kb, parse_mode="HTML")
+            else:
+                await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Огоҳии пардохти тасдиқшуда ба {admin_id} нарасид: {e}")
 
 
 _PM_LABELS_SHORT = {
