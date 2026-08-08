@@ -394,7 +394,7 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
         )
 
     text = (
-        f"{pemoji.pe(pemoji.CHECK, '✅')} <b>АВТОТАСДИҚ — Донат муваффақ шуд!</b> {pemoji.pe(pemoji.PARTY, '🎉')}\n\n"
+        f"{db.anim('autotasdiq', pemoji.pe(pemoji.CHECK, '✅') + ' <b>АВТОТАСДИҚ — Донат муваффақ шуд!</b> ' + pemoji.pe(pemoji.PARTY, '🎉'))}\n\n"
         f"👤 Харидор: {esc(full_name)}\n"
         f"📱 Username: {esc(username)}\n"
         f"🆔 ID Telegram: <code>{order['user_id']}</code>\n"
@@ -722,12 +722,12 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
         try:
             await bot.send_message(
                 user_id,
-                f"{pemoji.pe(pemoji.PARTY, '🎉')} <b>Донат анҷом ёфт! Алмазҳо фиристода шуданд!</b>\n\n"
+                f"{db.anim('success', pemoji.pe(pemoji.PARTY, '🎉') + ' <b>Донат анҷом ёфт!</b>')} <b>Алмазҳо фиристода шуданд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n"
                 f"🎁 Шумо ҳоло дар рӯйхати тӯҳфаи ройгон ҳастед — шояд навбати шумо расад! 🍀\n\n"
-                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🧾 Чеки муваффақ", callback_data=f"receipt_{order_id}")],
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
@@ -823,11 +823,11 @@ async def run_donate_for_escalated(bot: Bot, order: dict, kod: str):
             try:
                 await bot.send_message(
                     user_id,
-                    f"{pemoji.pe(pemoji.PARTY, '🎉')} <b>Донат анҷом ёфт! Алмазҳо фиристода шуданд!</b>\n\n"
+                    f"{db.anim('success', pemoji.pe(pemoji.PARTY, '🎉') + ' <b>Донат анҷом ёфт!</b>')} <b>Алмазҳо фиристода шуданд!</b>\n\n"
                     f"🆔 Фармоиш: #{order_id}\n"
                     f"{order['label']} → <code>{order['game_id']}</code>\n\n"
                     f"🙏 Ташаккур барои харид!\n\n"
-                    f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                    f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                     reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                         [InlineKeyboardButton(text="🧾 Чеки муваффақ", callback_data=f"receipt_{order_id}")],
                         [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
@@ -949,10 +949,10 @@ async def run_donate_from_balance(bot: Bot, order: dict):
         try:
             await bot.send_message(
                 user_id,
-                f"{pemoji.pe(pemoji.PARTY, '🎉')} <b>Донат анҷом ёфт! {esc(order['label'])} фиристода шуд!</b>\n\n"
+                f"{db.anim('success', pemoji.pe(pemoji.PARTY, '🎉') + ' <b>Донат анҷом ёфт!</b>')} <b>{esc(order['label'])} фиристода шуд!</b>\n\n"
                 f"🆔 Фармоиш: #{order_id}\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🧾 Чеки муваффақ", callback_data=f"receipt_{order_id}")],
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
@@ -1018,8 +1018,8 @@ async def run_donate_group_from_balance(bot: Bot, orders: list):
         try:
             await bot.send_message(
                 user_id,
-                f"{pemoji.pe(pemoji.PARTY, '🎉')} <b>Донат анҷом ёфт! Маҳсулотҳо фиристода шуданд!</b>\n\n"
-                f"{lines}\n\n🙏 Ташаккур барои харид!\n\n{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                f"{db.anim('success', pemoji.pe(pemoji.PARTY, '🎉') + ' <b>Донат анҷом ёфт!</b>')} <b>Маҳсулотҳо фиристода шуданд!</b>\n\n"
+                f"{lines}\n\n🙏 Ташаккур барои харид!\n\n{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан",
                                           callback_data=f"review_{ok_items[0]['id']}")]
@@ -1732,7 +1732,7 @@ async def _finish_recovered_order(bot: Bot, order: dict, api_order_id: str, cost
     try:
         await bot.send_message(
             user_id,
-            customer_text + f"\n\n{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+            customer_text + f"\n\n{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="🧾 Чеки муваффақ", callback_data=f"receipt_{order_id}")],
                 [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]

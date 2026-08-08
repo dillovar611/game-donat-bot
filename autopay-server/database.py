@@ -2319,6 +2319,30 @@ async def load_welcome_title():
     welcome_title_cache = (await get_setting("welcome_title")) or ""
 
 
+# Калимаҳои аниматсионии дилхоҳи админ (слот → HTML бо ҳарфҳои премиум).
+# Агар слот холӣ бошад, матни оддии пешфарз истифода мешавад.
+ANIM_SLOTS = ("autotasdiq", "success", "review", "cart")
+anim_cache = {}
+
+
+async def load_anim_phrases():
+    """Ҳамаи калимаҳои аниматсиониро аз база ба кэши муштарак бор мекунад."""
+    global anim_cache
+    new = {}
+    for slot in ANIM_SLOTS:
+        try:
+            new[slot] = (await get_setting(f"anim_{slot}")) or ""
+        except Exception:
+            new[slot] = ""
+    anim_cache = new
+
+
+def anim(slot: str, default: str = "") -> str:
+    """Калимаи аниматсионии слотро (агар админ гузошта бошад) бармегардонад,
+    вагарна матни пешфарзи оддиро. Синхронӣ — аз кэш мехонад."""
+    return anim_cache.get(slot) or default
+
+
 DEFAULT_DC_CARD_NUMBER = "9762000226598802"
 
 

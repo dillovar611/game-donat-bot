@@ -1265,6 +1265,7 @@ async def main():
     await db.create_pool()
     await db.init_db()
     await db.load_welcome_title()
+    await db.load_anim_phrases()
     me = await bot.get_me()
     BOT_USERNAME = me.username
     # Роутери охирин — баъд аз ҳама, то ҳолатҳои FSM-ро нагирад

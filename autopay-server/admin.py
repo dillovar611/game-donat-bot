@@ -168,6 +168,7 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="💰 Идоракунии баланс",    callback_data="a_balance_menu")],
         [InlineKeyboardButton(text="🧪 Санҷиши эмоҷии премиум", callback_data="a_prememoji")],
         [InlineKeyboardButton(text="🏷 Сарлавҳаи аниматсионӣ", callback_data="a_welcome_title")],
+        [InlineKeyboardButton(text="🎨 Калимаҳои аниматсионӣ", callback_data="a_anim_menu")],
     ])
 
 
@@ -1417,6 +1418,113 @@ async def a_welcome_title_recv(message: Message, state: FSMContext):
         logger.error(f"preview сарлавҳа нашуд: {e}")
 
 
+# ── Калимаҳои аниматсионӣ (ҳарфҳои премиум дар ҷои калимаҳои асосӣ) ─────
+# Админ калимаро бо ҳарфҳои премиум менависад, бот онро ба HTML нигоҳ
+# дошта, дар ҷои матни оддии ҳамон паём мегузорад. Ҳарфҳои тоҷикӣ
+# (ғ, қ, ҳ, ҷ) дар бастаҳо нестанд — пас навишти лотинӣ/русӣ истифода шавад.
+_ANIM_SLOTS = [
+    ("autotasdiq", "⚡ АВТОТАСДИК (сарлавҳаи админ)"),
+    ("success",    "🎉 Донат анҷом ёфт (мизоҷ)"),
+    ("review",     "⭐ Лутфан отзив гузоред"),
+]
+
+
+class AnimState(StatesGroup):
+    waiting = State()
+
+
+def _anim_menu_kb() -> InlineKeyboardMarkup:
+    rows = []
+    for slot, name in _ANIM_SLOTS:
+        mark = "✅" if db.anim_cache.get(slot) else "▫️"
+        rows.append([InlineKeyboardButton(text=f"{mark} {name}",
+                                          callback_data=f"a_anim_set_{slot}")])
+    rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+@router.callback_query(F.data == "a_anim_menu")
+async def a_anim_menu(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    await _safe_edit(
+        call,
+        "🎨 <b>Калимаҳои аниматсионӣ</b>\n\n"
+        "Калимаи асосиеро интихоб кунед, ки бо ҳарфҳои <b>премиуми "
+        "аниматсионӣ</b> навишта шавад. ✅ = гузошта шудааст.\n\n"
+        "💡 Ҳарфҳои <b>лотинӣ/русӣ</b> дар бастаҳо ҳастанд; ҳарфҳои "
+        "махсуси тоҷикӣ (ғ, қ, ҳ, ҷ) не — навишти оддитарро истифода баред "
+        "(масалан «автотасдик»).",
+        _anim_menu_kb(),
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a_anim_set_"))
+async def a_anim_set(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    slot = call.data[len("a_anim_set_"):]
+    name = dict(_ANIM_SLOTS).get(slot, slot)
+    current = db.anim_cache.get(slot) or ""
+    now_line = f"\n📌 Ҳозира:\n{current}\n" if current else "\n📌 Ҳозира: холӣ (матни оддӣ).\n"
+    await state.set_state(AnimState.waiting)
+    await state.update_data(anim_slot=slot)
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🗑 Тоза кардан (матни оддӣ)", callback_data=f"a_anim_clear_{slot}")],
+        [InlineKeyboardButton(text="🔙 Бекор", callback_data="a_anim_menu")],
+    ])
+    await _safe_edit(
+        call,
+        f"🎨 <b>{esc(name)}</b>\n\n"
+        f"Ин калимаро бо ҳарфҳои <b>премиуми аниматсионӣ</b> нависед ва "
+        f"фиристед.\n{now_line}",
+        kb,
+    )
+    await call.answer()
+
+
+@router.callback_query(F.data.startswith("a_anim_clear_"))
+async def a_anim_clear(call: CallbackQuery, state: FSMContext):
+    if not is_admin(call.from_user.id):
+        return
+    slot = call.data[len("a_anim_clear_"):]
+    await state.clear()
+    await db.set_setting(f"anim_{slot}", "")
+    try:
+        await db.load_anim_phrases()
+    except Exception as e:
+        logger.error(f"load_anim_phrases (clear) хато: {e}")
+    await call.answer("🗑 Тоза шуд.", show_alert=True)
+    await _safe_edit(call, "🎨 <b>Калимаҳои аниматсионӣ</b>", _anim_menu_kb())
+
+
+@router.message(AnimState.waiting)
+async def a_anim_recv(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    data = await state.get_data()
+    slot = data.get("anim_slot")
+    await state.clear()
+    if not slot or not message.text:
+        await message.answer("⚠️ Лутфан як паёми матнӣ (калима) фиристед.")
+        return
+    html_val = message.html_text
+    if len(html_val) > 2000:
+        await message.answer("⚠️ Хеле дароз аст — калимаи кӯтоҳтар.")
+        return
+    await db.set_setting(f"anim_{slot}", html_val)
+    try:
+        await db.load_anim_phrases()
+    except Exception as e:
+        logger.error(f"load_anim_phrases (set) хато: {e}")
+    await message.answer("✅ <b>Гузошта шуд!</b> Инак пешнамоиш:", parse_mode="HTML")
+    try:
+        await message.answer(html_val, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"preview anim нашуд: {e}")
+
+
 @router.callback_query(F.data == "a_pending_orders")
 async def a_pending_orders(call: CallbackQuery):
     if not is_admin(call.from_user.id):
@@ -1713,7 +1821,7 @@ async def _do_donate_group(call: CallbackQuery, orders: list):
                 f"{pemoji.pe(pemoji.CHECK, '✅')} <b>Муваффақ! Маҳсулотҳо фиристода шуданд!</b>\n\n"
                 f"{lines}\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=_kb_rows),
                 parse_mode="HTML"
             )
@@ -1816,7 +1924,7 @@ async def _do_donate(call: CallbackQuery, order: dict, wait_msg: Message):
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{order['game_id']}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="🧾 Чеки муваффақ", callback_data=f"receipt_{order_id}")],
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
@@ -2032,7 +2140,7 @@ async def order_manual(call: CallbackQuery):
             f"🆔 Фармоиш: #{order_id}\n"
             f"{order['label']} → <code>{order['game_id']}</code>\n\n"
             f"🙏 Ташаккур барои харид!\n\n"
-            f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+            f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
             reply_markup=InlineKeyboardMarkup(inline_keyboard=_kb_rows),
             parse_mode="HTML"
         )
@@ -3372,7 +3480,7 @@ async def _do_donate_ffid(call: CallbackQuery, order: dict, player_id: str, wait
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{player_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
@@ -3958,7 +4066,7 @@ async def _do_donate_pubg(call: CallbackQuery, order: dict, player_id: str, wait
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"🎁 {order['label']} → <code>{player_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
@@ -4206,7 +4314,7 @@ async def order_confirm_stars(call: CallbackQuery):
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"📱 Барои: @{tg_username}\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
@@ -4305,7 +4413,7 @@ async def order_confirm_premium(call: CallbackQuery):
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"📱 Барои: @{tg_username}\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
@@ -4825,7 +4933,7 @@ async def _do_donate_ffbr(call: CallbackQuery, order: dict, player_id: str, wait
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{player_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
@@ -5164,7 +5272,7 @@ async def _do_donate_ml(call: CallbackQuery, order: dict, player_id: str,
                 f"🆔 Фармоиш: #{order_id}\n"
                 f"{order['label']} → <code>{player_id}</code> / <code>{server_id}</code>\n\n"
                 f"🙏 Ташаккур барои харид!\n\n"
-                f"{pemoji.pe(pemoji.STAR, '⭐')} Лутфан отзив гузоред:",
+                f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                     [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
                 ]),
