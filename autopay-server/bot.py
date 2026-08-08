@@ -1138,7 +1138,8 @@ async def _stale_paid_orders_loop(bot: Bot):
     while True:
         await asyncio.sleep(5 * 60)
         try:
-            for order in await db.get_stale_paid_orders(minutes=20):
+            for order in await db.get_stale_paid_orders(
+                    minutes=20, created_after=autopay._BOT_START_TS):
                 order_id = order["id"]
                 try:
                     await db.mark_stale_reminder_sent(order_id)
@@ -1208,7 +1209,8 @@ async def _watchdog_loop(bot: Bot):
     while True:
         await asyncio.sleep(60 * 60)  # ҳар соат
         try:
-            stuck = await db.get_long_waiting_paid(min_minutes=60, max_hours=48)
+            stuck = await db.get_long_waiting_paid(
+                min_minutes=60, max_hours=48, created_after=autopay._BOT_START_TS)
             if not stuck:
                 continue
             ids = ", ".join(f"#{o['id']}" for o in stuck[:12])

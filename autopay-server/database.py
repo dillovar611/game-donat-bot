@@ -1449,19 +1449,23 @@ async def set_order_check(order_id: int, file_id: str, check_hash: str = None):
             )
 
 
-async def get_stale_paid_orders(minutes: int = 20):
+async def get_stale_paid_orders(minutes: int = 20, created_after=None):
     """
     Фармоишҳои дастӣ (Алиф/Эсхата), ки чек фиристодаанд (status='paid')
     вале зиёда аз `minutes` дақиқа то ҳол тасдиқ/рад нашудаанд ва то ҳол
-    ёдоварӣ нагирифтаанд. Барои ёдоварии админ/мизоҷ истифода мешавад.
+    ёдоварӣ нагирифтаанд. created_after (агар дода шавад) — танҳо
+    фармоишҳои баъди ин вақт (то фармоишҳои кӯҳнаи дастӣ-ҳалшуда халал
+    нарасонанд).
     """
+    q = ("SELECT * FROM orders WHERE status='paid' AND stale_reminder_sent=0 "
+         "AND created_at <= NOW() - INTERVAL %s MINUTE")
+    params = [minutes]
+    if created_after is not None:
+        q += " AND created_at >= %s"
+        params.append(created_after)
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute(
-                "SELECT * FROM orders WHERE status='paid' AND stale_reminder_sent=0 "
-                "AND created_at <= NOW() - INTERVAL %s MINUTE",
-                (minutes,)
-            )
+            await cur.execute(q, tuple(params))
             return await cur.fetchall()
 
 
@@ -1473,20 +1477,23 @@ async def mark_stale_reminder_sent(order_id: int):
             )
 
 
-async def get_long_waiting_paid(min_minutes: int = 60, max_hours: int = 48) -> list:
+async def get_long_waiting_paid(min_minutes: int = 60, max_hours: int = 48,
+                                created_after=None) -> list:
     """Фармоишҳои 'paid', ки аз min_minutes зиёд интизори тасдиқанд (вале аз
-    max_hours кӯҳнатар не — то ба ҳисоби фармоишҳои қадимаи дастӣ-ҳалшуда
-    нарасанд). Барои огоҳии «тӯри бехатарии охирин»."""
+    max_hours кӯҳнатар не). created_after (агар дода шавад) — танҳо
+    фармоишҳои баъди ин вақт (масалан баъди рестарт), то фармоишҳои кӯҳнаи
+    дастӣ-ҳалшуда шуморо наноланд."""
+    q = ("SELECT id, price, created_at FROM orders WHERE status='paid' "
+         "AND created_at <= NOW() - INTERVAL %s MINUTE "
+         "AND created_at >= NOW() - INTERVAL %s HOUR")
+    params = [min_minutes, max_hours]
+    if created_after is not None:
+        q += " AND created_at >= %s"
+        params.append(created_after)
+    q += " ORDER BY created_at ASC"
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
-            await cur.execute(
-                "SELECT id, price, created_at FROM orders "
-                "WHERE status='paid' "
-                "AND created_at <= NOW() - INTERVAL %s MINUTE "
-                "AND created_at >= NOW() - INTERVAL %s HOUR "
-                "ORDER BY created_at ASC",
-                (min_minutes, max_hours)
-            )
+            await cur.execute(q, tuple(params))
             return await cur.fetchall()
 
 
