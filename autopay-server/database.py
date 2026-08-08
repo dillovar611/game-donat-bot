@@ -3108,6 +3108,21 @@ async def record_kod(kod: str, summa: float) -> bool:
             return cur.rowcount > 0
 
 
+async def cleanup_stale_pending_cart(hours: int = 6) -> int:
+    """Фармоишҳои сабади РЕЗЕРВШУДА, ки мизоҷ мепартояд (status='pending',
+    order_group_id дорад, чек нарасида) ва аз hours соат кӯҳнатаранд — нест
+    мекунад, то ҷадвал варам накунад. Инҳо ҳеҷ гоҳ пардохт/чек нагирифтаанд."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "DELETE FROM orders WHERE status='pending' "
+                "AND order_group_id IS NOT NULL AND check_file_id IS NULL "
+                "AND created_at < NOW() - INTERVAL %s HOUR",
+                (hours,)
+            )
+            return cur.rowcount
+
+
 async def find_reserved_order_for_user(user_id: int, max_age_minutes: int = 120):
     """Фармоиши мизоҷ, ки пардохташ дар банк ЁФТ ШУДА (dc_kods.matched_order_id
     = order.id) вале ҳанӯз чек нарасида (awaiting_autopay/expired). Барои он ки

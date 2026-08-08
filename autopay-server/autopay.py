@@ -1132,6 +1132,12 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
                 await db.fsm_cleanup(6)
             except Exception as e:
                 logger.error(f"Тозакунии fsm_states нашуд: {e}")
+            try:
+                n = await db.cleanup_stale_pending_cart(6)
+                if n:
+                    logger.info(f"Тозакунии {n} фармоиши ятими сабад")
+            except Exception as e:
+                logger.error(f"Тозакунии сабади ятим нашуд: {e}")
 
         # ---- Фармоишҳое, ки дар 'donating' гир мондаанд (масалан сервер
         # маҳз дар вақти донат рестарт шуда буд) — ба 'paid' бармегардонем,
