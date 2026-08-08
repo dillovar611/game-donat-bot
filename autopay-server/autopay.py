@@ -1460,7 +1460,12 @@ async def _send_giveaway_gift(bot: Bot, winner_id: int, product_id: int,
                 f"🆔 Ба ин ID фиристода шуд: <code>{player['player_id']}</code>\n"
                 f"{nick_line}"
                 f"\n📲 Ҳоло аккаунти худро санҷед — тӯҳфа он ҷост.\n\n"
-                f"🙏 Ташаккур, ки бо мо ҳастед!",
+                f"⭐ <b>Агар хурсанд шудед — як отзиви хурд гузоред!</b>\n"
+                f"<i>Ин ба мо кӯмак мекунад ва ба дигарон нишон медиҳад, "
+                f"ки тӯҳфаҳо ҳақиқӣ ҳастанд.</i> 🙏",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⭐ Отзив гузоштан", callback_data=f"review_{order_id}")]
+                ]),
                 parse_mode="HTML"
             )
         except Exception as e:
