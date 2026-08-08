@@ -190,13 +190,29 @@ async def handle_dc_notification(message: Message):
                 if abs(float(order["price"]) - summa) > 0.011:
                     await _notify_admins_wrong_amount(message.bot, order, summa, kod)
                     return
-                # Комент (card_XXXX) ин фармоишро АНИҚ муайян мекунад ва
-                # маблағ мувофиқ аст — пас пардохт бешубҳа аз они ҳамин
-                # фармоиш аст. ЧЕК ЛОЗИМ НЕСТ — фавран донат мекунем.
-                # Ин мушкили «мизоҷ чекро ба фармоиши ГАЛАТ фиристод»-ро низ
-                # ҳал мекунад (донат аз рӯи худи пардохт меравад, на чек).
+                was_expired = order["status"] == "expired"
+                # Kod-ро ба ин фармоиш РЕЗЕРВ мекунем — то вақте мизоҷ чекро
+                # фиристад (ҲАТТО агар ба фармоиши ГАЛАТ фиристад), check-handler
+                # ин пардохти резервшударо ёбад ва ба фармоиши ДУРУСТ бандад.
                 await db.mark_kod_matched(kod, order_ref)
-                asyncio.create_task(run_donate(message.bot, order, kod))
+                if was_expired:
+                    await db.mark_order_late_recovered(order_ref)
+                    try:
+                        await message.bot.send_message(
+                            order["user_id"],
+                            f"✅ <b>Мо пардохти шуморо ёфтем!</b>\n\n"
+                            f"🆔 Фармоиш: #{order_ref}\n\n"
+                            f"Лутфан расми чекро ба ин чат фиристед, то донат "
+                            f"худкор иҷро шавад. 🙏",
+                            parse_mode="HTML"
+                        )
+                    except Exception as e:
+                        logger.error(f"Огоҳии пардохти дерина ба {order['user_id']} нарасид: {e}")
+                if order["status"] == "autopay_search":
+                    # Чек аллакай омадааст → фавран донат
+                    asyncio.create_task(run_donate(message.bot, order, kod))
+                else:
+                    logger.info(f"Autopay: пардохти #{order_ref} омад (статус: {order['status']}), чек интизор")
                 return
             if order.get("status") == "paid":
                 # Фармоиш аллакай дар навбати админ аст. АВТОМАТ НАМЕКУНЕМ —
@@ -271,10 +287,25 @@ async def handle_dc_scan_message(message: Message):
                 # иҷро шуда бошад), танҳо ба админ хабар медиҳем.
                 await _notify_admin_payment_confirmed(message.bot, order, summa, synth_kod)
                 continue
-            # awaiting/expired/autopay_search — комент фармоишро аниқ
-            # муайян мекунад → чек лозим нест, фавран донат.
+            was_expired = status == "expired"
             await db.mark_kod_matched(synth_kod, int(order_ref))
-            asyncio.create_task(run_donate(message.bot, order, synth_kod))
+            if was_expired:
+                await db.mark_order_late_recovered(int(order_ref))
+                try:
+                    await message.bot.send_message(
+                        order["user_id"],
+                        f"✅ <b>Мо пардохти шуморо ёфтем!</b>\n\n"
+                        f"🆔 Фармоиш: #{order_ref}\n\n"
+                        f"Лутфан расми чекро ба ин чат фиристед, то донат "
+                        f"худкор иҷро шавад. 🙏",
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.error(f"Огоҳии пардохти дерина (DCSCAN) ба {order['user_id']} нарасид: {e}")
+            if status == "autopay_search":
+                asyncio.create_task(run_donate(message.bot, order, synth_kod))
+            else:
+                logger.info(f"Autopay(DCSCAN): пардохти #{order_ref} ёфт шуд, чек интизор")
 
         elif emoji == "❓":
             order = await db.find_awaiting_order_by_price(summa, "alif", MAX_AGE_MINUTES)

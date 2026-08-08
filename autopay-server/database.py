@@ -3101,6 +3101,27 @@ async def record_kod(kod: str, summa: float) -> bool:
             return cur.rowcount > 0
 
 
+async def find_reserved_order_for_user(user_id: int, max_age_minutes: int = 120):
+    """Фармоиши мизоҷ, ки пардохташ дар банк ЁФТ ШУДА (dc_kods.matched_order_id
+    = order.id) вале ҳанӯз чек нарасида (awaiting_autopay/expired). Барои он ки
+    агар мизоҷ чекро ба фармоиши ГАЛАТ (#1112) фиристад, бот чекро ба фармоиши
+    ДУРУСТ (#1111, ки пулаш омада) бандад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT o.* FROM orders o "
+                "JOIN dc_kods k ON k.matched_order_id = o.id "
+                "WHERE o.user_id=%s "
+                "AND o.status IN ('awaiting_autopay','expired') "
+                "AND o.payment_method IN ('dushanbe_city','alif') "
+                "AND o.order_group_id IS NULL "
+                "AND o.created_at >= NOW() - INTERVAL %s MINUTE "
+                "ORDER BY o.created_at DESC LIMIT 1",
+                (user_id, max_age_minutes)
+            )
+            return await cur.fetchone()
+
+
 async def mark_kod_matched(kod: str, order_id: int):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:

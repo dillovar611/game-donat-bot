@@ -1105,10 +1105,39 @@ async def _autopay_receive_check(message: Message, data: dict) -> bool:
     ҷустуҷӯ мекунад. True = коркард шуд (ба флоуи дастӣ гузаштан лозим нест).
     Барои ҳамаи маҳсулот муштарак — донат аз рӯи game_id-и худи фармоиш
     (FFID:/FFBR:/PUBG:/STARS:/PREMIUM:) ба хизмати дуруст мераванд."""
+    import autopay
     autopay_order_id = data.get("autopay_order_id")
+
+    # ==== РОУТИНГИ ДУРУСТИ ЧЕК ====
+    # Агар худи фармоиши FSM ҳанӯз пул надошта бошад, вале мизоҷ фармоиши
+    # ДИГАРЕ дошта бошад, ки пулаш дар банк ёфт шуда (kod резерв) — чекро ба
+    # ҲАМОН мебандем. Ин ҳолати «мизоҷ ба #1111 пул дод, вале #1112 сохта,
+    # чеки #1111-ро ба #1112 фиристод»-ро ҳал мекунад.
+    fsm_has_kod = autopay_order_id and await db.find_kod_for_order(autopay_order_id)
+    if not fsm_has_kod:
+        reserved = await db.find_reserved_order_for_user(message.from_user.id, 60)
+        if reserved and reserved["id"] != autopay_order_id:
+            r_id = reserved["id"]
+            file_id = message.photo[-1].file_id
+            r_hash = await _hash_photo(message)
+            if await _block_if_duplicate_check(message, r_hash):
+                return True
+            await db.set_autopay_check(r_id, file_id, r_hash or None)
+            r_kod = await db.find_kod_for_order(r_id)
+            r_order = await db.get_order(r_id)
+            if r_kod and r_order:
+                await message.answer(
+                    f"✅ <b>Чек қабул шуд!</b>\n\n"
+                    f"🆔 Фармоиш: #{r_id}\n\n"
+                    f"🔍 Пардохти шумо ёфт шуд — донат ҲОЗИР сар мешавад. 🚀",
+                    parse_mode="HTML"
+                )
+                await _offer_game(message, "⏳ Донат ҳозир иҷро шуда истодааст...")
+                asyncio.create_task(autopay.run_donate(message.bot, r_order, r_kod))
+                return True
+
     if not autopay_order_id:
         return False
-    import autopay
     order = await db.get_order(autopay_order_id)
     if not order or order["status"] not in ("awaiting_autopay", "expired"):
         await message.answer(
@@ -1327,8 +1356,32 @@ async def receive_check(message: Message, state: FSMContext):
 
     # ==== АВТОПАРДОХТ (Душанбе Сити): чек омад → ҷустуҷӯи пардохт ====
     autopay_order_id = data.get("autopay_order_id")
+
+    # РОУТИНГИ ДУРУСТИ ЧЕК: агар фармоиши FSM пул надошта бошад, вале мизоҷ
+    # фармоиши дигаре дошта бошад, ки пулаш ёфт шуда (kod резерв) — чекро ба
+    # ҲАМОН мебандем (мизоҷ ба #1111 пул дод, #1112 сохта чекро ба #1112 дод).
+    import autopay
+    _fsm_kod = autopay_order_id and await db.find_kod_for_order(autopay_order_id)
+    if not _fsm_kod:
+        _res = await db.find_reserved_order_for_user(message.from_user.id, 60)
+        if _res and _res["id"] != autopay_order_id:
+            _rid = _res["id"]
+            _rhash = await _hash_photo(message)
+            if await _block_if_duplicate_check(message, _rhash):
+                return
+            await db.set_autopay_check(_rid, file_id, _rhash or None)
+            _rkod = await db.find_kod_for_order(_rid)
+            _rorder = await db.get_order(_rid)
+            if _rkod and _rorder:
+                await message.answer(
+                    f"✅ <b>Чек қабул шуд!</b>\n\n🆔 Фармоиш: #{_rid}\n\n"
+                    f"🔍 Пардохти шумо ёфт шуд — донат ҲОЗИР сар мешавад. 🚀",
+                    parse_mode="HTML")
+                await _offer_game(message, "⏳ Донат ҳозир иҷро шуда истодааст...")
+                asyncio.create_task(autopay.run_donate(message.bot, _rorder, _rkod))
+                return
+
     if autopay_order_id:
-        import autopay
         order = await db.get_order(autopay_order_id)
         # 'expired' низ иҷозат дода мешавад — агар мизоҷ дер карда чек фиристад ҳам,
         # донати худкор кӯшиш карда мешавад, на радди фаврӣ
