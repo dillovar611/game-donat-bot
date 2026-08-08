@@ -989,6 +989,21 @@ async def _alif_pay_url() -> str:
     return (await db.get_setting("alif_pay_url")) or DEFAULT_ALIF_PAY_URL
 
 
+def _compact_range(ids: list) -> str:
+    """Барои коменти ДС: рӯйхати рақами фармоишро ба шакли кӯтоҳ табдил
+    медиҳад. Пайдарпай → «45555to60», вагарна → «45555to45560», яктоӣ →
+    «45555». (Ҳамеша бо рақами аввал сар мешавад — то card_XXXX ёфта шавад.)"""
+    nums = sorted(int(i) for i in ids)
+    if not nums:
+        return "cart"
+    lo, hi = nums[0], nums[-1]
+    if lo == hi:
+        return str(lo)
+    if nums == list(range(lo, hi + 1)):
+        return f"{lo}to{str(hi)[-2:]}"
+    return f"{lo}to{hi}"
+
+
 async def _pay_reqs(method: str, price: float, dc_comment: str):
     """Барои DC/Alif: (силкаи пардохт, матни тугма, қадамҳо)-ро бармегардонад.
     DC → линки тайёри пардохт; Алиф → кушодани барнома + корт бо дасти мизоҷ."""
@@ -1189,7 +1204,33 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
     if method == "dushanbe_city":
         method_name = "🏙 Душанбе Сити"
         dc_card = await db.get_dc_card_number()
-        pay_url = await _dc_pay_url(dc_card, price, f"card_{order_id}")
+        if is_cart and data.get("cart_items"):
+            # Сабад: фармоишҳоро ҲОЗИР месозем (резерв) — то дар коменти ДС
+            # рақами фармоишҳо ояд (масалан card_45555to60), на рамзи
+            # тасодуфӣ. Инҳо status='pending' доранд — автопардохт даст
+            # намезанад; ба тасдиқи дастии гурӯҳ мемонанд.
+            reserved = data.get("reserved_order_ids")
+            if not reserved:
+                _grp = str(uuid.uuid4())
+                reserved = []
+                for _it in data["cart_items"]:
+                    _oid = await db.create_order(
+                        user_id=call.from_user.id,
+                        game_id=data["player_id"],
+                        nickname=data.get("nickname", ""),
+                        amount=_it["amount"],
+                        price=_it["price"],
+                        label=_it["label"],
+                        offer_id=_it["offer_id"],
+                        payment_method="dushanbe_city",
+                        order_group_id=_grp,
+                    )
+                    reserved.append(_oid)
+                await state.update_data(reserved_group_id=_grp,
+                                        reserved_order_ids=reserved)
+            pay_url = await _dc_pay_url(dc_card, price, f"card_{_compact_range(reserved)}")
+        else:
+            pay_url = await _dc_pay_url(dc_card, price, f"card_{order_id}")
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
         pay_url = data.get("eskhata_link") or ""
@@ -1347,22 +1388,35 @@ async def receive_check(message: Message, state: FSMContext):
 
     if cart_items:
         # ---- САБАД: барои ҳар маҳсулот order-и алоҳида, бо як group_id ----
-        group_id = str(uuid.uuid4())
-        order_ids = []
-        for item in cart_items:
-            oid = await db.create_order(
-                user_id=message.from_user.id,
-                game_id=data["player_id"],
-                nickname=data.get("nickname", ""),
-                amount=item["amount"],
-                price=item["price"],
-                label=item["label"],
-                offer_id=item["offer_id"],
-                payment_method=data.get("payment_method", ""),
-                order_group_id=group_id,
-            )
-            await db.set_order_check(oid, file_id, check_hash)
-            order_ids.append(oid)
+        reserved = data.get("reserved_order_ids")
+        # Резерв танҳо барои ДС аст; агар мизоҷ баъд усулро иваз карда бошад,
+        # аз нав месозем (то усули дуруст сабт шавад).
+        if reserved and data.get("payment_method") != "dushanbe_city":
+            reserved = None
+        if reserved:
+            # Фармоишҳо аллакай дар реквизит (ДС) резерв шудаанд — танҳо
+            # чекро мебандем (аз нав намесозем, то дубора нашавад).
+            group_id = data.get("reserved_group_id") or str(uuid.uuid4())
+            order_ids = reserved
+            for oid in order_ids:
+                await db.set_order_check(oid, file_id, check_hash)
+        else:
+            group_id = str(uuid.uuid4())
+            order_ids = []
+            for item in cart_items:
+                oid = await db.create_order(
+                    user_id=message.from_user.id,
+                    game_id=data["player_id"],
+                    nickname=data.get("nickname", ""),
+                    amount=item["amount"],
+                    price=item["price"],
+                    label=item["label"],
+                    offer_id=item["offer_id"],
+                    payment_method=data.get("payment_method", ""),
+                    order_group_id=group_id,
+                )
+                await db.set_order_check(oid, file_id, check_hash)
+                order_ids.append(oid)
 
         ids_text = ", ".join(f"#{i}" for i in order_ids)
         await message.answer(

@@ -178,6 +178,12 @@ async def handle_dc_notification(message: Message):
     # ==== Роҳи асосӣ: РАҚАМИ ФАРМОИШ аз коменти пардохт (card_8848) ====
     if order_ref:
         order = await db.get_order(order_ref)
+        # Фармоиши САБАД (order_group_id дорад) — ҳамеша дастӣ (гурӯҳ)
+        # тасдиқ мешавад. Автопардохт даст намезанад, вале пардохтро
+        # "шинос" мешуморем (то огоҳии "ношинос" наравад).
+        if order and order.get("order_group_id"):
+            logger.info(f"Autopay: пардохти сабад #{order_ref} — дастӣ тасдиқ мешавад (гурӯҳ)")
+            return
         if order and order.get("payment_method") in ("dushanbe_city", "alif"):
             if order.get("status") in ("autopay_search", "awaiting_autopay", "expired"):
                 # Маблағро месанҷем — бояд бо нархи фармоиш баробар бошад
@@ -269,6 +275,9 @@ async def handle_dc_scan_message(message: Message):
 
         if emoji == "✅" and order_ref:
             order = await db.get_order(int(order_ref))
+            # Фармоиши сабад (гурӯҳ) — дастӣ мемонад, автопардохт даст намезанад
+            if order and order.get("order_group_id"):
+                continue
             if not order or order.get("payment_method") not in ("dushanbe_city", "alif"):
                 continue
             status = order.get("status")
