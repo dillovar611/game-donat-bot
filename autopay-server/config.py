@@ -13,6 +13,14 @@ BOT_USERNAME = os.getenv("BOT_USERNAME", "Dilovarffbot")
 # ID-ҳои админ (бо вергул ҷудо: 123,456)
 ADMIN_IDS = [int(x) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip().isdigit()]
 
+# Админҳои иловагӣ — мустақим дар код, то бе тағйири env илова шаванд.
+_EXTRA_ADMIN_IDS = [
+    8169105873,   # акаунти дуюми соҳиб
+]
+for _aid in _EXTRA_ADMIN_IDS:
+    if _aid not in ADMIN_IDS:
+        ADMIN_IDS.append(_aid)
+
 # Канали обуна (корбар бояд обуна бошад)
 CHANNEL_ID = os.getenv("CHANNEL_ID", "@kanali_dilovar")
 CHANNEL_URL = os.getenv("CHANNEL_URL", "https://t.me/kanali_dilovar")
