@@ -62,7 +62,10 @@ HANDSHAKE = "5395732581780040886"   # 🤝
 TARGET    = "5310278924616356636"   # 🎯
 WARN      = "5447644880824181073"   # ⚠️
 LINK      = "5271604874419647061"   # 🔗
-TICKET    = "6030653581353293354"   # 🎟️ (ваучер)
+TICKET    = "6030653581353293354"   # 🎟️ (ваучер — умумӣ/ҳафта)
+VOUCHER_WEEK  = "6030653581353293354"   # 🎟️ Ваучер ҳафта
+VOUCHER_LITE  = "6028320795636274559"   # 🎟️ Ваучер лайт
+VOUCHER_MONTH = "6028554184159139574"   # 🎟️ Ваучер моҳона
 NUM = {
     "0️⃣": "5438228714783522705", "1️⃣": "5436156161134972746",
     "2️⃣": "5436096400960015007", "3️⃣": "5436238323859342843",
@@ -133,7 +136,31 @@ def premiumize(text: str) -> str:
         if k in seg:
             seg = seg.replace(k, f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>')
     out.append(seg)
-    return "".join(out)
+    return _apply_vouchers("".join(out))
+
+
+# Ваучерҳо: ҳар навъ (ҳафта/лайт/моҳона) эмоҷии тикети худашро мегирад.
+_VOUCHER_RE = _re.compile(
+    r"[Вв]аучер[а-яёА-ЯЁҳҷқғӯӣҲҶҚҒӮӢ ]{1,15}")
+
+
+def _apply_vouchers(text: str) -> str:
+    """Пеш аз калимаи «Ваучер <навъ>» тикети мувофиқро мегузорад."""
+    if "аучер" not in text:
+        return text
+
+    def _repl(m):
+        seg = m.group(0)
+        low = seg.lower()
+        if "лайт" in low:
+            eid = VOUCHER_LITE
+        elif "моҳона" in low or "мохона" in low:
+            eid = VOUCHER_MONTH
+        else:
+            eid = VOUCHER_WEEK
+        return f'<tg-emoji emoji-id="{eid}">🎟️</tg-emoji> {seg}'
+
+    return _VOUCHER_RE.sub(_repl, text)
 
 
 def pm_label_html(method: str) -> str:
