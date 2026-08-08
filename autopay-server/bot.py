@@ -1207,6 +1207,25 @@ async def _stale_paid_orders_loop(bot: Bot):
                                 logger.error(f"Хабари дуюм ба админ {admin_id} нарасид: {e}")
                 except Exception as e:
                     logger.error(f"Коркарди ёдоварии фармоиши #{order_id} нашуд: {e}")
+
+            # ---- Огоҳии ТАЪХИРИИ «пардохти сабад омад — чек нарасид» ----
+            # Пул омад (kod резерв) вале мизоҷ то ~5 дақ чек нафиристод —
+            # ана акнун ба админ мефиристем (то дар ҳолати оддӣ, ки чек зуд
+            # меояд, ду паём нарасад).
+            _cart_seen = set()
+            for corder in await db.get_paid_cart_pending_no_check(
+                    minutes=5, created_after=autopay._BOT_START_TS):
+                cgid = corder.get("order_group_id")
+                if cgid and cgid in _cart_seen:
+                    await db.mark_stale_reminder_sent(corder["id"])
+                    continue
+                if cgid:
+                    _cart_seen.add(cgid)
+                try:
+                    await db.mark_stale_reminder_sent(corder["id"])
+                    await autopay._notify_admin_cart_paid(bot, corder)
+                except Exception as e:
+                    logger.error(f"Огоҳии таъхирии сабад #{corder.get('id')} нашуд: {e}")
         except Exception as e:
             logger.error(f"Хатогӣ дар давраи ёдоварии фармоишҳои дермонда: {e}")
 

@@ -1472,6 +1472,28 @@ async def get_stale_paid_orders(minutes: int = 20, created_after=None):
             return await cur.fetchall()
 
 
+async def get_paid_cart_pending_no_check(minutes: int = 5, created_after=None):
+    """Фармоишҳои САБАД, ки пул ОМАД (kod резерв шудааст), вале мизоҷ то ҳол
+    ЧЕК нафиристодааст (status='pending', check_file_id IS NULL) ва аз
+    `minutes` дақиқа зиёд гузашт. Барои огоҳии ТАЪХИРИИ админ — то дар
+    ҳолати оддӣ (мизоҷ чекро баъди чанд сония мефиристад) огоҳии бармаҳал
+    наравад ва админ ду паём нагирад. Танҳо фармоише бармегардад, ки kod ба
+    он резерв шудааст (яъне пул воқеан омад — на сабади партофташуда)."""
+    q = ("SELECT DISTINCT o.* FROM orders o "
+         "JOIN dc_kods k ON k.matched_order_id = o.id "
+         "WHERE o.order_group_id IS NOT NULL AND o.status='pending' "
+         "AND o.check_file_id IS NULL AND o.stale_reminder_sent=0 "
+         "AND o.created_at <= NOW() - INTERVAL %s MINUTE")
+    params = [minutes]
+    if created_after is not None:
+        q += " AND o.created_at >= %s"
+        params.append(created_after)
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(q, tuple(params))
+            return await cur.fetchall()
+
+
 async def mark_stale_reminder_sent(order_id: int):
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:

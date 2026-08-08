@@ -182,12 +182,13 @@ async def handle_dc_notification(message: Message):
         # тасдиқ мешавад. Автопардохт даст намезанад, вале пардохтро
         # "шинос" мешуморем (то огоҳии "ношинос" наравад).
         if order and order.get("order_group_id"):
-            # Пардохти САБАД: kod-ро резерв мекунем (то тозакунӣ фармоишро
-            # нест накунад) ва агар чек ҳанӯз нарасида (pending) — ба админ
-            # гурӯҳро бо тугмаи тасдиқ мефиристем (то пул гум нашавад).
+            # Пардохти САБАД: kod-ро танҳо РЕЗЕРВ мекунем (то тозакунӣ
+            # фармоишро нест накунад). Огоҳии «чек нарасид»-ро ДАРҲОЛ
+            # намефиристем — вагарна вақте мизоҷ чекро баъди чанд сония
+            # мефиристад, админ ду паём мегирад. Агар баъди чанд дақиқа
+            # чек ҳанӯз нарасида бошад, ҳалқаи _stale_paid_orders_loop
+            # (bot.py) огоҳии таъхириро мефиристад.
             await db.mark_kod_matched(kod, order_ref)
-            if order.get("status") == "pending":
-                await _notify_admin_cart_paid(message.bot, order)
             logger.info(f"Autopay: пардохти сабад #{order_ref} — дастӣ тасдиқ мешавад (гурӯҳ)")
             return
         if order and order.get("payment_method") in ("dushanbe_city", "alif"):
@@ -279,9 +280,8 @@ async def handle_dc_scan_message(message: Message):
             order = await db.get_order(int(order_ref))
             # Фармоиши сабад (гурӯҳ) — дастӣ мемонад, автопардохт даст намезанад
             if order and order.get("order_group_id"):
+                # Резерв — огоҳии «чек нарасид» таъхирӣ (bot.py loop), на дарҳол
                 await db.mark_kod_matched(synth_kod, int(order_ref))
-                if order.get("status") == "pending":
-                    await _notify_admin_cart_paid(message.bot, order)
                 continue
             if not order or order.get("payment_method") not in ("dushanbe_city", "alif"):
                 continue
