@@ -1200,6 +1200,43 @@ async def _stale_paid_orders_loop(bot: Bot):
             logger.error(f"Хатогӣ дар давраи ёдоварии фармоишҳои дермонда: {e}")
 
 
+async def _watchdog_loop(bot: Bot):
+    """Тӯри бехатарии ОХИРИН — ҳар соат фармоишҳои зиёда аз 1 соат
+    интизори тасдиқро санҷад ва ба админ як огоҳии ҷамъбастӣ диҳад. Ин
+    ҳатто дар ҳолати нодир (агар ҳамаи огоҳиҳои дигар ноком шаванд)
+    кафолат медиҳад, ки ягон фармоиш абадан гум нашавад."""
+    while True:
+        await asyncio.sleep(60 * 60)  # ҳар соат
+        try:
+            stuck = await db.get_long_waiting_paid(min_minutes=60, max_hours=48)
+            if not stuck:
+                continue
+            ids = ", ".join(f"#{o['id']}" for o in stuck[:12])
+            more = f" ва {len(stuck) - 12}-тои дигар" if len(stuck) > 12 else ""
+            oldest_min = 0
+            try:
+                oldest_min = int((datetime.now() - stuck[0]["created_at"]).total_seconds() // 60)
+            except Exception:
+                pass
+            text = (
+                f"⚠️ <b>ДИҚҚАТ — фармоишҳои дермонда!</b>\n\n"
+                f"<b>{len(stuck)}</b> фармоиш зиёда аз 1 соат интизори тасдиқи "
+                f"шумост:\n{ids}{more}\n\n"
+                f"⏳ Кӯҳнатаринаш ~{oldest_min} дақиқа интизор аст.\n\n"
+                f"Лутфан онҳоро санҷед — то мизоҷон нолиданашон."
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📋 Фармоишҳои интизорӣ", callback_data="a_pending_orders")],
+            ])
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
+                except Exception as e:
+                    logger.error(f"Огоҳии тӯри бехатарӣ ба админ {admin_id} нарасид: {e}")
+        except Exception as e:
+            logger.error(f"Хатогӣ дар _watchdog_loop: {e}")
+
+
 # ==================== ОҒОЗ ====================
 # ==================== ҶАВОБИ ХУДКОР БА САВОЛИ МИЗОҶ ====================
 # Вақте мизоҷ дар вақти интизорӣ чизе менависад ("пулам чӣ шуд?", "алмос
@@ -1330,6 +1367,8 @@ async def main():
     asyncio.create_task(_backup_loop(bot))
     # Ёдоварӣ барои фармоишҳои дастии дермонда — ҳар 5 дақиқа
     asyncio.create_task(_stale_paid_orders_loop(bot))
+    # Тӯри бехатарии охирин — ҳар соат фармоишҳои дермондаро ҷамъбаст мекунад
+    asyncio.create_task(_watchdog_loop(bot))
     # Тӯҳфаи тасодуфӣ — ҳар N фармоиши тасдиқшуда
     asyncio.create_task(autopay.giveaway_loop(bot))
     # Тафтишгари худкори фармоишҳои "овезон" — ҳар 3 дақиқа (танҳо мехонад)

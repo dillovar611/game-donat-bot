@@ -1473,6 +1473,23 @@ async def mark_stale_reminder_sent(order_id: int):
             )
 
 
+async def get_long_waiting_paid(min_minutes: int = 60, max_hours: int = 48) -> list:
+    """Фармоишҳои 'paid', ки аз min_minutes зиёд интизори тасдиқанд (вале аз
+    max_hours кӯҳнатар не — то ба ҳисоби фармоишҳои қадимаи дастӣ-ҳалшуда
+    нарасанд). Барои огоҳии «тӯри бехатарии охирин»."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, price, created_at FROM orders "
+                "WHERE status='paid' "
+                "AND created_at <= NOW() - INTERVAL %s MINUTE "
+                "AND created_at >= NOW() - INTERVAL %s HOUR "
+                "ORDER BY created_at ASC",
+                (min_minutes, max_hours)
+            )
+            return await cur.fetchall()
+
+
 async def get_pending_orders(limit: int = 20):
     """Ҳамаи фармоишҳои 'paid' (чек фиристодашуда, ҳанӯз тасдиқ/рад нашуда),
     кӯҳнатаринашон аввал (аз ҳама бештар интизормонда)."""
