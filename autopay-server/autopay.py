@@ -1335,11 +1335,16 @@ GIVEAWAY_DEFAULT_EVERY_N = 25
 GIVEAWAY_NEAR_MISS_THRESHOLD = 3  # чанд фармоиш монда огоҳии "наздикӣ" фиристода шавад
 
 
-async def _credit_balance_topup(bot: Bot, order: dict):
+async def _credit_balance_topup(bot: Bot, order: dict, notify_admin: bool = True):
     """
     Пардохти пуркунии баланс ёфта шуд — БЕ донат, БЕ мукофоти реферралӣ
     (топуп худаш харид нест; мукофот вақти харид АЗ баланс дода мешавад).
     Танҳо фармоишро 'confirmed' карда, маблағро ба балансаи мизоҷ илова мекунад.
+
+    notify_admin=False — вақте ки админ ДАСТӢ тугмаи «✅ Тасдиқ»-ро пахш кард:
+    ин ҳолат паёми ХУДИ ҳамон тугмаро edit мекунад (дар admin.py), пас ин ҷо
+    паёми НАВ ба админ намефиристем (то ду паём нашавад). Матни огоҳиро
+    бармегардонем, то admin.py онро барои edit истифода барад.
     """
     order_id = order["id"]
     user_id = order["user_id"]
@@ -1349,7 +1354,7 @@ async def _credit_balance_topup(bot: Bot, order: dict):
     ok = await db.credit_balance_topup(order_id, user_id, amount)
     if not ok:
         logger.warning(f"Balance topup: фармоиши #{order_id} аллакай коркард шудааст — такрор нашуд")
-        return
+        return None
 
     # ---- ОГОҲИИ АДМИН ФАВРАН (пеш аз ҳама) ----
     # Ин бояд ҲАТМАН ба админ расад — то соҳиб бидонад КӢ чанд сум пур кард
@@ -1383,16 +1388,20 @@ async def _credit_balance_topup(bot: Bot, order: dict):
         f"🆔 Фармоиш: #{order_id}"
     )
     check_file_id = order.get("check_file_id")
-    for admin_id in config.ADMIN_IDS:
-        try:
-            # Агар чек бошад — расми чекро МУСТАҚИМ мефиристем (соҳиб фавран
-            # пардохти воқеии ДС-ро мебинад, на танҳо матн)
-            if check_file_id:
-                await bot.send_photo(admin_id, check_file_id, caption=admin_text, parse_mode="HTML")
-            else:
-                await bot.send_message(admin_id, admin_text, parse_mode="HTML")
-        except Exception as e:
-            logger.error(f"Огоҳии пуркунии баланс ба админ {admin_id} нарасид: {e}")
+    # Танҳо дар роҳи ХУДКОР паёми нав ба админ мефиристем. Агар админ дастӣ
+    # тасдиқ карда бошад (notify_admin=False), паёми ҳамон тугма edit мешавад
+    # (admin.py) — пас ин ҷо паёми нав намефиристем (то ду паём нашавад).
+    if notify_admin:
+        for admin_id in config.ADMIN_IDS:
+            try:
+                # Агар чек бошад — расми чекро МУСТАҚИМ мефиристем (соҳиб фавран
+                # пардохти воқеии ДС-ро мебинад, на танҳо матн)
+                if check_file_id:
+                    await bot.send_photo(admin_id, check_file_id, caption=admin_text, parse_mode="HTML")
+                else:
+                    await bot.send_message(admin_id, admin_text, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"Огоҳии пуркунии баланс ба админ {admin_id} нарасид: {e}")
 
     # ---- Паём ба мизоҷ ----
     try:
@@ -1416,6 +1425,10 @@ async def _credit_balance_topup(bot: Bot, order: dict):
             await _complete_pending_purchase(bot, user_id, pending)
     except Exception as e:
         logger.error(f"Хатогӣ дар анҷоми хариди интизорӣ барои #{order_id}: {e}")
+
+    # Матни огоҳиро бармегардонем — то admin.py (роҳи тасдиқи дастӣ) онро
+    # барои edit кардани ҳамон паём истифода барад (бе паёми нав).
+    return admin_text
 
 
 async def _complete_pending_purchase(bot: Bot, user_id: int, pending: dict):

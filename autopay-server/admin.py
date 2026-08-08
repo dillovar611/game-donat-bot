@@ -1725,9 +1725,15 @@ async def order_confirm(call: CallbackQuery):
     if order.get("is_balance_topup"):
         import autopay
         await call.answer("⏳ Пуркунии баланс тафтиш карда истодааст...", show_alert=False)
-        await autopay._credit_balance_topup(call.bot, order)
+        # notify_admin=False — паёми нав ба админ намефиристем; танҳо ҲАМИН
+        # паёми тугмаро бо матни пурраи «баланс пур шуд» edit мекунем (то
+        # админ ду паём нагирад).
+        admin_text = await autopay._credit_balance_topup(
+            call.bot, order, notify_admin=False)
         await _safe_edit_caption(
-            call.message, f"✅ Баланси мизоҷ пур карда шуд (фармоиш #{order_id}).", None
+            call.message,
+            admin_text or f"✅ Баланси мизоҷ пур карда шуд (фармоиш #{order_id}).",
+            None,
         )
         return
 
