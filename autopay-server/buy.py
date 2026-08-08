@@ -363,16 +363,22 @@ async def buy_enter_id(message: Message, state: FSMContext):
             f"✅ Агар ин аккаунти шумо бошад «Давом»-ро пахш кунед:"
         )
     else:
-        # API номро наёфт — корбар худаш тасдиқ мекунад
+        # API номро наёфт — огоҳии ТАРСНОК (то мизоҷ ба ID-и хато пул надиҳад)
         text = (
             f"🔥 <b>Free Fire</b>\n\n"
-            f"🆔 ID: <code>{player_id}</code>\n"
-            f"⚠️ Номи аккаунт ёфт нашуд.\n\n"
-            f"ID-ро бодиққат тафтиш кунед ва агар дуруст бошад «Давом»-ро пахш кунед:"
+            f"🆔 ID: <code>{player_id}</code>\n\n"
+            f"⛔️ <b>ДИҚҚАТ! Номи ин аккаунт ЁФТ НАШУД!</b>\n\n"
+            f"Ин метавонад маънои онро дошта бошад, ки ID <b>ХАТО</b> аст.\n"
+            f"🔴 Агар ID нодуруст бошаду шумо пул диҳед — <b>ПУЛАТОН МЕСӮЗАД</b> "
+            f"ва баргардонида НАМЕШАВАД!\n\n"
+            f"✅ ID-ро бори дигар бодиққат санҷед. Танҳо агар 100% боварӣ "
+            f"доред, давом диҳед:"
         )
 
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Давом", callback_data="id_ok")],
+        [InlineKeyboardButton(
+            text=("✅ Давом" if nickname else "⚠️ ID дуруст аст — давом"),
+            callback_data="id_ok")],
         [InlineKeyboardButton(text="✏️ ID-ро тағйир медиҳам", callback_data="buy")],
     ])
     await _safe_edit_msg(wait, text, kb)

@@ -343,6 +343,32 @@ async def _notify_admins_wrong_amount(bot: Bot, order: dict, summa: float, kod: 
         except Exception as e:
             logger.error(f"Огоҳии маблағи нодуруст ба {admin_id} нарасид: {e}")
 
+    # Ба МИЗОҶ низ хабар медиҳем — то худаш фаҳмад чӣ хато шуд ва ислоҳ кунад
+    try:
+        need = float(order["price"])
+        diff = round(summa - need, 2)
+        if diff < 0:
+            cust = (
+                f"⚠️ <b>Маблағи пардохт нокифоя!</b>\n\n"
+                f"🆔 Фармоиш: #{order['id']}\n"
+                f"Шумо <b>{summa:.2f} сом</b> фиристодед, вале нарх "
+                f"<b>{need:.2f} сом</b> буд — <b>{abs(diff):.2f} сом КАМ</b>.\n\n"
+                f"Лутфан фарқашро ({abs(diff):.2f} сом) илова фиристед ё бо "
+                f"дастгирӣ тамос гиред: {config.SUPPORT_USERNAME}"
+            )
+        else:
+            cust = (
+                f"⚠️ <b>Маблағи пардохт зиёд аст.</b>\n\n"
+                f"🆔 Фармоиш: #{order['id']}\n"
+                f"Шумо <b>{summa:.2f} сом</b> фиристодед, вале нарх "
+                f"<b>{need:.2f} сом</b> буд — <b>{diff:.2f} сом ЗИЁД</b>.\n\n"
+                f"Хавотир нашавед — бо дастгирӣ тамос гиред, то ҳал кунем: "
+                f"{config.SUPPORT_USERNAME}"
+            )
+        await bot.send_message(order["user_id"], cust, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Огоҳии маблағи нодуруст ба мизоҷ нарасид: {e}")
+
 
 async def _notify_admins_unmatched(bot: Bot, summa: float, kod: str):
     text = (
