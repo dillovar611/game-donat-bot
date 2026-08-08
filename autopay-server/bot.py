@@ -1132,6 +1132,9 @@ async def _stale_paid_orders_loop(bot: Bot):
     админ тугмаро пахш кунад (бе спам дар чат). Ҳар фармоиш фақат ЯК
     бор ёдоварӣ ба мизоҷ мегирад.
     """
+    import autopay
+    _PM = {"dushanbe_city": "🏙 Душанбе Сити", "alif": "💳 Алиф",
+           "eskhata": "🏦 Эсхата", "referral_balance": "💰 Аз баланс"}
     while True:
         await asyncio.sleep(5 * 60)
         try:
@@ -1150,6 +1153,47 @@ async def _stale_paid_orders_loop(bot: Bot):
                         )
                     except Exception as e:
                         logger.error(f"Ёдоварии дермондагӣ ба мизоҷи {order['user_id']} нарасид: {e}")
+
+                    # ---- ХАБАРИ ДУЮМ БА АДМИН (тӯри бехатарӣ) ----
+                    # Агар огоҳии аввали "дастӣ тафтиш кунед" ба админ
+                    # нарасида бошад (шабака/хато), ин фармоиш ятим мемонд.
+                    # Ин ҷо БОЗ ба админ бо тугмаи тасдиқ мефиристем.
+                    if order.get("is_balance_topup"):
+                        confirm_cb = None  # топуп худкор ҳисоб мешавад
+                    elif order.get("order_group_id"):
+                        confirm_cb = f"okgroup_{order['order_group_id']}"
+                        reject_cb = f"nogroup_{order['order_group_id']}"
+                    else:
+                        confirm_cb = autopay._confirm_cb(order)
+                        reject_cb = f"no_{order_id}"
+                    if confirm_cb:
+                        u = await db.get_user(order["user_id"])
+                        uname = f"@{u['username']}" if u and u.get("username") else "—"
+                        pm = _PM.get(order.get("payment_method"), order.get("payment_method") or "—")
+                        cap = (
+                            f"⏰ <b>ФАРМОИШИ ГУМШУДА — ҳанӯз тасдиқ нашуд!</b>\n\n"
+                            f"Ин фармоиш зиёда аз 20 дақиқа интизори тасдиқи шумост "
+                            f"(эҳтимол огоҳии аввал ба шумо нарасид).\n\n"
+                            f"👤 Харидор: {esc(u.get('full_name') if u else '—')} ({uname})\n"
+                            f"🆔 ID: <code>{order['user_id']}</code>\n"
+                            f"💵 Маблағ: <b>{float(order['price']):.2f} сом</b>\n"
+                            f"💳 Тариқ: {pm}\n"
+                            f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
+                            f"Чекро санҷед: агар пул воқеан омада бошад — «Тасдиқ»."
+                        )
+                        kb = InlineKeyboardMarkup(inline_keyboard=[
+                            [InlineKeyboardButton(text="✅ Тасдиқ — донат кун", callback_data=confirm_cb)],
+                            [InlineKeyboardButton(text="❌ Рад кардан", callback_data=reject_cb)],
+                        ])
+                        for admin_id in config.ADMIN_IDS:
+                            try:
+                                if order.get("check_file_id"):
+                                    await bot.send_photo(admin_id, order["check_file_id"],
+                                                         caption=cap, reply_markup=kb, parse_mode="HTML")
+                                else:
+                                    await bot.send_message(admin_id, cap, reply_markup=kb, parse_mode="HTML")
+                            except Exception as e:
+                                logger.error(f"Хабари дуюм ба админ {admin_id} нарасид: {e}")
                 except Exception as e:
                     logger.error(f"Коркарди ёдоварии фармоиши #{order_id} нашуд: {e}")
         except Exception as e:
