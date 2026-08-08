@@ -33,11 +33,59 @@ GREEN     = "5416081784641168838"   # 🟢
 RED       = "5411225014148014586"   # 🔴
 STAR      = "5438496463044752972"   # ⭐️
 GIFT      = "5461151367559141950"   # 🎉 (ҳамчун тӯҳфа/шодӣ)
+ID_ICON   = "5305474651508468012"   # 🆔
+LOCK      = "5296369303661067030"   # 🔒
+GEAR      = "5341715473882955310"   # ⚙️
+BULB      = "5422439311196834318"   # 💡
+SIREN     = "5395695537687123235"   # 🚨
 
 
 def pe(emoji_id: str, fallback: str) -> str:
     """Теги tg-emoji-и премиум бо эмоҷии оддии эҳтиётӣ (fallback)."""
     return f'<tg-emoji emoji-id="{emoji_id}">{fallback}</tg-emoji>'
+
+
+import re as _re
+
+# Ҳамаи эмоҷиҳои оддӣ, ки бояд ба премиум табдил ёбанд.
+_PREMIUM_MAP = {
+    "✅": (CHECK, "✅"), "✔️": (CHECK, "✔️"), "❌": (CROSS, "❌"),
+    "💎": (DIAMOND, "💎"), "🎉": (PARTY, "🎉"), "💵": (MONEY, "💵"),
+    "⭐️": (STAR, "⭐️"), "⭐": (STAR, "⭐"), "🔥": (FIRE, "🔥"),
+    "✨": (SPARKLES, "✨"), "👑": (CROWN, "👑"), "🛍": (BAG, "🛍"),
+    "🔔": (BELL, "🔔"), "🏠": (HOME, "🏠"), "🎮": (GAME, "🎮"),
+    "💯": (HUNDRED, "💯"), "🟢": (GREEN, "🟢"), "🔴": (RED, "🔴"),
+    "🆔": (ID_ICON, "🆔"), "🔒": (LOCK, "🔒"), "⚙️": (GEAR, "⚙️"),
+    "💡": (BULB, "💡"), "🚨": (SIREN, "🚨"),
+}
+
+_TG_SPAN = _re.compile(r"<tg-emoji\b.*?</tg-emoji>", _re.S)
+
+
+def premiumize(text: str) -> str:
+    """Ҳамаи эмоҷиҳои оддии дар _PREMIUM_MAP-ро ба эмоҷии премиуми
+    аниматсионӣ табдил медиҳад. Эмоҷиҳое, ки аллакай <tg-emoji> шудаанд,
+    даст нахӯрда мемонанд (то дубора коркард нашаванд)."""
+    if not text:
+        return text
+    # Матнро аз рӯи тегҳои мавҷудаи tg-emoji ҷудо мекунем — то онҳоро
+    # даст назанем.
+    out = []
+    last = 0
+    for m in _TG_SPAN.finditer(text):
+        seg = text[last:m.start()]
+        for k, (eid, fb) in _PREMIUM_MAP.items():
+            if k in seg:
+                seg = seg.replace(k, f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>')
+        out.append(seg)
+        out.append(m.group(0))  # теги мавҷуда — бетағйир
+        last = m.end()
+    seg = text[last:]
+    for k, (eid, fb) in _PREMIUM_MAP.items():
+        if k in seg:
+            seg = seg.replace(k, f'<tg-emoji emoji-id="{eid}">{fb}</tg-emoji>')
+    out.append(seg)
+    return "".join(out)
 
 
 def pm_label_html(method: str) -> str:

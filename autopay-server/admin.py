@@ -2845,6 +2845,7 @@ async def a_broadcast_send(message: Message, state: FSMContext):
 
 # ==================== ЁРИРАСОНҲО ====================
 async def _safe_edit(call: CallbackQuery, text: str, kb):
+    text = pemoji.premiumize(text)
     try:
         await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception:

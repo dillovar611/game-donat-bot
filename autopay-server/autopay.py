@@ -393,7 +393,7 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
             f"💰 Баланси ҳозираи мизоҷ: {current_balance:.2f} сом\n"
         )
 
-    text = (
+    text = pemoji.premiumize(
         f"{db.anim('autotasdiq', pemoji.pe(pemoji.CHECK, '✅') + ' <b>АВТОТАСДИҚ — Донат муваффақ шуд!</b> ' + pemoji.pe(pemoji.PARTY, '🎉'))}\n\n"
         f"👤 Харидор: {esc(full_name)}\n"
         f"📱 Username: {esc(username)}\n"
@@ -1255,7 +1255,7 @@ async def _credit_balance_topup(bot: Bot, order: dict):
         threshold = BIG_TOPUP_DEFAULT
     if threshold > 0 and amount >= threshold:
         big_line = f"\n🔔 <b>ДИҚҚАТ: пуркунии КАЛОН ({amount:.2f} сом)!</b>\n"
-    admin_text = (
+    admin_text = pemoji.premiumize(
         f"💰 <b>Баланси мизоҷ пур шуд</b>\n"
         f"{big_line}\n"
         f"👤 Харидор: {esc(full_name)} ({esc(username)})\n"

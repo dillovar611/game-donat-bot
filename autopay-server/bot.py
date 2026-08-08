@@ -480,7 +480,7 @@ def _welcome_text(user, greeted: bool = True) -> str:
         f"👋 Хуш омадед, <b>{esc(user.full_name)}</b>! {_spark}\n\n" if greeted
         else f"👋 <b>{esc(user.full_name)}</b> {_spark}\n\n"
     )
-    return (
+    return pemoji.premiumize(
         f"{title}"
         f"{hello}"
         f"🆔 ID-и шумо: <code>{user.id}</code>\n\n"

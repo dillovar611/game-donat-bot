@@ -30,6 +30,7 @@ from aiogram.fsm.state import State, StatesGroup
 
 import config
 import database as db
+import pemoji
 import ff_api
 
 TJ_TZ = ZoneInfo("Asia/Dushanbe")
@@ -1560,6 +1561,7 @@ async def review_save(message: Message, state: FSMContext):
 # ==================== ЁРИРАСОНҲО ====================
 async def _safe_edit(call: CallbackQuery, text: str, kb):
     """edit_text бо муҳофизат — агар нашавад, паёми нав мефиристад."""
+    text = pemoji.premiumize(text)
     try:
         await call.message.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception:
@@ -1573,6 +1575,7 @@ async def _safe_edit(call: CallbackQuery, text: str, kb):
 
 async def _safe_edit_msg(msg: Message, text: str, kb):
     """Барои таҳрири паёми 'Тафтиш...'."""
+    text = pemoji.premiumize(text)
     try:
         await msg.edit_text(text, reply_markup=kb, parse_mode="HTML")
     except Exception:
