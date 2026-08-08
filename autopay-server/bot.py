@@ -470,25 +470,12 @@ async def cmd_start(message: Message, command: CommandObject):
     await _send_main(message)
 
 
-# Сарлавҳаи аниматсионии дилхоҳи админ (масалан номи мағоза бо ҳарфҳои
-# премиум). Ба HTML нигоҳ дошта мешавад ва дар боли саломдиҳӣ гузошта
-# мешавад. Аз база бор мешавад (refresh_welcome_title).
-_WELCOME_TITLE = ""
-
-
-async def refresh_welcome_title():
-    """Сарлавҳаи аниматсиониро аз база ба кэш бор мекунад."""
-    global _WELCOME_TITLE
-    try:
-        _WELCOME_TITLE = (await db.get_setting("welcome_title")) or ""
-    except Exception as e:
-        logger.error(f"refresh_welcome_title хато: {e}")
-
-
 def _welcome_text(user, greeted: bool = True) -> str:
     """Матни хушомадгуи кӯтоҳ — тафсилоти пурра дар тугмаи «ℹ️ Маълумот»."""
     _spark = pemoji.pe(pemoji.SPARKLES, "✨")
-    title = f"{_WELCOME_TITLE}\n\n" if _WELCOME_TITLE else ""
+    # Сарлавҳаи аниматсионӣ аз кэши муштараки database (як нусха барои ҳама).
+    _title_val = getattr(db, "welcome_title_cache", "") or ""
+    title = f"{_title_val}\n\n" if _title_val else ""
     hello = (
         f"👋 Хуш омадед, <b>{esc(user.full_name)}</b>! {_spark}\n\n" if greeted
         else f"👋 <b>{esc(user.full_name)}</b> {_spark}\n\n"
@@ -1277,7 +1264,7 @@ async def main():
     global BOT_USERNAME
     await db.create_pool()
     await db.init_db()
-    await refresh_welcome_title()
+    await db.load_welcome_title()
     me = await bot.get_me()
     BOT_USERNAME = me.username
     # Роутери охирин — баъд аз ҳама, то ҳолатҳои FSM-ро нагирад

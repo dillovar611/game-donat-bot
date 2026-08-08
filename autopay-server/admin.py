@@ -1330,10 +1330,9 @@ async def a_welcome_title_clear(call: CallbackQuery, state: FSMContext):
     await state.clear()
     await db.set_setting("welcome_title", "")
     try:
-        import bot as _bot
-        await _bot.refresh_welcome_title()
+        await db.load_welcome_title()
     except Exception as e:
-        logger.error(f"refresh_welcome_title (clear) хато: {e}")
+        logger.error(f"load_welcome_title (clear) хато: {e}")
     await call.answer("🗑 Сарлавҳа тоза шуд.", show_alert=True)
     await _safe_edit(call, "🗑 Сарлавҳаи аниматсионӣ тоза шуд.", admin_menu())
 
@@ -1358,10 +1357,9 @@ async def a_welcome_title_recv(message: Message, state: FSMContext):
         return
     await db.set_setting("welcome_title", title_html)
     try:
-        import bot as _bot
-        await _bot.refresh_welcome_title()
+        await db.load_welcome_title()
     except Exception as e:
-        logger.error(f"refresh_welcome_title (set) хато: {e}")
+        logger.error(f"load_welcome_title (set) хато: {e}")
     await message.answer(
         "✅ <b>Сарлавҳа гузошта шуд!</b>\n\n"
         "Акнун <code>/start</code> кунед — бояд дар боло намоён шавад.\n\n"

@@ -2307,6 +2307,18 @@ async def set_setting(key: str, value: str):
             )
 
 
+# Кэши сарлавҳаи аниматсионии саломдиҳӣ. Дар ин ҷо (database) нигоҳ дошта
+# мешавад, то ҳамаи модулҳо (bot=__main__, admin) ЯК нусхаро истифода
+# баранд — вагарна navсозӣ ба нусхаи нодуруст мерасад.
+welcome_title_cache = ""
+
+
+async def load_welcome_title():
+    """Сарлавҳаи аниматсиониро аз база ба кэши муштарак бор мекунад."""
+    global welcome_title_cache
+    welcome_title_cache = (await get_setting("welcome_title")) or ""
+
+
 DEFAULT_DC_CARD_NUMBER = "9762000226598802"
 
 
