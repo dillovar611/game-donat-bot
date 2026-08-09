@@ -555,7 +555,7 @@ async def _send_repurchase_offer(bot: Bot, order: dict):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(
                     text=f"🛒 Боз харидан ({db.REOFFER_PERCENT:g}% арзон)",
-                    callback_data="back_main")],
+                    callback_data="buy")],
             ]),
             parse_mode="HTML",
         )
