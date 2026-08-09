@@ -4,6 +4,7 @@
 """
 import asyncio
 import logging
+import random
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from typing import Any, Awaitable, Callable, Dict
@@ -1232,6 +1233,64 @@ async def _watchdog_loop(bot: Bot):
             logger.error(f"Хатогӣ дар _watchdog_loop: {e}")
 
 
+# ==================== ОФФЕРИ БАРҚӢ (FLASH) ====================
+# Рӯзе ЯК бор, дар соати тасодуфии ФАЪОЛ, як маҳсули тасодуфӣ бо 1% тахфиф —
+# эълон дар канал, 1 соат давом.
+FLASH_ACTIVE_START = 10   # аз соати 10:00 (вақти Тоҷикистон)
+FLASH_ACTIVE_END = 21     # то соати 21:00 (оффер то ~22:00 тамом мешавад)
+
+
+async def _fire_flash_offer(bot: Bot):
+    """Як маҳсули тасодуфиро интихоб карда, оффери барқиро фаъол ва дар
+    канал эълон мекунад."""
+    products = await db.get_products()
+    if not products:
+        logger.info("Flash offer: маҳсул нест — гузаронида шуд")
+        return
+    p = random.choice(products)
+    await db.set_flash_offer(p["id"], db.FLASH_DURATION_MIN)
+    old_price = float(p["price"])
+    new_price = round(old_price * (1 - db.FLASH_PERCENT / 100), 2)
+    label = p.get("label") or f"💎 {p['amount']}"
+    text = pemoji.premiumize(
+        f"⚡️🔥 <b>ОФФЕРИ БАРҚӢ!</b> 🔥⚡️\n\n"
+        f"Танҳо <b>1 СОАТ</b> — зуд бошед!\n\n"
+        f"🎁 <b>{label}</b>\n"
+        f"💵 <s>{old_price:.2f}</s> → <b>{new_price:.2f} сом</b> "
+        f"(-{db.FLASH_PERCENT:g}%)\n\n"
+        f"⏳ Баъди 1 соат нарх ба ҳолати оддӣ бармегардад!\n"
+        f"👇 Ҳозир харед:"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛒 Ҳозир харидан", url=f"https://t.me/{BOT_USERNAME}")],
+    ])
+    try:
+        await bot.send_message(config.CHANNEL_ID, text, reply_markup=kb, parse_mode="HTML")
+        logger.info(f"Flash offer фаъол шуд: маҳсул #{p['id']} ({label})")
+    except Exception as e:
+        logger.error(f"Flash offer эълон нашуд: {e}")
+
+
+async def _flash_offer_loop(bot: Bot):
+    """Рӯзе ЯК бор дар соати ТАСОДУФИИ фаъол (10:00–21:00) оффери барқиро
+    фаъол мекунад. Баъди ҳар фаъолшавӣ ~20 соат интизор мешавад — то дар як
+    рӯз ду бор нашавад."""
+    await asyncio.sleep(90)   # то пурра сар шудани бот
+    while True:
+        try:
+            now = datetime.now()
+            hour = random.randint(FLASH_ACTIVE_START, FLASH_ACTIVE_END)
+            minute = random.randint(0, 59)
+            target = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
+            if target <= now:
+                target += timedelta(days=1)
+            await asyncio.sleep(max(60, (target - now).total_seconds()))
+            await _fire_flash_offer(bot)
+        except Exception as e:
+            logger.error(f"Хатогӣ дар _flash_offer_loop: {e}")
+        await asyncio.sleep(20 * 3600)   # ~як рӯз то оффери навбатӣ
+
+
 # ==================== ОҒОЗ ====================
 # ==================== ҶАВОБИ ХУДКОР БА САВОЛИ МИЗОҶ ====================
 # Вақте мизоҷ дар вақти интизорӣ чизе менависад ("пулам чӣ шуд?", "алмос
@@ -1381,6 +1440,7 @@ async def main():
     asyncio.create_task(autopay.quiet_digest_loop(bot))
     # Худкор бастани фармоишҳои фаромӯшшуда — ҳар рӯз соати 09:00
     asyncio.create_task(autopay.auto_archive_loop(bot))
+    asyncio.create_task(_flash_offer_loop(bot))
     await dp.start_polling(bot)
 
 

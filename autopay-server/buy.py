@@ -1068,14 +1068,27 @@ async def _autopay_requisites(call: CallbackQuery, state: FSMContext, data: dict
         call.from_user.id, round(float(data["price"]), 2))
     # №1 — тахфифи 1%-и «баъди харид» (агар дар 10 дақиқаи охир фаъол бошад)
     disc_note = _winback or ""
+    reoffer_applied = False
     try:
         if await db.has_repurchase_offer(call.from_user.id):
             base_price = round(base_price * (1 - db.REOFFER_PERCENT / 100), 2)
             await db.clear_repurchase_offer(call.from_user.id)
+            reoffer_applied = True
             disc_note += (f"🎁 <b>Тахфифи {db.REOFFER_PERCENT:g}% (пешниҳоди "
                           f"баъди харид)</b> татбиқ шуд!\n")
     except Exception as e:
         logger.error(f"reoffer discount хато: {e}")
+    # Оффери БАРҚӢ — агар маҳсули ҷорӣ ҳамон маҳсули оффер бошад ва мӯҳлат
+    # нагузашта (танҳо агар тахфифи №1 татбиқ нашуда бошад — то дучанд нашавад)
+    if not reoffer_applied:
+        try:
+            flash_pid = await db.get_flash_product_id()
+            if flash_pid is not None and str(data.get("product_id")) == str(flash_pid):
+                base_price = round(base_price * (1 - db.FLASH_PERCENT / 100), 2)
+                disc_note += (f"⚡ <b>Оффери БАРҚӢ -{db.FLASH_PERCENT:g}%</b> "
+                              f"татбиқ шуд!\n")
+        except Exception as e:
+            logger.error(f"flash discount хато: {e}")
     price = await _unique_autopay_price(base_price)
     await state.update_data(price=price, payment_method=method)
 

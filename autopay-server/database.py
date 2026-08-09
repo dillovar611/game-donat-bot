@@ -1879,6 +1879,34 @@ async def clear_repurchase_offer(user_id: int):
             )
 
 
+# ==================== ОФФЕРИ БАРҚӢ (FLASH — 1 маҳсул, 1 соат, рӯзе 1 бор) ==========
+FLASH_PERCENT = 1.0          # чанд фоиз тахфиф
+FLASH_DURATION_MIN = 60      # чанд дақиқа давом мекунад
+# Дар settings нигоҳ дошта мешавад: flash_product_id + flash_until (epoch сония).
+
+
+async def set_flash_offer(product_id: int, minutes: int = FLASH_DURATION_MIN):
+    """Оффери барқиро фаъол мекунад: маҳсули муайян то `minutes` дақиқа
+    бо тахфифи FLASH_PERCENT фурӯхта мешавад."""
+    await set_setting("flash_product_id", str(int(product_id)))
+    await set_setting("flash_until", str(datetime.now().timestamp() + minutes * 60))
+
+
+async def get_flash_product_id():
+    """ID-и маҳсули оффери барқӣ, агар ҳоло фаъол бошад (мӯҳлат нагузашта);
+    вагарна None."""
+    until = await get_setting("flash_until")
+    pid = await get_setting("flash_product_id")
+    if not until or not pid:
+        return None
+    try:
+        if float(until) > datetime.now().timestamp():
+            return int(pid)
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
 async def get_reengagement_stats() -> dict:
     """
     Омори функсияи баргардонидани мизоҷ (ёдоварии бе-фармоиш):
