@@ -58,6 +58,16 @@ SUSPICIOUS_WORDS = [
     "адвокат", "юрист", "иск",
 ]
 
+# Калимаҳои НОРОЗИГӢ (на фиреб — балки мизоҷи асабӣ/хаставу дилмонда). Инҳо
+# ба соҳиб сигнали НАРМ мефиристанд «худат ҷавоб деҳ, мизоҷ асабӣ шуд».
+ANGRY_WORDS = [
+    "кай мешавад охир", "чанд бор гӯям", "чанд бор гуям", "боз интизор",
+    "хеле дер", "чиба намеояд", "чаро намеояд", "чаро ин қадар",
+    "чаро инкадар", "безор шудам", "асабӣ", "асаби шудам", "дилмонда",
+    "сколько можно", "надоело", "устал ждать", "хватит", "долго очень",
+    "сколько ждать уже", "🤬", "😡", "нерв",
+]
+
 # ==================== МАТНҲО ====================
 NOT_FOUND = "🤔❌ Чунин рақами фармоиш дар ҳисоби шумо ёфт нашуд... Лутфан рақамро дуруст санҷед (мисол: #17600) 🔍"
 GOT_PHOTO_NO_NUMBER = "📸✅ Расмро гирифтам, раҳмат! Лутфан рақами фармоишро ҳам ҳамчун матн нависед (мисол: #17600), то фавран санҷам 🔍"
@@ -549,6 +559,40 @@ async def nightly_report_loop():
         except Exception as e:
             logger.error(f"nightly_report хато: {e}")
 
+        # №15 — Рӯйхати саволҳое, ки бот НАФАҲМИД (то FAQ-ро васеътар кунем).
+        # Баъди фиристодан файлро тоза мекунем, то дубора наояд.
+        try:
+            await _send_unknown_digest()
+        except Exception as e:
+            logger.error(f"unknown_digest хато: {e}")
+
+
+async def _send_unknown_digest():
+    if not os.path.isfile(UNKNOWN_PATH):
+        return
+    try:
+        with open(UNKNOWN_PATH, encoding="utf-8") as f:
+            lines = [ln.strip() for ln in f if ln.strip()]
+    except Exception:
+        return
+    if not lines:
+        return
+    # То ~25 саволи охирин — то паём хеле дароз нашавад
+    sample = lines[-25:]
+    body = "\n".join(f"• {ln.split(chr(9))[-1]}" for ln in sample)
+    total = len(lines)
+    try:
+        await bot.send_message(
+            NOTIFY_CHAT_ID,
+            f"🧠 Саволҳое, ки бот НАФАҲМИД ({total} дона имрӯз):\n\n{body}\n\n"
+            f"Инҳоро ба ман фиристед — ба FAQ илова мекунам, то бот "
+            f"ҷавобашонро ёд гирад 😊"
+        )
+        # Файлро тоза мекунем (сабти нав аз сифр)
+        open(UNKNOWN_PATH, "w", encoding="utf-8").close()
+    except Exception as e:
+        logger.error(f"_send_unknown_digest фиристодан нашуд: {e}")
+
 
 def _find_suspicious_word(text: str) -> str | None:
     lower = text.lower()
@@ -556,6 +600,36 @@ def _find_suspicious_word(text: str) -> str | None:
         if w in lower:
             return w
     return None
+
+
+def _find_angry_word(text: str) -> str | None:
+    lower = text.lower()
+    for w in ANGRY_WORDS:
+        if w in lower:
+            return w
+    return None
+
+
+# №12 — то соҳибро барои як мизоҷи асабӣ такрор спам накунем
+_angry_notified: dict[int, float] = {}
+ANGRY_DEDUP_SEC = 15 * 60
+
+# №15 — саволҳое, ки бот НАФАҲМИД, ба файл ҷамъ мешаванд; ҳар шаб ба соҳиб
+# рӯйхат меравад, то FAQ-ро васеътар кунем. (Бот ба база навишта наметавонад —
+# ҳисоби SELECT-ӣ — пас ба файл сабт мекунем.)
+UNKNOWN_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                            "unknown_questions.log")
+
+
+def _log_unknown(user_id: int, text: str):
+    t = (text or "").strip().replace("\n", " ")
+    if len(t) < 3 or len(t) > 200:
+        return
+    try:
+        with open(UNKNOWN_PATH, "a", encoding="utf-8") as f:
+            f.write(f"{datetime.now():%m-%d %H:%M}\t{user_id}\t{t}\n")
+    except Exception as e:
+        logger.error(f"unknown_questions навишта нашуд: {e}")
 
 
 def _order_header(order: dict) -> str:
@@ -775,6 +849,17 @@ async def handle_business_message(message: Message):
             logger.info(f"[SILENT] chat={chat_id} — соҳиб фаъол аст, бот хомӯш монд")
             return
 
+        # №12 — Мизоҷи АСАБӢ (норозӣ): ба соҳиб сигнали нарм (деддуп 15 дақ),
+        # то худаш шахсан ҷавоб диҳад. Ин фиреб не — танҳо ҳисси мизоҷ.
+        aw = _find_angry_word(text)
+        if aw and (time.time() - _angry_notified.get(chat_id, 0) >= ANGRY_DEDUP_SEC):
+            _angry_notified[chat_id] = time.time()
+            await notify_owner(
+                f"😤 Мизоҷ асабӣ шуда — шахсан ҷавоб диҳед!\n\n"
+                f"👤 {sender} (ID: {user_id})\n"
+                f"💬 Матн: {text[:400]}"
+            )
+
         order_ids = []
         seen_ids = set()
         for mm in _ORDER_RE.finditer(text):
@@ -927,6 +1012,21 @@ async def handle_business_message(message: Message):
             else:
                 await message.answer(GOT_PHOTO_NO_NUMBER)
             return
+
+        # №8 — Овозӣ/видео/стикер (бе матн): бот хонда наметавонад, пас
+        # хушмуомила мепурсад, ки МАТНӢ нависанд — зудтар ҷавоб мегирад.
+        if (message.voice or message.video_note or message.audio
+                or message.sticker or message.video):
+            await message.answer(
+                "🎙 Лутфан саволатонро <b>матнӣ</b> нависед — ман фавран "
+                "мехонам ва ҷавоб медиҳам! Агар дар бораи фармоиш бошад, "
+                "рақамашро нависед (мисол: <code>#17600</code>) 🔍",
+                parse_mode="HTML"
+            )
+            return
+
+        # №15 — Ин саволро бот НАФАҲМИД: барои васеъ кардани FAQ сабт мекунем.
+        _log_unknown(user_id, text)
 
         # Дигар паёмҳо (саволи озод, ки бот нафаҳмид). Мизоҷ БЕҶАВОБ намемонад:
         # бот ба ӯ мегӯяд, ки админ ҳозир нест/машғул аст, вале ҲАТМАН ҷавоб
