@@ -79,6 +79,8 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN referral_balance DECIMAL(10,2) DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN winback_sent TINYINT DEFAULT 0",
                 "ALTER TABLE users ADD COLUMN winback_active TINYINT DEFAULT 0",
+                # №1 — тахфифи 1% баъди хариди муваффақ (то ин вақт фаъол)
+                "ALTER TABLE users ADD COLUMN reoffer_until DATETIME DEFAULT NULL",
             ):
                 try:
                     await cur.execute(ddl)
@@ -1837,6 +1839,43 @@ async def clear_winback(user_id: int):
         async with conn.cursor() as cur:
             await cur.execute(
                 "UPDATE users SET winback_active=0 WHERE id=%s", (user_id,)
+            )
+
+
+# ==================== №1 — ТАХФИФИ 1% БАЪДИ ХАРИД (10 дақиқа) ====================
+REOFFER_PERCENT = 1.0        # чанд фоиз тахфиф
+REOFFER_MINUTES = 10         # чанд дақиқа фаъол
+
+
+async def set_repurchase_offer(user_id: int, minutes: int = REOFFER_MINUTES):
+    """Баъди хариди муваффақ — тахфифи 1%-ро барои `minutes` дақиқа фаъол
+    мекунад (мизоҷ агар ҳозир боз харад, 1% арзон мегирад)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE users SET reoffer_until = NOW() + INTERVAL %s MINUTE WHERE id=%s",
+                (minutes, user_id),
+            )
+
+
+async def has_repurchase_offer(user_id: int) -> bool:
+    """Оё тахфифи 1%-и баъди харид ҳоло фаъол аст (мӯҳлаташ нагузашта)?"""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT reoffer_until FROM users "
+                "WHERE id=%s AND reoffer_until IS NOT NULL AND reoffer_until > NOW()",
+                (user_id,),
+            )
+            return (await cur.fetchone()) is not None
+
+
+async def clear_repurchase_offer(user_id: int):
+    """Тахфифи 1%-ро бекор мекунад (баъди истифода — як маротиба)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE users SET reoffer_until = NULL WHERE id=%s", (user_id,)
             )
 
 

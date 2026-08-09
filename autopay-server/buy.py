@@ -1066,6 +1066,16 @@ async def _autopay_requisites(call: CallbackQuery, state: FSMContext, data: dict
     Танҳо барои DC/Alif даъват мешавад."""
     base_price, _winback = await _apply_winback_discount(
         call.from_user.id, round(float(data["price"]), 2))
+    # №1 — тахфифи 1%-и «баъди харид» (агар дар 10 дақиқаи охир фаъол бошад)
+    disc_note = _winback or ""
+    try:
+        if await db.has_repurchase_offer(call.from_user.id):
+            base_price = round(base_price * (1 - db.REOFFER_PERCENT / 100), 2)
+            await db.clear_repurchase_offer(call.from_user.id)
+            disc_note += (f"🎁 <b>Тахфифи {db.REOFFER_PERCENT:g}% (пешниҳоди "
+                          f"баъди харид)</b> татбиқ шуд!\n")
+    except Exception as e:
+        logger.error(f"reoffer discount хато: {e}")
     price = await _unique_autopay_price(base_price)
     await state.update_data(price=price, payment_method=method)
 
@@ -1096,6 +1106,7 @@ async def _autopay_requisites(call: CallbackQuery, state: FSMContext, data: dict
     await _safe_edit(
         call,
         f"<b>{method_name}</b>\n\n"
+        f"{disc_note}"
         f"🎁 Маҳсулот: <b>{data['label']}</b>\n"
         f"💵 Маблағи ДАҚИҚ: <b>{price:.2f} сомонӣ</b>\n"
         f"🆔 Фармоиш: #{awaiting_order_id}\n\n"

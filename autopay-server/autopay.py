@@ -522,6 +522,47 @@ async def _admin_report_success(bot: Bot, order: dict, kod: str, api_order_id: s
             logger.error(f"Ҳисоботи автотасдиқ ба админ {admin_id} нарасид: {e}")
 
 
+async def _send_repurchase_offer(bot: Bot, order: dict):
+    """№1 — баъди хариди муваффақ: як пешниҳоди 1%-и 10-дақиқа ба мизоҷ.
+    Тахфиф ба хариди навбати ХУДКОР татбиқ мешавад (дар _autopay_requisites).
+    Танҳо барои маҳсулоти автопардохт (DC/Alif) — то тахфиф дуруст равад."""
+    user_id = order["user_id"]
+    if order.get("payment_method") not in ("dushanbe_city", "alif"):
+        return
+    # Топуп/сабад/комбо — ин пешниҳод нест (флоуяшон дигар аст)
+    if order.get("is_balance_topup") or order.get("order_group_id") or order.get("combo_id"):
+        return
+    try:
+        await db.set_repurchase_offer(user_id, db.REOFFER_MINUTES)
+    except Exception as e:
+        logger.error(f"set_repurchase_offer барои {user_id} хато: {e}")
+        return
+    try:
+        old_price = float(order["price"])
+        new_price = round(old_price * (1 - db.REOFFER_PERCENT / 100), 2)
+        label = order.get("label") or "маҳсулот"
+        text = pemoji.premiumize(
+            f"🎁 <b>Тӯҳфаи махсус барои шумо!</b>\n\n"
+            f"Раҳмат барои харид! ❤️\n\n"
+            f"⚡ Танҳо <b>{db.REOFFER_MINUTES} дақиқа</b> вақт доред: агар "
+            f"ҲОЗИР боз харид кунед (масалан ҳамон «{label}»), "
+            f"<b>{db.REOFFER_PERCENT:g}% арзонтар</b> мегиред "
+            f"(≈ {new_price:.2f} сом ба ҷои {old_price:.2f})!\n\n"
+            f"Тахфиф ба хариди навбатии шумо ХУДКОР татбиқ мешавад 👇"
+        )
+        await bot.send_message(
+            user_id, text,
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(
+                    text=f"🛒 Боз харидан ({db.REOFFER_PERCENT:g}% арзон)",
+                    callback_data="back_main")],
+            ]),
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error(f"Пешниҳоди баъди харид ба {user_id} нарасид: {e}")
+
+
 async def _check_network_health_alert(bot: Bot):
     """
     Агар дар равзани охирин якчанд ноками "номуайян" (таймаути шабака ба
@@ -847,6 +888,7 @@ async def run_donate_inner(bot: Bot, order: dict, kod: str):
             logger.error(f"Паёми анҷом ба {user_id} нарасид: {e}")
 
         await _admin_report_success(bot, order, kod, api_order_id)
+        await _send_repurchase_offer(bot, order)
     else:
         await _handle_donate_failure(bot, order, kod, api_order_id, uncertain)
 
