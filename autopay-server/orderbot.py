@@ -11,6 +11,7 @@ orderbot.py — Боти АЛОҲИДА барои "Автоматизация �
 Иҷро (протсеси АЛОҲИДА, новобаста аз bot.py): python3 orderbot.py
 """
 import asyncio
+import html
 import json
 import logging
 import os
@@ -321,6 +322,40 @@ def _faq_answer(text: str) -> str | None:
     return None
 
 
+# ==================== ПЕШНИҲОДИ ХУДКОРИ ФАРМОИШ (10 соат) ====================
+# Ҳолати кӯтоҳ барои рӯйхати фармоишҳо (як сатр барои ҳар фармоиш)
+_STATUS_SHORT = {
+    "pending": "⏳ интизори пардохт",
+    "awaiting_autopay": "⏳ интизори пардохт",
+    "autopay_search": "🔍 санҷиши пардохт",
+    "paid": "🔍 санҷиши пардохт",
+    "donating": "🚀 дар ҳоли иҷро",
+    "confirmed": "✅ иҷрошуда",
+    "rejected": "❌ радшуда",
+    "failed": "🔧 мушкили техникӣ",
+    "expired": "⌛ мӯҳлат гузашт",
+    "archived": "📁 басташуда",
+}
+# Ҳолатҳое, ки ҳанӯз дар ҷараёнанд (донат нашуда) — набояд «чек фиристед» гӯем
+_ACTIVE = {"pending", "awaiting_autopay", "autopay_search", "paid", "donating"}
+
+
+def _short_status(o: dict) -> str:
+    st = _STATUS_SHORT.get(o.get("status"), o.get("status") or "—")
+    label = html.escape((o.get("label") or "").strip())
+    return f"🆔 #{o['id']} — {label} — {st}" if label else f"🆔 #{o['id']} — {st}"
+
+
+# «Алмаз наомад» → бот 3 чизро пешниҳод мекунад (то дастӣ зуд ҳал шавад)
+GUIDED_HELP = (
+    "🆘 <b>Барои зуд ҳал кардани мушкил, лутфан ҳамин 3 чизро фиристед:</b>\n\n"
+    "1️⃣ 📸 <b>Чеки пардохт</b> — аз таърихи (история) бонкатон расми чекро\n"
+    "2️⃣ 🆔 <b>Рақами фармоиш</b> — аз бот (мисол: <code>#17600</code>)\n"
+    "3️⃣ 🎮 <b>ID-и Free Fire</b>-и худ\n\n"
+    "Ҳамин ки инҳоро фиристед, мо фавран месанҷем ва ҳал мекунем 🙏"
+)
+
+
 def _flag_failed_query(user_id: int) -> bool:
     now = time.time()
     arr = _recent_failed_queries.setdefault(user_id, [])
@@ -338,6 +373,11 @@ async def create_pool():
     pool = await aiomysql.create_pool(
         host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD,
         db=DB_NAME, autocommit=True, minsize=1, maxsize=3,
+        # Вақти сессия ба вақти Тоҷикистон (+05:00) — то NOW() бо created_at
+        # (ки дар +05:00 нигоҳ дошта мешавад) мувофиқ бошад ва «10 соати
+        # охир» дуруст ҳисоб шавад. SET time_zone барои ҳисоби SELECT-ӣ ҳам
+        # иҷозат аст (ҳуқуқи махсус лозим нест).
+        init_command="SET time_zone = '+05:00'",
     )
 
 
@@ -364,6 +404,21 @@ async def get_last_order_by_user(user_id: int):
                 (user_id,),
             )
             return await cur.fetchone()
+
+
+async def get_recent_orders_by_user(user_id: int, hours: int = 10):
+    """Фармоишҳои мизоҷ дар `hours` соати охир (нав → кӯҳна). Барои
+    «худкор пешниҳод» — мизоҷ рақам нагуфта, бот фармоишҳояшро нишон медиҳад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT id, user_id, status, label, price, reject_reason, created_at "
+                "FROM orders WHERE user_id=%s "
+                "AND created_at >= NOW() - INTERVAL %s HOUR "
+                "ORDER BY id DESC LIMIT 5",
+                (user_id, hours),
+            )
+            return await cur.fetchall()
 
 
 # ==================== ПАЙГИРИИ ФАРМОИШ ====================
@@ -440,6 +495,7 @@ async def watch_loop():
                         w["chat"],
                         "🔔 Хабари фармоиши шумо:\n\n" + _status_text(order),
                         business_connection_id=w.get("bcid") or None,
+                        parse_mode="HTML",
                     )
                     _stats["messages"] += 1
                 except Exception as e:
@@ -503,7 +559,7 @@ def _find_suspicious_word(text: str) -> str | None:
 
 
 def _order_header(order: dict) -> str:
-    label = (order.get("label") or "").strip()
+    label = html.escape((order.get("label") or "").strip())
     price = order.get("price")
     parts = [f"🆔 #{order['id']}"]
     if label:
@@ -570,7 +626,7 @@ def _status_text(order: dict) -> str:
     elif status == "confirmed":
         body = "🎉🎊 Тасдиқ шуд, алмазҳо фиристода шуданд! ✅💎 Раҳмат барои харид 🙏❤️"
     elif status == "rejected":
-        reason = (order.get("reject_reason") or "").strip()
+        reason = html.escape((order.get("reject_reason") or "").strip())
         reason_line = f"\n📝 Сабаб: {reason}" if reason else ""
         body = f"😔⚠️ Мутаассифона рад шудааст.{reason_line}\nСавол дошта бошед — ҳамин ҷо бинависед 💬👇"
     elif status == "failed":
@@ -645,7 +701,7 @@ async def _owner_order_lookup(message: Message, chat_id: int, text: str):
             await notify_owner(f"🔍 Фармоиши #{order_id} дар база нест.")
             continue
         if order["user_id"] == chat_id:
-            await message.answer(_status_text(order))
+            await message.answer(_status_text(order), parse_mode="HTML")
             _watch_add(chat_id, order, message.business_connection_id)
         else:
             await notify_owner(
@@ -773,24 +829,36 @@ async def handle_business_message(message: Message):
                     f"рақами ГУНОГУНИ ношиносро санҷид — эҳтимоли кӯшиши тахминзанӣ!"
                 )
 
-            await message.answer("\n\n".join(replies))
+            await message.answer("\n\n".join(replies), parse_mode="HTML")
             return
 
         if _is_last_order_query(text):
             _stats["orders_checked"] += 1
             try:
-                order = await get_last_order_by_user(user_id)
+                recent = await get_recent_orders_by_user(user_id, 10)
             except Exception as e:
-                logger.error(f"[DB-ERROR] last-order user={user_id}: {e}")
+                logger.error(f"[DB-ERROR] recent user={user_id}: {e}")
                 await message.answer("😅 Мушкили хурди техникӣ, баъдтар кӯшиш кунед 🙏")
                 return
-            if order:
-                await message.answer(_status_text(order))
-                _watch_add(chat_id, order, message.business_connection_id)
-            else:
+            if recent:
+                # Фармоиши охирини (нав)-ро пурра нишон медиҳем ва пайгирӣ мемонем
+                newest = recent[0]
                 await message.answer(
-                    "🤔 Ягон фармоиши қаблии шумо ёфт нашуд. "
-                    "Лутфан рақами фармоишро нависед (мисол: #17600) 🔍"
+                    "🔍 <b>Фармоиши охирини шумо (10 соат):</b>\n\n"
+                    + _status_text(newest), parse_mode="HTML"
+                )
+                for o in recent:
+                    _watch_add(chat_id, o, message.business_connection_id)
+                # Агар фармоиш ҲАНӮЗ дар ҷараён бошад — сабр кофист (матн худаш
+                # ором мекунад). Агар аллакай иҷрошуда/радшуда бошаду мизоҷ боз
+                # мегӯяд «наомад» — 3 чизро пешниҳод мекунем (то дастӣ ҳал шавад).
+                if newest.get("status") not in _ACTIVE:
+                    await message.answer(GUIDED_HELP, parse_mode="HTML")
+            else:
+                # Дар 10 соат фармоише нест — рост 3 чизро мепурсем
+                await message.answer(
+                    "🤔 Дар 10 соати охир фармоише аз шумо ёфт нашуд.\n\n"
+                    + GUIDED_HELP, parse_mode="HTML"
                 )
             return
 
@@ -816,7 +884,29 @@ async def handle_business_message(message: Message):
             # Салом танҳо як бор дар чанд соат — то такрор нашавад.
             if time.time() - _greeted.get(chat_id, 0) >= GREET_DEDUP_SEC:
                 _greeted[chat_id] = time.time()
-                await message.answer(SHORT_GREETING_REPLY)
+                # УЛЬТРА-ҶАВОБ: валейкум ассалом + бот ХУДАШ фармоишҳои 10
+                # соати охирро ёфта пешниҳод мекунад (мизоҷ рақам нагуфта).
+                try:
+                    recent = await get_recent_orders_by_user(user_id, 10)
+                except Exception:
+                    recent = None
+                if recent:
+                    lines = "\n".join(_short_status(o) for o in recent)
+                    await message.answer(
+                        "👋 <b>Валейкум ассалом!</b> Чӣ кӯмак кунам? 😊\n\n"
+                        "📋 <b>Фармоишҳои охирини шумо (10 соат):</b>\n" + lines +
+                        "\n\nБарои тафсилот рақами фармоишро нависед "
+                        "(мисол: <code>#17600</code>) 🔍", parse_mode="HTML"
+                    )
+                    for o in recent:
+                        _watch_add(chat_id, o, message.business_connection_id)
+                else:
+                    await message.answer(
+                        "👋 <b>Валейкум ассалом!</b> Чӣ кӯмак кунам? 😊\n\n"
+                        "Барои санҷидани фармоиш рақамашро нависед "
+                        "(мисол: <code>#17600</code>), ё барои харид ба "
+                        f"{SHOP_BOT_USERNAME} равед 💎", parse_mode="HTML"
+                    )
             return
 
         if message.photo:
@@ -831,7 +921,7 @@ async def handle_business_message(message: Message):
             if last and last.get("status") in _WAITING:
                 await message.answer(
                     "📸✅ Расмро гирифтам, раҳмат! Фармоиши охиринатонро "
-                    "санҷидам:\n\n" + _status_text(last)
+                    "санҷидам:\n\n" + _status_text(last), parse_mode="HTML"
                 )
                 _watch_add(chat_id, last, message.business_connection_id)
             else:
