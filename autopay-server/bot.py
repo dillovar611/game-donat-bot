@@ -1164,47 +1164,10 @@ async def _stale_paid_orders_loop(bot: Bot):
                         )
                     except Exception as e:
                         logger.error(f"Ёдоварии дермондагӣ ба мизоҷи {order['user_id']} нарасид: {e}")
-
-                    # ---- ХАБАРИ ДУЮМ БА АДМИН (тӯри бехатарӣ) ----
-                    # Агар огоҳии аввали "дастӣ тафтиш кунед" ба админ
-                    # нарасида бошад (шабака/хато), ин фармоиш ятим мемонд.
-                    # Ин ҷо БОЗ ба админ бо тугмаи тасдиқ мефиристем.
-                    if order.get("is_balance_topup"):
-                        confirm_cb = None  # топуп худкор ҳисоб мешавад
-                    elif order.get("order_group_id"):
-                        confirm_cb = f"okgroup_{order['order_group_id']}"
-                        reject_cb = f"nogroup_{order['order_group_id']}"
-                    else:
-                        confirm_cb = autopay._confirm_cb(order)
-                        reject_cb = f"no_{order_id}"
-                    if confirm_cb:
-                        u = await db.get_user(order["user_id"])
-                        uname = f"@{u['username']}" if u and u.get("username") else "—"
-                        pm = _PM.get(order.get("payment_method"), order.get("payment_method") or "—")
-                        cap = (
-                            f"⏰ <b>ФАРМОИШИ ГУМШУДА — ҳанӯз тасдиқ нашуд!</b>\n\n"
-                            f"Ин фармоиш зиёда аз 20 дақиқа интизори тасдиқи шумост "
-                            f"(эҳтимол огоҳии аввал ба шумо нарасид).\n\n"
-                            f"👤 Харидор: {esc(u.get('full_name') if u else '—')} ({uname})\n"
-                            f"🆔 ID: <code>{order['user_id']}</code>\n"
-                            f"💵 Маблағ: <b>{float(order['price']):.2f} сом</b>\n"
-                            f"💳 Тариқ: {pm}\n"
-                            f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
-                            f"Чекро санҷед: агар пул воқеан омада бошад — «Тасдиқ»."
-                        )
-                        kb = InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="✅ Тасдиқ — донат кун", callback_data=confirm_cb)],
-                            [InlineKeyboardButton(text="❌ Рад кардан", callback_data=reject_cb)],
-                        ])
-                        for admin_id in config.ADMIN_IDS:
-                            try:
-                                if order.get("check_file_id"):
-                                    await bot.send_photo(admin_id, order["check_file_id"],
-                                                         caption=cap, reply_markup=kb, parse_mode="HTML")
-                                else:
-                                    await bot.send_message(admin_id, cap, reply_markup=kb, parse_mode="HTML")
-                            except Exception as e:
-                                logger.error(f"Хабари дуюм ба админ {admin_id} нарасид: {e}")
+                    # ЭЗОҲ: паёми дуюм ба АДМИН ин ҷо ҚАСДАН НЕСТ — вагарна ҳар
+                    # фармоиш ду бор ба админ меомад (аввал ҳангоми чек/пардохт,
+                    # баъд ин ҷо). Тӯри бехатарии ягона акнун _watchdog_loop аст,
+                    # ки ба ҷои дубораи ҳар фармоиш ЯК паёми ҶАМъБАСТӢ мефиристад.
                 except Exception as e:
                     logger.error(f"Коркарди ёдоварии фармоиши #{order_id} нашуд: {e}")
 
@@ -1231,27 +1194,28 @@ async def _stale_paid_orders_loop(bot: Bot):
 
 
 async def _watchdog_loop(bot: Bot):
-    """Тӯри бехатарии ОХИРИН — ҳар соат фармоишҳои зиёда аз 1 соат
-    интизори тасдиқро санҷад ва ба админ як огоҳии ҷамъбастӣ диҳад. Ин
-    ҳатто дар ҳолати нодир (агар ҳамаи огоҳиҳои дигар ноком шаванд)
-    кафолат медиҳад, ки ягон фармоиш абадан гум нашавад."""
+    """Тӯри бехатарии ЯГОНА — ҳар 30 дақиқа фармоишҳои зиёда аз 25 дақиқа
+    интизори тасдиқро месанҷад ва ба админ ЯК огоҳии ҶАМъБАСТӢ медиҳад
+    (на дубораи ҳар фармоиш). Агар админ офлайн бошад ва фармоишҳо ҷамъ
+    шаванд, ба ҷои спам, як рӯйхати кӯтоҳ мебинад — ҳељ фармоиш гум
+    намешавад, вале дубора ҳам намеояд."""
     while True:
-        await asyncio.sleep(60 * 60)  # ҳар соат
+        await asyncio.sleep(30 * 60)  # ҳар 30 дақиқа
         try:
             stuck = await db.get_long_waiting_paid(
-                min_minutes=60, max_hours=48, created_after=autopay._BOT_START_TS)
+                min_minutes=25, max_hours=48, created_after=autopay._BOT_START_TS)
             if not stuck:
                 continue
-            ids = ", ".join(f"#{o['id']}" for o in stuck[:12])
-            more = f" ва {len(stuck) - 12}-тои дигар" if len(stuck) > 12 else ""
+            ids = ", ".join(f"#{o['id']}" for o in stuck[:15])
+            more = f" ва {len(stuck) - 15}-тои дигар" if len(stuck) > 15 else ""
             oldest_min = 0
             try:
                 oldest_min = int((datetime.now() - stuck[0]["created_at"]).total_seconds() // 60)
             except Exception:
                 pass
             text = (
-                f"⚠️ <b>ДИҚҚАТ — фармоишҳои дермонда!</b>\n\n"
-                f"<b>{len(stuck)}</b> фармоиш зиёда аз 1 соат интизори тасдиқи "
+                f"⚠️ <b>ДИҚҚАТ — фармоишҳои интизори тасдиқ!</b>\n\n"
+                f"<b>{len(stuck)}</b> фармоиш зиёда аз 25 дақиқа интизори тасдиқи "
                 f"шумост:\n{ids}{more}\n\n"
                 f"⏳ Кӯҳнатаринаш ~{oldest_min} дақиқа интизор аст.\n\n"
                 f"Лутфан онҳоро санҷед — то мизоҷон нолиданашон."
