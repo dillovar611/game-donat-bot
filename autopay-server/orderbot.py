@@ -160,9 +160,24 @@ _stats = {"messages": 0, "orders_checked": 0, "alerts": 0}
 OWNER_SILENCE_SEC = 8 * 60
 _owner_active: dict[int, float] = {}   # chat_id -> вақти охирин паёми соҳиб
 
+# «Админ онлайн аст?» — агар соҳиб дар ЯГОН чат дар ин муддати охир навишта
+# бошад, ӯро «онлайн» меҳисобем. Вагарна «офлайн» — ва бот ба мизоҷ мегӯяд
+# ки админ ҳозир нест, вале ҲАТМАН ҷавоб медиҳад.
+ADMIN_ONLINE_SEC = 12 * 60
+_owner_last_seen = 0.0                  # вақти охирин паёми соҳиб (дар ҳама чат)
+
+# «Ором кардани мизоҷ» — то ба мизоҷи сершумор-паём спам нашавад, ин паёми
+# ороми ба ҳар чат ҳар чанд дақиқа як бор мефиристем (на ба ҳар паём).
+REASSURE_DEDUP_SEC = 5 * 60
+_reassured: dict[int, float] = {}       # chat_id -> вақти охирин паёми ором
+
 
 def _owner_recently_active(chat_id: int) -> bool:
     return (time.time() - _owner_active.get(chat_id, 0)) < OWNER_SILENCE_SEC
+
+
+def _admin_is_online() -> bool:
+    return (time.time() - _owner_last_seen) < ADMIN_ONLINE_SEC
 
 
 # Салом танҳо ЯК бор дар чанд соат — то агар мизоҷ чанд бор «салом» нависад,
@@ -586,7 +601,9 @@ async def handle_business_message(message: Message):
         # равад. Ин ягона ҳолатест, ки бот ба паёми соҳиб ҷавоб медиҳад.
         # Инчунин: қайд мекунем, ки соҳиб дар ин чат ФАЪОЛ аст — то бот
         # чанд дақиқа хомӯш монад (ба сӯҳбати воқеӣ халал нарасонад).
+        global _owner_last_seen
         _owner_active[chat_id] = time.time()
+        _owner_last_seen = time.time()
         await _owner_order_lookup(message, chat_id, text)
         logger.info(f"[SKIP-OWN] chat={chat_id} — паёми худи соҳиб, четак карда шуд")
         return
@@ -740,12 +757,28 @@ async def handle_business_message(message: Message):
                 await message.answer(GOT_PHOTO_NO_NUMBER)
             return
 
-        # Дигар паёмҳо (сӯҳбати оддии мизоҷ бо соҳиб) — бот одатан хомӯш
-        # мемонад, то соҳиб худаш ҷавоб диҳад; фақат ҳар 5-умин чунин паём
-        # ёдоварии кӯтоҳи рақами фармоишро мефиристад (камтар халал)
-        _unmatched_msg_count[chat_id] = _unmatched_msg_count.get(chat_id, 0) + 1
-        if _unmatched_msg_count[chat_id] % 5 == 0:
-            await message.answer(ORDER_NUMBER_NUDGE)
+        # Дигар паёмҳо (саволи озод, ки бот нафаҳмид). Мизоҷ БЕҶАВОБ намемонад:
+        # бот ба ӯ мегӯяд, ки админ ҳозир нест/машғул аст, вале ҲАТМАН ҷавоб
+        # медиҳад. Барои спам нашудан, ин паёми ором ба ҳар чат ҳар чанд
+        # дақиқа танҳо ЯК бор фиристода мешавад (на ба ҳар паём).
+        # (Агар соҳиб дар ҳамин чат фаъол мебуд, боло аллакай хомӯш мемондем.)
+        if time.time() - _reassured.get(chat_id, 0) >= REASSURE_DEDUP_SEC:
+            _reassured[chat_id] = time.time()
+            if _admin_is_online():
+                await message.answer(
+                    "⏳ Админ ҳозир машғул аст (мизоҷони дигарро ҷавоб дода "
+                    "истодааст) — каме сабр кунед, ҲАТМАН ба шумо ҷавоб медиҳад 🙏\n\n"
+                    "Агар савол дар бораи фармоиш бошад — рақамашро нависед "
+                    "(мисол: #17600), ман фавран месанҷам ✅"
+                )
+            else:
+                await message.answer(
+                    "🌙 Админ ҳозир офлайн аст — шояд кори муҳим дорад. "
+                    "Ҳамин ки озод шавад, ҲАТМАН ба шумо ҷавоб медиҳад, "
+                    "хотирҷамъ бошед 🙏\n\n"
+                    "Агар савол дар бораи фармоиш бошад — рақамашро нависед "
+                    "(мисол: #17600), ман фавран месанҷам ✅"
+                )
     except Exception as e:
         logger.error(f"[FATAL] handle_business_message хато: {e}", exc_info=True)
 
