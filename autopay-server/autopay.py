@@ -51,7 +51,7 @@ SEARCH_TIMEOUT_MIN = 10   # чек омад, вале пардохт то ин �
 EXPIRY_WARN_BEFORE_MIN = 3  # чанд дақиқа пеш аз итмоми мӯҳлат огоҳ кунем
 FEED_QUIET_MIN = 30       # чанд дақиқа бе ягон пардохт — аломати мушкил
 FEED_MIN_WAITING = 2      # ва ҳадди ақал чанд мизоҷ бояд интизор бошад
-NUDGE_AFTER_HOURS = 3     # баъди чанд соат ба фармоиши нотамом ёдоварӣ кунем
+NUDGE_AFTER_HOURS = 1     # баъди чанд соат ба фармоиши нотамом ёдоварӣ кунем («нархат нигоҳ дошта шуд»)
 NUDGE_UNTIL_HOURS = 24    # аз ин кӯҳнатар бошад, дигар ёдоварӣ намекунем
 
 # Навбати автодонат — то 4 донат ҳамзамон иҷро мешаванд (пеш танҳо 1,
@@ -1273,14 +1273,16 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
                 try:
                     await bot.send_message(
                         order["user_id"],
-                        f"👋 <b>Фармоишатон нотамом монд</b>\n\n"
-                        f"🎁 {esc(order['label'])} — {float(order['price']):.2f} сом\n\n"
-                        f"Пардохт наомад, пас фармоиш пӯшида шуд. Ҳељ пуле кам "
-                        f"нашуд — хавотир нашавед.\n\n"
-                        f"Агар ҳанӯз хоҳед, харидро аз нав сар кардан мумкин "
-                        f"аст — ду дақиқа вақт мегирад 👇",
+                        pemoji.premiumize(
+                            f"💚 <b>Нархат нигоҳ дошта шуд!</b>\n\n"
+                            f"🎁 {esc(order['label'])} — <b>{float(order['price']):.2f} сом</b>\n\n"
+                            f"Ту ин маҳсулро дидӣ, вале то охир нахаридӣ 🙂 "
+                            f"Ҳељ пуле кам нашуд — хавотир нашав.\n\n"
+                            f"Агар ҳанӯз хоҳӣ, ҳамин нарх интизори туст — "
+                            f"харидро дар ду дақиқа тамом кун 👇"
+                        ),
                         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                            [InlineKeyboardButton(text="🛒 Харидро давом додан",
+                            [InlineKeyboardButton(text="🛒 Ҳозир харидан",
                                                   callback_data="back_main")],
                         ]),
                         parse_mode="HTML"
