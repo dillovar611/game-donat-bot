@@ -532,6 +532,13 @@ async def _send_repurchase_offer(bot: Bot, order: dict):
     # Топуп/сабад/комбо — ин пешниҳод нест (флоуяшон дигар аст)
     if order.get("is_balance_topup") or order.get("order_group_id") or order.get("combo_id"):
         return
+    # Агар ин харид ХУДАШ бо тахфиф буд — оффери нав НАФИРИСТ (то занҷири
+    # беохири тахфиф нашавад: 8.9→8.81→8.72...). Як тахфиф, баъд ба оддӣ.
+    try:
+        if await db.consume_reoffer_block(user_id):
+            return
+    except Exception as e:
+        logger.error(f"consume_reoffer_block барои {user_id} хато: {e}")
     try:
         await db.set_repurchase_offer(user_id, db.REOFFER_MINUTES)
     except Exception as e:

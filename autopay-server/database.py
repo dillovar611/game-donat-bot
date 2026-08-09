@@ -81,6 +81,9 @@ async def init_db():
                 "ALTER TABLE users ADD COLUMN winback_active TINYINT DEFAULT 0",
                 # №1 — тахфифи 1% баъди хариди муваффақ (то ин вақт фаъол)
                 "ALTER TABLE users ADD COLUMN reoffer_until DATETIME DEFAULT NULL",
+                # Агар хариди охирин ХУДАШ тахфифдор буд — оффери нав нафирист
+                # (то занҷири беохири тахфиф нашавад: 8.9→8.81→8.72...)
+                "ALTER TABLE users ADD COLUMN reoffer_block TINYINT DEFAULT 0",
             ):
                 try:
                     await cur.execute(ddl)
@@ -1877,6 +1880,29 @@ async def clear_repurchase_offer(user_id: int):
             await cur.execute(
                 "UPDATE users SET reoffer_until = NULL WHERE id=%s", (user_id,)
             )
+
+
+async def mark_reoffer_used(user_id: int):
+    """Хариди тахфифдор — тахфифро бекор ва «блоки оффери навбатӣ»-ро
+    мегузорад, то занҷири беохири тахфиф (8.9→8.81→8.72...) нашавад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE users SET reoffer_until = NULL, reoffer_block = 1 WHERE id=%s",
+                (user_id,),
+            )
+
+
+async def consume_reoffer_block(user_id: int) -> bool:
+    """Атомикӣ: агар «блоки оффер» гузошта бошад, онро тоза мекунад ва True
+    бармегардонад (яъне оффери нав НАФИРИСТ). Вагарна False."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE users SET reoffer_block = 0 WHERE id=%s AND reoffer_block = 1",
+                (user_id,),
+            )
+            return cur.rowcount > 0
 
 
 # ==================== ОФФЕРИ БАРҚӢ (FLASH — 1 маҳсул, 1 соат, рӯзе 1 бор) ==========

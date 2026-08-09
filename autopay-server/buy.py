@@ -1072,7 +1072,7 @@ async def _autopay_requisites(call: CallbackQuery, state: FSMContext, data: dict
     try:
         if await db.has_repurchase_offer(call.from_user.id):
             base_price = round(base_price * (1 - db.REOFFER_PERCENT / 100), 2)
-            await db.clear_repurchase_offer(call.from_user.id)
+            await db.mark_reoffer_used(call.from_user.id)
             reoffer_applied = True
             disc_note += (f"🎁 <b>Тахфифи {db.REOFFER_PERCENT:g}% (пешниҳоди "
                           f"баъди харид)</b> татбиқ шуд!\n")
@@ -1085,6 +1085,7 @@ async def _autopay_requisites(call: CallbackQuery, state: FSMContext, data: dict
             flash_pid = await db.get_flash_product_id()
             if flash_pid is not None and str(data.get("product_id")) == str(flash_pid):
                 base_price = round(base_price * (1 - db.FLASH_PERCENT / 100), 2)
+                await db.mark_reoffer_used(call.from_user.id)
                 disc_note += (f"⚡ <b>Оффери БАРҚӢ -{db.FLASH_PERCENT:g}%</b> "
                               f"татбиқ шуд!\n")
         except Exception as e:
@@ -1236,7 +1237,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
         try:
             if await db.has_repurchase_offer(call.from_user.id):
                 base_price = round(base_price * (1 - db.REOFFER_PERCENT / 100), 2)
-                await db.clear_repurchase_offer(call.from_user.id)
+                await db.mark_reoffer_used(call.from_user.id)
                 reoffer_applied = True
                 winback_note += (f"🎁 <b>Тахфифи {db.REOFFER_PERCENT:g}% (пешниҳоди "
                                  f"баъди харид)</b> татбиқ шуд!\n")
@@ -1248,6 +1249,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
                 flash_pid = await db.get_flash_product_id()
                 if flash_pid is not None and str(data.get("product_id")) == str(flash_pid):
                     base_price = round(base_price * (1 - db.FLASH_PERCENT / 100), 2)
+                    await db.mark_reoffer_used(call.from_user.id)
                     winback_note += (f"⚡ <b>Оффери БАРҚӢ -{db.FLASH_PERCENT:g}%</b> "
                                      f"татбиқ шуд!\n")
             except Exception as e:
