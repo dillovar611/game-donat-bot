@@ -1768,9 +1768,11 @@ async def order_group_confirm(call: CallbackQuery):
         return
     group_id = call.data.split("_", 1)[1]
     orders = await db.get_orders_by_group(group_id)
-    pending = [o for o in orders if o["status"] not in ("confirmed", "rejected")]
+    # 'donating'-ро низ истисно мекунем — вагарна агар донати ХУДКОР ҳозир
+    # дар ҷараён бошад, тасдиқи дастии админ дубора донат мекард.
+    pending = [o for o in orders if o["status"] not in ("confirmed", "rejected", "donating")]
     if not pending:
-        await call.answer("ℹ️ Ин гурӯҳ аллакай коркард шудааст!", show_alert=True)
+        await call.answer("ℹ️ Ин гурӯҳ аллакай коркард/дар ҷараён аст!", show_alert=True)
         return
 
     await call.answer(f"⏳ Донати {len(pending)} маҳсулот оғоз шуд...", show_alert=False)

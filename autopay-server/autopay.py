@@ -189,6 +189,13 @@ async def handle_dc_notification(message: Message):
             # чек ҳанӯз нарасида бошад, ҳалқаи _stale_paid_orders_loop
             # (bot.py) огоҳии таъхириро мефиристад.
             await db.mark_kod_matched(kod, order_ref)
+            # САБАДИ ХУДКОР (ДС) — бо 3 қулфи бехатарӣ. Агар ҳама қулф гузаранд,
+            # худкор донат мешавад; вагарна дастӣ мемонад (мисли ҳозира).
+            try:
+                if await _try_auto_donate_cart(message.bot, order, summa):
+                    return
+            except Exception as e:
+                logger.error(f"Auto-cart (notif) хато: {e}")
             logger.info(f"Autopay: пардохти сабад #{order_ref} — дастӣ тасдиқ мешавад (гурӯҳ)")
             return
         if order and order.get("payment_method") in ("dushanbe_city", "alif"):
@@ -280,8 +287,12 @@ async def handle_dc_scan_message(message: Message):
             order = await db.get_order(int(order_ref))
             # Фармоиши сабад (гурӯҳ) — дастӣ мемонад, автопардохт даст намезанад
             if order and order.get("order_group_id"):
-                # Резерв — огоҳии «чек нарасид» таъхирӣ (bot.py loop), на дарҳол
                 await db.mark_kod_matched(synth_kod, int(order_ref))
+                # САБАДИ ХУДКОР (ДС) — бо 3 қулф; вагарна дастӣ мемонад.
+                try:
+                    await _try_auto_donate_cart(message.bot, order, summa)
+                except Exception as e:
+                    logger.error(f"Auto-cart (scan) хато: {e}")
                 continue
             if not order or order.get("payment_method") not in ("dushanbe_city", "alif"):
                 continue
@@ -483,6 +494,164 @@ async def _notify_admin_cart_awaiting(bot: Bot, order: dict):
                 await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Огоҳии тасдиқи сабад ба {admin_id} нарасид: {e}")
+
+
+async def _notify_admin_cart_fraud(bot: Bot, order: dict, orders: list, summa: float):
+    """Сабад нархи ШУБҲАНОК дорад (маҳсули номаълум ё хеле арзон нисбат ба
+    каталог) — эҳтимоли фиреб. Худкор донат НАМЕШАВАД; ба админ бо огоҳии
+    сурх ва тугмаи тасдиқ/рад мефиристем — админ худаш қарор гирад."""
+    gid = order.get("order_group_id")
+    user = await db.get_user(order["user_id"])
+    username = f"@{user['username']}" if user and user.get("username") else "—"
+    items = "\n".join(
+        f"  🎁 {o['label']} ({o.get('amount')} алмос) — {float(o['price']):.2f} сом"
+        for o in orders)
+    total = sum(float(o["price"]) for o in orders)
+    caption = (
+        f"🚨 <b>ДИҚҚАТ — сабади нархи ШУБҲАНОК!</b>\n\n"
+        f"Худкор донат НАШУД — эҳтимоли фиреб (нарх бо каталог мувофиқ нест).\n"
+        f"Лутфан ДАСТӢ бодиққат санҷед:\n\n"
+        f"👤 {esc(user.get('full_name') if user else '—')} ({esc(username)})\n"
+        f"🆔 <code>{order['user_id']}</code>\n\n"
+        f"{items}\n\n"
+        f"💵 Ҷамъ: <b>{total:.2f} сом</b> | Пардохт: <b>{float(summa):.2f} сом</b>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Тасдиқ (санҷидам, дуруст)", callback_data=f"okgroup_{gid}")],
+        [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"nogroup_{gid}")],
+    ])
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Огоҳии фиреби сабад ба {admin_id} нарасид: {e}")
+
+
+async def run_donate_group_auto(bot: Bot, orders: list):
+    """Сабади ДС-ро (баъд аз 3 қулф) ХУДКОР донат мекунад. Фармоишҳо
+    аллакай атомикӣ ба 'donating' гирифта шудаанд (claim_group_for_donate)."""
+    if not orders:
+        return
+    user_id = orders[0]["user_id"]
+    ok_items, fail_items = [], []
+    for order in orders:
+        order_id = order["id"]
+        async with _donate_semaphore:
+            success, api_order_id, uncertain, cost_usd = await _dispatch_donate_call(order)
+        if api_order_id:
+            await db.set_order_api_id(order_id, api_order_id)
+        if success:
+            await db.update_order_status(order_id, "confirmed")
+            await db.set_confirmed_at(order_id)
+            if cost_usd:
+                await db.set_order_cost(order_id, round(cost_usd * config.USD_TO_TJS_RATE, 2))
+            try:
+                reward, referrer_id = await db.credit_referral_for_order(order_id)
+                if reward and referrer_id:
+                    await bot.send_message(
+                        referrer_id,
+                        f"🤝 <b>Мукофоти реферралӣ!</b>\n\n"
+                        f"💰 Дусти шумо фармоиш дод ва шумо <b>{reward:.2f} сом</b> "
+                        f"ба балансатон гирифтед!", parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"credit_referral (авто-сабад) хато #{order_id}: {e}")
+            ok_items.append(order)
+        else:
+            await db.update_order_status(order_id, "failed")
+            if uncertain:
+                await db.flag_order_uncertain(order_id)
+            _recheck_settled.discard(order_id)
+            try:
+                await db.reset_recheck_state(order_id)
+            except Exception as e:
+                logger.error(f"reset_recheck_state #{order_id}: {e}")
+            fail_items.append(order)
+
+    # ---- Паём ба мизоҷ ----
+    if ok_items:
+        lines = "\n".join(f"  {esc(o['label'])}" for o in ok_items)
+        try:
+            await bot.send_message(
+                user_id,
+                f"{db.anim('success', pemoji.pe(pemoji.PARTY, '🎉') + ' <b>Донат анҷом ёфт!</b>')} "
+                f"<b>Маҳсулотҳо фиристода шуданд!</b>\n\n{lines}\n\n🙏 Ташаккур барои харид!\n\n"
+                f"{db.anim('review', pemoji.pe(pemoji.STAR, '⭐') + ' Лутфан отзив гузоред')}:",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="⭐ Отзив гузоштан",
+                                          callback_data=f"review_{ok_items[0]['id']}")]
+                ]), parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Паёми авто-сабад ба {user_id} нарасид: {e}")
+    if fail_items:
+        lines = "\n".join(f"  ⚠️ {esc(o['label'])} (#{o['id']})" for o in fail_items)
+        try:
+            await bot.send_message(
+                user_id,
+                f"⚠️ <b>Баъзе маҳсулотҳо нашуданд:</b>\n\n{lines}\n\n"
+                f"Админ дар ҷараёни ҳал кардан аст. 🙏", parse_mode="HTML")
+        except Exception:
+            pass
+
+    # ---- Ҳисоботи ҷамъбастӣ ба админ ----
+    res = [f"✅ {o['label']} — #{o['id']}" for o in ok_items] + \
+          [f"❌ {o['label']} — #{o['id']}" for o in fail_items]
+    user = await db.get_user(user_id)
+    uname = f"@{user['username']}" if user and user.get("username") else "—"
+    head = ("⚡🛒 <b>АВТОТАСДИҚ — сабад (Душанбе Сити)</b>\n\n"
+            f"👤 {esc(user.get('full_name') if user else '—')} ({esc(uname)})\n"
+            f"🆔 <code>{user_id}</code>\n\n")
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, head + "\n".join(res), parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Ҳисоботи авто-сабад ба админ {admin_id} нарасид: {e}")
+
+
+async def _try_auto_donate_cart(bot: Bot, order: dict, summa: float) -> bool:
+    """Сабади ДС-ро ХУДКОР донат мекунад — БО 3 ҚУЛФИ БЕХАТАРӢ. Агар ягон
+    қулф 100% боварӣ надиҳад → False (дастӣ мемонад, мисли ҳозира). Пас
+    донати ГАЛАТ ҳеҷ гоҳ намешавад — бадтарин ҳолат «дастӣ» аст."""
+    gid = order.get("order_group_id")
+    if not gid:
+        return False
+    # ҚУЛФИ 1 — танҳо ДС (комент). Алиф аз МАБЛАҒ мешиносад → риски математика,
+    # дастӣ мемонад.
+    if order.get("payment_method") != "dushanbe_city":
+        return False
+    try:
+        orders = await db.get_orders_by_group(gid)
+    except Exception:
+        return False
+    active = [o for o in orders if o.get("status") in ("pending", "paid")]
+    if not active:
+        return False
+    # ҚУЛФИ 2 — пардохт == ҷамъи нархҳо? (тин ба тин)
+    total = round(sum(float(o["price"]) for o in active), 2)
+    if abs(total - float(summa)) > 0.05:
+        logger.info(f"Auto-cart {gid}: ҷамъ {total} != пардохт {summa} — дастӣ")
+        return False
+    # ҚУЛФИ 3 — нархи ҳар маҳсул бо каталог? (зидди фиреби «нархи 100, алмоси 5000»)
+    try:
+        products = await db.get_products()
+        cat = {int(p["amount"]): float(p["price"]) for p in products if p.get("amount")}
+    except Exception:
+        return False
+    for o in active:
+        amt = int(o["amount"]) if o.get("amount") else 0
+        cprice = cat.get(amt)
+        if cprice is None or float(o["price"]) < cprice * 0.8:
+            logger.warning(
+                f"Auto-cart {gid}: #{o['id']} нархи шубҳанок "
+                f"({o['price']} vs каталог {cprice}) — дастӣ + огоҳӣ")
+            await _notify_admin_cart_fraud(bot, order, active, summa)
+            return False
+    # Ҳама 3 қулф гузаштанд → атомикӣ гир ва донат кун
+    claimed = await db.claim_group_for_donate(gid)
+    if not claimed:
+        return False   # касе аллакай гирифт (админ/роҳи дигар)
+    logger.info(f"Auto-cart {gid}: 3 қулф гузашт → донати худкори {len(claimed)} маҳсулот")
+    await run_donate_group_auto(bot, claimed)
+    return True
 
 
 async def _notify_admin_payment_confirmed(bot: Bot, order: dict, summa: float, kod: str):

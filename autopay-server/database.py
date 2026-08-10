@@ -3316,6 +3316,29 @@ async def claim_order_for_donate(order_id: int) -> bool:
             return cur.rowcount > 0
 
 
+async def claim_group_for_donate(group_id: str) -> list:
+    """Атомикӣ: фармоишҳои 'pending'/'paid'-и сабадро ба 'donating'
+    мегузаронад ва ҳамонҳоеро, ки МО гирифтем, бармегардонад. Агар холӣ
+    бошад — касе (админ ё роҳи дигар) аллакай гирифтааст → донати дучанд
+    намешавад."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET status='donating' "
+                "WHERE order_group_id=%s AND status IN ('pending','paid')",
+                (group_id,)
+            )
+            if cur.rowcount == 0:
+                return []
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders WHERE order_group_id=%s AND status='donating'",
+                (group_id,)
+            )
+            return await cur.fetchall()
+
+
 async def claim_order_for_reject(order_id: int) -> bool:
     """Атомикӣ: фармоишро ба 'rejected' мегузаронад, ФАҚАТ агар он ҳанӯз
     ниҳоӣ ё дар ҳоли донат набошад. False = аллакай коркард шудааст (масалан
