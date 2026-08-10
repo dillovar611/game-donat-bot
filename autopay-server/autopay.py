@@ -436,6 +436,55 @@ async def _notify_admin_cart_paid(bot: Bot, order: dict):
             logger.error(f"Огоҳии пардохти сабад ба {admin_id} нарасид: {e}")
 
 
+async def _notify_admin_cart_awaiting(bot: Bot, order: dict):
+    """Сабад ЧЕК дорад (status='paid') ва интизори тасдиқи админ аст, вале
+    зиёда аз ~20 дақ гузашт (эҳтимол огоҳии аввал гум шуд). БОЗ ба админ бо
+    расми чек + тугмаи «Тасдиқи гурӯҳ» мефиристем — то сабад ятим намонад.
+    Сабадҳо ХУДКОР донат намешаванд, пас ин тӯри бехатарӣ ҳатмист."""
+    gid = order.get("order_group_id")
+    if not gid:
+        return
+    try:
+        orders = await db.get_orders_by_group(gid)
+    except Exception:
+        orders = None
+    if not orders:
+        return
+    # Агар аллакай тасдиқ/рад шуда бошад — коре намекунем
+    if all(o.get("status") in ("confirmed", "rejected") for o in orders):
+        return
+    user = await db.get_user(order["user_id"])
+    username = f"@{user['username']}" if user and user.get("username") else "—"
+    total = sum(float(o["price"]) for o in orders)
+    ids = ", ".join(f"#{o['id']}" for o in orders)
+    items = "\n".join(
+        f"  🎁 {o['label']} → <code>{o['game_id']}</code>" for o in orders)
+    caption = (
+        f"⏰🛒 <b>САБАД интизори тасдиқи шумост — гум нашавад!</b>\n\n"
+        f"Ин сабад чек дорад ва зиёда аз 20 дақиқа интизори тасдиқи шумост "
+        f"(эҳтимол огоҳии аввал гум шуд). Дастӣ тасдиқ кунед:\n\n"
+        f"🆔 Фармоишҳо: <b>{ids}</b>\n"
+        f"👤 Харидор: {esc(user.get('full_name') if user else '—')} ({esc(username)})\n"
+        f"🆔 ID: <code>{order['user_id']}</code>\n\n"
+        f"{items}\n\n"
+        f"💵 Ҷамъ: <b>{total:.2f} сом</b>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Тасдиқи ҳамаи гурӯҳ — донат кун", callback_data=f"okgroup_{gid}")],
+        [InlineKeyboardButton(text="❌ Рад кардани ҳамаи гурӯҳ", callback_data=f"nogroup_{gid}")],
+    ])
+    check_fid = order.get("check_file_id")
+    for admin_id in config.ADMIN_IDS:
+        try:
+            if check_fid:
+                await bot.send_photo(admin_id, check_fid, caption=caption,
+                                     reply_markup=kb, parse_mode="HTML")
+            else:
+                await bot.send_message(admin_id, caption, reply_markup=kb, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Огоҳии тасдиқи сабад ба {admin_id} нарасид: {e}")
+
+
 async def _notify_admin_payment_confirmed(bot: Bot, order: dict, summa: float, kod: str):
     """Пардохт барои фармоише ки аллакай дар навбати админ аст (paid) дар
     банк тасдиқ шуд. АВТОМАТ донат намекунем (шояд админ дастӣ иҷро карда
