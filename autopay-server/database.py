@@ -3065,6 +3065,23 @@ async def has_awaiting_order_by_price(price: float, payment_method: str,
             return (await cur.fetchone()) is not None
 
 
+async def get_active_autopay_orders_by_user(user_id: int, max_age_minutes: int = 30):
+    """Фармоишҳои ФАЪОЛи автопардохти ҳамин корбар (чек интизор ё пардохт
+    интизор) — барои ҳолати «коменти такрорӣ»: вақте пардохт бо коменти кӯҳна
+    меояд, админ бубинад ки ҳамин мизоҷ ягон фармоиши нави тайёр дорад ё не."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders WHERE user_id=%s "
+                "AND status IN ('autopay_search','awaiting_autopay') "
+                "AND payment_method IN ('dushanbe_city','alif','eskhata') "
+                "AND created_at >= NOW() - INTERVAL %s MINUTE "
+                "ORDER BY created_at DESC LIMIT 5",
+                (user_id, max_age_minutes)
+            )
+            return await cur.fetchall()
+
+
 async def set_autopay_check(order_id: int, file_id: str, check_hash: str = None):
     """Чеки фармоиши автопардохтро сабт карда, статусро 'autopay_search'
     мегузорад — аз ҳамин лаҳза ҷустуҷӯи пардохт фаъол мешавад.

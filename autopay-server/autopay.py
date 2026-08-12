@@ -176,6 +176,11 @@ async def handle_dc_notification(message: Message):
         return
 
     # ==== Роҳи асосӣ: РАҚАМИ ФАРМОИШ аз коменти пардохт (card_8848) ====
+    # Агар комент ба фармоише ишора кунад, ки аллакай ТАСДИҚ/РАД шудааст
+    # (DC коменти кӯҳнаро дубора истифода бурд — «card_такрорӣ»), инро ин ҷо
+    # нигоҳ медорем. Баъд агар маблағ ҳам ба ягон фармоиши фаъоли нодир мувофиқ
+    # набошад, ба админ бо контексти РАВШАН хабар медиҳем (на огоҳии хушки «ношинос»).
+    stale_done_order = None
     if order_ref:
         order = await db.get_order(order_ref)
         # Фармоиши САБАД (order_group_id дорад) — ҳамеша дастӣ (гурӯҳ)
@@ -238,7 +243,12 @@ async def handle_dc_notification(message: Message):
                     return
                 await _notify_admin_payment_confirmed(message.bot, order, summa, kod)
                 return
-        # order_ref ҳаст, вале фармоиши мувофиқ нест — поён fallback
+            # Расидем ин ҷо → фармоиш ҳаст, вале статусаш аллакай НИҲОӢ
+            # (confirmed/rejected/donating). Яъне комент card_X ТАКРОРӢ/КӮҲНА
+            # аст — DC коменти фармоиши пешинаро дубора истифода бурд. Автомат
+            # ба ин фармоиши тайёр даст намезанем (донати дучанд = зарар).
+            # Поён бо МАБЛАҒ фармоиши дурусти фаъолро меҷӯем.
+            stale_done_order = order
 
     # ==== Роҳи эҳтиётӣ: муқоисаи МАБЛАҒ (агар комент наомада бошад) ====
     order = await db.find_awaiting_order_by_price(summa, "dushanbe_city", MAX_AGE_MINUTES)
@@ -251,6 +261,11 @@ async def handle_dc_notification(message: Message):
         return
 
     # ==== Ҳеҷ фармоиши мувофиқ нест — огоҳӣ ба админ ====
+    if stale_done_order is not None:
+        # Комент такрорӣ буд (фармоиши тайёрро нишон дод) ВА маблағ ба ягон
+        # фармоиши фаъоли нодир мувофиқ нашуд → админ бо контексти пурра тасмим гирад.
+        await _notify_admin_stale_comment(message.bot, stale_done_order, summa, kod)
+        return
     await _notify_admins_unmatched(message.bot, summa, kod)
 
 
@@ -405,6 +420,52 @@ async def _notify_admins_unmatched(bot: Bot, summa: float, kod: str):
             await bot.send_message(admin_id, text, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Огоҳии пардохти ношинос ба {admin_id} нарасид: {e}")
+
+
+async def _notify_admin_stale_comment(bot: Bot, done_order: dict, summa: float, kod: str):
+    """Комент card_X ба фармоише ишора кард, ки АЛЛАКАЙ тайёр аст (тасдиқ/рад)
+    — DC коменти кӯҳнаро дубора истифода бурд. Маблағ ҳам ба ягон фармоиши
+    фаъоли нодир мувофиқ нашуд. Ба админ бо КОНТЕКСТи пурра хабар медиҳем ва
+    (агар бошад) фармоиши(ҳои) нави ФАЪОЛи ҳамин мизоҷро пешниҳод мекунем."""
+    user_id = done_order.get("user_id")
+    # Оё ҳамин мизоҷ фармоиши нави фаъол дорад? (эҳтимол пардохти дуюм ба он)
+    candidates = []
+    try:
+        candidates = await db.get_active_autopay_orders_by_user(user_id, MAX_AGE_MINUTES + 10)
+    except Exception as e:
+        logger.error(f"stale-comment: гирифтани фармоишҳои фаъол хато: {e}")
+
+    lines = (
+        f"🔁 <b>Коменти ТАКРОРӢ/КӮҲНА дар пардохт!</b>\n\n"
+        f"Дар пардохт комент <code>card_{done_order['id']}</code> омад, вале ин "
+        f"фармоиш аллакай <b>{done_order.get('status')}</b> аст (DC коменти "
+        f"фармоиши пешинаро дубора истифода бурд).\n\n"
+        f"💵 Маблағи омада: <b>{summa:.2f} TJS</b>\n"
+        f"🔑 Kod: <code>{kod}</code>\n"
+        f"👤 Мизоҷ: <code>{user_id}</code>\n\n"
+    )
+    if candidates:
+        cand_txt = "\n".join(
+            f"  • #{o['id']} — {esc(o['label'])} → <code>{o['game_id']}</code> "
+            f"({float(o['price']):.2f} сом, {o['status']})"
+            for o in candidates
+        )
+        lines += (
+            f"⚠️ Ин пул ба ягон фармоиши нодир худкор мувофиқ НАШУД, аммо ҳамин "
+            f"мизоҷ фармоиши(ҳои) нави ФАЪОЛ дорад:\n{cand_txt}\n\n"
+            f"Тафтиш кунед: агар маблағ ба яке аз инҳо тааллуқ дошта бошад, "
+            f"дастӣ тасдиқ кунед. Донати худкор НАШУД (то дучанд нашавад)."
+        )
+    else:
+        lines += (
+            f"Ин мизоҷ ҳозир фармоиши нави фаъол НАДОРАД. Эҳтимол пардохти "
+            f"такрорӣ/иштибоҳӣ аст — дастӣ тафтиш кунед (баргардонед ё нигоҳ доред)."
+        )
+    for admin_id in config.ADMIN_IDS:
+        try:
+            await bot.send_message(admin_id, lines, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Огоҳии коменти такрорӣ ба {admin_id} нарасид: {e}")
 
 
 async def _notify_admin_cart_paid(bot: Bot, order: dict):
