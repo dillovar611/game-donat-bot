@@ -1025,6 +1025,18 @@ async def _pay_reqs(method: str, price: float, dc_comment: str):
             f"3️⃣ Расми чекро ба ҳамин чат фиристед\n\n"
         )
         return pay_url, "💳 Пардохт", steps
+    if method == "eskhata":
+        # Эсхата — линк НЕСТ; мизоҷ дар барномаи Эсхатаи худ ба корти ДС
+        # мефиристад, бот аз тини нодир меёбад (мисли Алиф).
+        steps = (
+            f"1️⃣ Барномаи <b>Эсхата</b>-и худро кушоед\n"
+            f"2️⃣ «Корти Милли других банков» → рақами корт "
+            f"(пахш кунед — нусха мешавад):\n<code>{card}</code>\n"
+            f"3️⃣ Маблағи <b>дақиқ {price:.2f} сом</b>-ро занед "
+            f"(тин ба тин! комиссияро Эсхата ЗИЁДА мегирад — фарқ надорад)\n"
+            f"4️⃣ Пардохт кунед ва расми чекро ба ҳамин чат фиристед\n\n"
+        )
+        return None, None, steps
     # Алиф — кушодани барнома, мизоҷ худаш корт ва маблағро мезанад
     pay_url = await _alif_pay_url()
     steps = (
@@ -1093,7 +1105,8 @@ async def _autopay_requisites(call: CallbackQuery, state: FSMContext, data: dict
     price = await _unique_autopay_price(base_price)
     await state.update_data(price=price, payment_method=method)
 
-    method_name = "🏙 Душанбе Сити" if method == "dushanbe_city" else "💳 Алиф"
+    method_name = {"dushanbe_city": "🏙 Душанбе Сити", "alif": "💳 Алиф",
+                   "eskhata": "🏦 Эсхата"}.get(method, "💳 Алиф")
     await _notify_rozigiho(
         call.bot, call.from_user, title, data["label"],
         price, method_name, str(data.get("product_id", ""))
@@ -1113,10 +1126,11 @@ async def _autopay_requisites(call: CallbackQuery, state: FSMContext, data: dict
 
     pay_url, pay_btn, steps = await _pay_reqs(method, price, f"card_{awaiting_order_id}")
 
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text=pay_btn, url=pay_url)],
-        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back_cb)],
-    ])
+    _rows = []
+    if pay_url:   # Эсхата линк надорад — танҳо тугмаи бозгашт
+        _rows.append([InlineKeyboardButton(text=pay_btn, url=pay_url)])
+    _rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data=back_cb)])
+    kb = InlineKeyboardMarkup(inline_keyboard=_rows)
     await _safe_edit(
         call,
         f"<b>{method_name}</b>\n\n"
@@ -1222,7 +1236,7 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
     # Комбоҳо ҳамеша тавассути чек (дастӣ) мераванд — на автопардохт, зеро
     # донати онҳо дастист (якчанд қисм дошта метавонанд, аз ҷумла қисмҳои
     # дастӣ мисли Level-Up Pass).
-    is_autopay = (method in ("dushanbe_city", "alif") and not is_cart and not data.get("combo_id"))
+    is_autopay = (method in ("dushanbe_city", "alif", "eskhata") and not is_cart and not data.get("combo_id"))
 
     winback_note = ""
     if is_autopay:
@@ -1334,11 +1348,10 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
             pay_url = await _dc_pay_url(dc_card, price, f"card_{order_id}")
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
-        pay_url = data.get("eskhata_link") or ""
-        eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
-        if not pay_url:
-            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
-            return
+        # Эсхата акнун АВТОПАРДОХТ — линк лозим НЕСТ (мизоҷ дар барномаи Эсхата
+        # ба корти ДС маблағи дақиқро мефиристад, бот аз тини нодир меёбад).
+        pay_url = None
+        eskhata_note = ""
     else:
         method_name = "💳 Алиф"
         pay_url = await _alif_pay_url()
@@ -1373,10 +1386,11 @@ async def show_requisites(call: CallbackQuery, state: FSMContext):
         # Алиф → кушодани барнома, мизоҷ худаш ба «На карту» корт+маблағ мезанад
         # (шинохт аз рӯи маблағи нодир).
         pay_url, pay_btn, steps = await _pay_reqs(method, price, f"card_{awaiting_order_id}")
-        kb = InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text=pay_btn, url=pay_url)],
-            [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="id_ok")],
-        ])
+        _rows = []
+        if pay_url:   # Эсхата линк надорад — танҳо тугмаи бозгашт
+            _rows.append([InlineKeyboardButton(text=pay_btn, url=pay_url)])
+        _rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="id_ok")])
+        kb = InlineKeyboardMarkup(inline_keyboard=_rows)
         await _safe_edit(
             call,
             f"<b>{method_name}</b>\n\n"
@@ -1967,8 +1981,8 @@ async def ffid_terms_reject(call: CallbackQuery, state: FSMContext):
 async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     method = data.get("pending_payment_method", "alif")
-    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
-    if method in ("dushanbe_city", "alif"):
+    # DC/Alif/Эсхата → автопардохти пурра (худкор тасдиқ + донат).
+    if method in ("dushanbe_city", "alif", "eskhata"):
         await _autopay_requisites(
             call, state, data, method,
             game_id_marker=f"FFID:{data['player_id']}",
@@ -1990,11 +2004,10 @@ async def ffid_show_requisites(call: CallbackQuery, state: FSMContext):
         pay_url = await _dc_pay_url(dc_card, price, f"card_ffid{order_id}")
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
-        pay_url = data.get("eskhata_link") or ""
-        eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
-        if not pay_url:
-            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
-            return
+        # Эсхата акнун АВТОПАРДОХТ — линк лозим НЕСТ (мизоҷ дар барномаи Эсхата
+        # ба корти ДС маблағи дақиқро мефиристад, бот аз тини нодир меёбад).
+        pay_url = None
+        eskhata_note = ""
     else:
         method_name = "💳 Алиф"
         # Нархи каме нодир — зидди чеки такрорӣ/дуруғин (ба amount= низ мегузарад)
@@ -2304,8 +2317,8 @@ async def pubg_terms_reject(call: CallbackQuery, state: FSMContext):
 async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     method = data.get("pending_payment_method", "alif")
-    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
-    if method in ("dushanbe_city", "alif"):
+    # DC/Alif/Эсхата → автопардохти пурра (худкор тасдиқ + донат).
+    if method in ("dushanbe_city", "alif", "eskhata"):
         await _autopay_requisites(
             call, state, data, method,
             game_id_marker=f"PUBG:{data['player_id']}",
@@ -2327,11 +2340,10 @@ async def pubg_show_requisites(call: CallbackQuery, state: FSMContext):
         pay_url = await _dc_pay_url(dc_card, price, f"card_pubg{order_id}")
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
-        pay_url = data.get("eskhata_link") or ""
-        eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
-        if not pay_url:
-            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
-            return
+        # Эсхата акнун АВТОПАРДОХТ — линк лозим НЕСТ (мизоҷ дар барномаи Эсхата
+        # ба корти ДС маблағи дақиқро мефиристад, бот аз тини нодир меёбад).
+        pay_url = None
+        eskhata_note = ""
     else:
         method_name = "💳 Алиф"
         price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
@@ -2633,8 +2645,8 @@ async def stars_terms_reject(call: CallbackQuery, state: FSMContext):
 async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     method = data.get("pending_payment_method", "alif")
-    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
-    if method in ("dushanbe_city", "alif"):
+    # DC/Alif/Эсхата → автопардохти пурра (худкор тасдиқ + донат).
+    if method in ("dushanbe_city", "alif", "eskhata"):
         await _autopay_requisites(
             call, state, data, method,
             game_id_marker=f"STARS:{data['tg_username']}",
@@ -2656,11 +2668,10 @@ async def stars_show_requisites(call: CallbackQuery, state: FSMContext):
         pay_url = await _dc_pay_url(dc_card, price, f"card_stars{order_id}")
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
-        pay_url = data.get("eskhata_link") or ""
-        eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
-        if not pay_url:
-            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
-            return
+        # Эсхата акнун АВТОПАРДОХТ — линк лозим НЕСТ (мизоҷ дар барномаи Эсхата
+        # ба корти ДС маблағи дақиқро мефиристад, бот аз тини нодир меёбад).
+        pay_url = None
+        eskhata_note = ""
     else:
         method_name = "💳 Алиф"
         price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
@@ -2940,8 +2951,8 @@ async def premium_terms_reject(call: CallbackQuery, state: FSMContext):
 async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     method = data.get("pending_payment_method", "alif")
-    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
-    if method in ("dushanbe_city", "alif"):
+    # DC/Alif/Эсхата → автопардохти пурра (худкор тасдиқ + донат).
+    if method in ("dushanbe_city", "alif", "eskhata"):
         await _autopay_requisites(
             call, state, data, method,
             game_id_marker=f"PREMIUM:{data['tg_username']}",
@@ -2963,11 +2974,10 @@ async def premium_show_requisites(call: CallbackQuery, state: FSMContext):
         pay_url = await _dc_pay_url(dc_card, price, f"card_premium{order_id}")
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
-        pay_url = data.get("eskhata_link") or ""
-        eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
-        if not pay_url:
-            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
-            return
+        # Эсхата акнун АВТОПАРДОХТ — линк лозим НЕСТ (мизоҷ дар барномаи Эсхата
+        # ба корти ДС маблағи дақиқро мефиристад, бот аз тини нодир меёбад).
+        pay_url = None
+        eskhata_note = ""
     else:
         method_name = "💳 Алиф"
         price = round(round(float(price), 2) + round(random.randint(1, 99) / 100, 2), 2)
@@ -4115,8 +4125,8 @@ async def ffbr_terms_reject(call: CallbackQuery, state: FSMContext):
 async def ffbr_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     method = data.get("pending_payment_method", "alif")
-    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
-    if method in ("dushanbe_city", "alif"):
+    # DC/Alif/Эсхата → автопардохти пурра (худкор тасдиқ + донат).
+    if method in ("dushanbe_city", "alif", "eskhata"):
         await _autopay_requisites(
             call, state, data, method,
             game_id_marker=f"FFBR:{data['player_id']}",
@@ -4138,11 +4148,10 @@ async def ffbr_show_requisites(call: CallbackQuery, state: FSMContext):
         pay_url = await _dc_pay_url(dc_card, price, f"card_ffbr{order_id}")
     elif method == "eskhata":
         method_name = "🏦 Эсхата"
-        pay_url = data.get("eskhata_link") or ""
-        eskhata_note = "\n⚠️ <b>Эсхата +5% комиссия мегирад</b>\n"
-        if not pay_url:
-            await call.answer("⚠️ Барои ин маҳсулот линки Эсхата ҷойгир нашудааст!", show_alert=True)
-            return
+        # Эсхата акнун АВТОПАРДОХТ — линк лозим НЕСТ (мизоҷ дар барномаи Эсхата
+        # ба корти ДС маблағи дақиқро мефиристад, бот аз тини нодир меёбад).
+        pay_url = None
+        eskhata_note = ""
     else:
         method_name = "💳 Алиф"
         # Нархи каме нодир — зидди чеки такрорӣ/дуруғин (ба amount= низ мегузарад)
@@ -4478,8 +4487,8 @@ async def ml_terms_reject(call: CallbackQuery, state: FSMContext):
 async def ml_show_requisites(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     method = data.get("pending_payment_method", "alif")
-    # DC/Alif → автопардохти пурра (худкор тасдиқ + худкор донат). Эсхата дастӣ.
-    if method in ("dushanbe_city", "alif"):
+    # DC/Alif/Эсхата → автопардохти пурра (худкор тасдиқ + донат).
+    if method in ("dushanbe_city", "alif", "eskhata"):
         await _autopay_requisites(
             call, state, data, method,
             game_id_marker=f"ML:{data['player_id']}:{data['server_id']}",

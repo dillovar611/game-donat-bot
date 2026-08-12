@@ -3013,7 +3013,7 @@ async def get_active_awaiting_prices(payment_method: str) -> set:
             await cur.execute(
                 "SELECT price FROM orders "
                 "WHERE status IN ('awaiting_autopay','autopay_search') "
-                "AND payment_method IN ('dushanbe_city','alif') "
+                "AND payment_method IN ('dushanbe_city','alif','eskhata') "
                 "AND created_at >= NOW() - INTERVAL 30 MINUTE"
             )
             rows = await cur.fetchall()
@@ -3043,7 +3043,7 @@ async def find_awaiting_order_by_price(price: float, payment_method: str,
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
                 "SELECT * FROM orders WHERE status='autopay_search' "
-                "AND payment_method IN ('dushanbe_city','alif') AND price=%s "
+                "AND payment_method IN ('dushanbe_city','alif','eskhata') AND price=%s "
                 "AND created_at >= NOW() - INTERVAL %s MINUTE "
                 "ORDER BY created_at ASC LIMIT 1",
                 (price, max_age_minutes)
@@ -3058,7 +3058,7 @@ async def has_awaiting_order_by_price(price: float, payment_method: str,
         async with conn.cursor() as cur:
             await cur.execute(
                 "SELECT 1 FROM orders WHERE status='awaiting_autopay' "
-                "AND payment_method IN ('dushanbe_city','alif') AND price=%s "
+                "AND payment_method IN ('dushanbe_city','alif','eskhata') AND price=%s "
                 "AND created_at >= NOW() - INTERVAL %s MINUTE LIMIT 1",
                 (price, max_age_minutes)
             )
@@ -3271,7 +3271,7 @@ async def find_reserved_order_for_user(user_id: int, max_age_minutes: int = 120)
                 "JOIN dc_kods k ON k.matched_order_id = o.id "
                 "WHERE o.user_id=%s "
                 "AND o.status IN ('awaiting_autopay','expired') "
-                "AND o.payment_method IN ('dushanbe_city','alif') "
+                "AND o.payment_method IN ('dushanbe_city','alif','eskhata') "
                 "AND o.order_group_id IS NULL "
                 "AND o.created_at >= NOW() - INTERVAL %s MINUTE "
                 "ORDER BY o.created_at DESC LIMIT 1",

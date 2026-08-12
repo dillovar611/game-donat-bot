@@ -198,7 +198,7 @@ async def handle_dc_notification(message: Message):
                 logger.error(f"Auto-cart (notif) хато: {e}")
             logger.info(f"Autopay: пардохти сабад #{order_ref} — дастӣ тасдиқ мешавад (гурӯҳ)")
             return
-        if order and order.get("payment_method") in ("dushanbe_city", "alif"):
+        if order and order.get("payment_method") in ("dushanbe_city", "alif", "eskhata"):
             if order.get("status") in ("autopay_search", "awaiting_autopay", "expired"):
                 # Маблағро месанҷем — бояд бо нархи фармоиш баробар бошад
                 if abs(float(order["price"]) - summa) > 0.011:
@@ -294,7 +294,7 @@ async def handle_dc_scan_message(message: Message):
                 except Exception as e:
                     logger.error(f"Auto-cart (scan) хато: {e}")
                 continue
-            if not order or order.get("payment_method") not in ("dushanbe_city", "alif"):
+            if not order or order.get("payment_method") not in ("dushanbe_city", "alif", "eskhata"):
                 continue
             status = order.get("status")
             if status not in ("autopay_search", "awaiting_autopay", "paid", "expired"):
@@ -745,7 +745,7 @@ async def _send_repurchase_offer(bot: Bot, order: dict):
     Тахфиф ба хариди навбати ХУДКОР татбиқ мешавад (дар _autopay_requisites).
     Танҳо барои маҳсулоти автопардохт (DC/Alif) — то тахфиф дуруст равад."""
     user_id = order["user_id"]
-    if order.get("payment_method") not in ("dushanbe_city", "alif"):
+    if order.get("payment_method") not in ("dushanbe_city", "alif", "eskhata"):
         return
     # Топуп/сабад/комбо — ин пешниҳод нест (флоуяшон дигар аст)
     if order.get("is_balance_topup") or order.get("order_group_id") or order.get("combo_id"):
