@@ -202,6 +202,7 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN nudge_sent TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN admin_alerted TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN auto_retried TINYINT DEFAULT 0",
+                "ALTER TABLE orders ADD COLUMN money_net_alerted TINYINT DEFAULT 0",
             ):
                 try:
                     await cur.execute(ddl)
@@ -1525,6 +1526,57 @@ async def get_long_waiting_paid(min_minutes: int = 60, max_hours: int = 48,
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(q, tuple(params))
             return await cur.fetchall()
+
+
+async def get_unalerted_money_orders(min_minutes: int = 15, max_hours: int = 48,
+                                     limit: int = 50) -> list:
+    """ТӮРИ БЕХАТАРИИ УМУМӢ (зидди гум шудани пул баъди restart).
+
+    Ҳар фармоише, ки ПУЛ гирифтааст, вале то ҳол ба ниҳоят нарасидааст
+    (status: paid/donating/failed), аз min_minutes зиёд боз аст, аз max_hours
+    кӯҳнатар нест ВА бо ин тӯр ҳанӯз ба админ хабар нашудааст
+    (money_net_alerted=0). Ин ҷо БЕ филтри _BOT_START_TS — то фармоишҳое, ки
+    маҳз пеш аз restart/деплой дар «сӯрохи» афтоданд, низ ёфта шаванд."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT * FROM orders "
+                "WHERE status IN ('paid','donating','failed') "
+                "AND COALESCE(money_net_alerted, 0)=0 "
+                "AND COALESCE(is_balance_topup, 0)=0 "
+                "AND created_at <= NOW() - INTERVAL %s MINUTE "
+                "AND created_at >= NOW() - INTERVAL %s HOUR "
+                "ORDER BY created_at ASC LIMIT %s",
+                (min_minutes, max_hours, limit)
+            )
+            return await cur.fetchall()
+
+
+async def claim_money_net_alert(order_id: int) -> bool:
+    """Атомикӣ ҳуқуқи «тӯри бехатарӣ хабар дод»-ро мегирад — ҳар фармоиш
+    фақат ЯК бор аз ин тӯр хабар мешавад (то спам нашавад)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "UPDATE orders SET money_net_alerted=1 WHERE id=%s "
+                "AND COALESCE(money_net_alerted, 0)=0", (order_id,))
+            return cur.rowcount > 0
+
+
+async def count_unfinished_money_orders(max_hours: int = 48) -> int:
+    """Чанд фармоиши ПУЛ-гирифта вале ноанҷом (paid/donating/failed) ҳозир
+    ҳаст — барои гузориши баъди restart/деплой."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT COUNT(*) FROM orders "
+                "WHERE status IN ('paid','donating','failed') "
+                "AND COALESCE(is_balance_topup, 0)=0 "
+                "AND created_at >= NOW() - INTERVAL %s HOUR",
+                (max_hours,)
+            )
+            row = await cur.fetchone()
+            return int(row[0]) if row else 0
 
 
 async def get_pending_orders(limit: int = 20):

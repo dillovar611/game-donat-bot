@@ -1240,6 +1240,89 @@ async def _watchdog_loop(bot: Bot):
             logger.error(f"Хатогӣ дар _watchdog_loop: {e}")
 
 
+async def _money_safety_loop(bot: Bot):
+    """ТӮРИ БЕХАТАРИИ УМУМӢ ЗИДДИ ГУМ ШУДАНИ ПУЛ (ҳар 10 дақиқа).
+
+    Тафовут аз _watchdog_loop: ин ҷо БЕ филтри _BOT_START_TS кор мекунад —
+    яъне фармоишҳоеро ҳам меёбад, ки маҳз пеш аз restart/деплой дар «сӯрохи»
+    афтоданд (пул омад, вале донат/тасдиқ нашуд ва админ бехабар монд).
+
+    Ҳар фармоиш фақат ЯК бор аз ин тӯр хабар мешавад (claim_money_net_alert)
+    — то спам нашавад. Реҷаи хомӯшии шабона риоя мешавад."""
+    import autopay
+    _PM = {"dushanbe_city": "🏙 Душанбе Сити", "alif": "💳 Алиф",
+           "eskhata": "🏦 Эсхата", "referral_balance": "💰 Аз баланс"}
+    while True:
+        await asyncio.sleep(10 * 60)
+        try:
+            # Шабона (00:00–08:00) чизе намефиристем — субҳ мефиристем
+            if await autopay._should_defer_alert():
+                continue
+            orders = await db.get_unalerted_money_orders(min_minutes=15, max_hours=48)
+            claimed = []
+            for o in orders:
+                if await db.claim_money_net_alert(o["id"]):
+                    claimed.append(o)
+            if not claimed:
+                continue
+            _STAT = {"paid": "чек омад, тасдиқ нашуд",
+                     "donating": "донат овезон монд",
+                     "failed": "донат ноком шуд"}
+            lines = []
+            for o in claimed[:20]:
+                pm = _PM.get(o.get("payment_method"), o.get("payment_method") or "—")
+                st = _STAT.get(o.get("status"), o.get("status"))
+                lines.append(
+                    f"• #{o['id']} — {o.get('label','?')} ({float(o['price']):.2f} сом, {pm}) — {st}")
+            more = f"\n… ва {len(claimed) - 20}-тои дигар" if len(claimed) > 20 else ""
+            text = (
+                f"🛟 <b>ТӮРИ БЕХАТАРӢ: пули ноанҷом!</b>\n\n"
+                f"<b>{len(claimed)}</b> фармоиш пул гирифтаанд, вале то ҳол ба "
+                f"ниҳоят нарасидаанд (шояд пеш аз restart дар сӯрохи афтода "
+                f"буданд):\n\n" + "\n".join(lines) + more + "\n\n"
+                f"Лутфан онҳоро дастӣ санҷед — то ягон пул гум нашавад."
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="📋 Фармоишҳои интизорӣ", callback_data="a_pending_orders")],
+            ])
+            for admin_id in config.ADMIN_IDS:
+                try:
+                    await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
+                except Exception as e:
+                    logger.error(f"Огоҳии тӯри бехатарии умумӣ ба {admin_id} нарасид: {e}")
+        except Exception as e:
+            logger.error(f"Хатогӣ дар _money_safety_loop: {e}")
+
+
+async def _post_deploy_report(bot: Bot):
+    """ГУЗОРИШИ БАЪДИ RESTART/ДЕПЛОЙ (як бор ҳангоми оғози бот).
+
+    Баъди ҳар restart ба админ мегӯяд: чанд фармоиши ПУЛ-гирифтаи ноанҷом
+    ҳаст — то админ дарҳол бинад оё чизе дар сӯрохи афтод."""
+    await asyncio.sleep(20)  # то бот пурра сар шавад
+    try:
+        n = await db.count_unfinished_money_orders(max_hours=48)
+        if n <= 0:
+            return
+        text = (
+            f"♻️ <b>Бот аз нав оғоз шуд (restart/деплой).</b>\n\n"
+            f"Ҳозир <b>{n}</b> фармоиши пул-гирифта то ҳол ноанҷом аст "
+            f"(paid/donating/failed, дар 48 соати охир).\n\n"
+            f"Тӯри бехатарӣ онҳоро дар 10-15 дақиқа як-як месанҷад ва агар "
+            f"кӯмак лозим бошад, хабар медиҳад. Барои ҳозир дидан:"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📋 Фармоишҳои интизорӣ", callback_data="a_pending_orders")],
+        ])
+        for admin_id in config.ADMIN_IDS:
+            try:
+                await bot.send_message(admin_id, text, reply_markup=kb, parse_mode="HTML")
+            except Exception as e:
+                logger.error(f"Гузориши баъди деплой ба {admin_id} нарасид: {e}")
+    except Exception as e:
+        logger.error(f"Хатогӣ дар _post_deploy_report: {e}")
+
+
 # ==================== ОФФЕРИ БАРҚӢ (FLASH) ====================
 # Рӯзе ЯК бор, дар соати тасодуфии ФАЪОЛ, як маҳсули тасодуфӣ бо 1% тахфиф —
 # эълон дар канал, 1 соат давом.
@@ -1414,6 +1497,10 @@ async def main():
     asyncio.create_task(_stale_paid_orders_loop(bot))
     # Тӯри бехатарии охирин — ҳар соат фармоишҳои дермондаро ҷамъбаст мекунад
     asyncio.create_task(_watchdog_loop(bot))
+    # Тӯри бехатарии УМУМӢ зидди гум шудани пул (зидди сӯрохи restart) — ҳар 10 дақ
+    asyncio.create_task(_money_safety_loop(bot))
+    # Гузориши як-бораи баъди restart/деплой
+    asyncio.create_task(_post_deploy_report(bot))
     # Тӯҳфаи тасодуфӣ — ҳар N фармоиши тасдиқшуда
     asyncio.create_task(autopay.giveaway_loop(bot))
     # Тафтишгари худкори фармоишҳои "овезон" — ҳар 3 дақиқа (танҳо мехонад)
