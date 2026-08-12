@@ -1248,34 +1248,9 @@ FLASH_ACTIVE_END = 21     # то соати 21:00 (оффер то ~22:00 там
 
 
 async def _fire_flash_offer(bot: Bot):
-    """Як маҳсули тасодуфиро интихоб карда, оффери барқиро фаъол ва дар
-    канал эълон мекунад."""
-    products = await db.get_products()
-    if not products:
-        logger.info("Flash offer: маҳсул нест — гузаронида шуд")
-        return
-    p = random.choice(products)
-    await db.set_flash_offer(p["id"], db.FLASH_DURATION_MIN)
-    old_price = float(p["price"])
-    new_price = round(old_price * (1 - db.FLASH_PERCENT / 100), 2)
-    label = p.get("label") or f"💎 {p['amount']}"
-    text = pemoji.premiumize(
-        f"⚡️🔥 <b>ОФФЕРИ БАРҚӢ!</b> 🔥⚡️\n\n"
-        f"Танҳо <b>1 СОАТ</b> — зуд бошед!\n\n"
-        f"🎁 <b>{label}</b>\n"
-        f"💵 <s>{old_price:.2f}</s> → <b>{new_price:.2f} сом</b> "
-        f"(-{db.FLASH_PERCENT:g}%)\n\n"
-        f"⏳ Баъди 1 соат нарх ба ҳолати оддӣ бармегардад!\n"
-        f"👇 Ҳозир харед:"
-    )
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛒 Ҳозир харидан", url=f"https://t.me/{BOT_USERNAME}")],
-    ])
-    try:
-        await bot.send_message(config.CHANNEL_ID, text, reply_markup=kb, parse_mode="HTML")
-        logger.info(f"Flash offer фаъол шуд: маҳсул #{p['id']} ({label})")
-    except Exception as e:
-        logger.error(f"Flash offer эълон нашуд: {e}")
+    """Оффери барқии ТАСОДУФӢ (аз ҳалқаи худкор). Логика дар
+    autopay.fire_flash_offer (муштарак бо панели админ)."""
+    await autopay.fire_flash_offer(bot)
 
 
 async def _flash_offer_loop(bot: Bot):

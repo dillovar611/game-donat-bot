@@ -165,11 +165,86 @@ def admin_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="📲 Силкаи «Кушодани Алиф»", callback_data="a_alif_url")],
         [InlineKeyboardButton(text="🕶 Ноаён кардани силка",  callback_data="a_dc_mask")],
         [InlineKeyboardButton(text="🎁 Тӯҳфаи тасодуфӣ",      callback_data="a_giveaway")],
+        [InlineKeyboardButton(text="⚡ Оффери барқӣ (ҳозир зан)", callback_data="a_flash")],
         [InlineKeyboardButton(text="💰 Идоракунии баланс",    callback_data="a_balance_menu")],
         [InlineKeyboardButton(text="🧪 Санҷиши эмоҷии премиум", callback_data="a_prememoji")],
         [InlineKeyboardButton(text="🏷 Сарлавҳаи аниматсионӣ", callback_data="a_welcome_title")],
         [InlineKeyboardButton(text="🎨 Калимаҳои аниматсионӣ", callback_data="a_anim_menu")],
     ])
+
+
+# ==================== ⚡ ОФФЕРИ БАРҚӢ (дастӣ аз панел) ====================
+@router.callback_query(F.data == "a_flash")
+async def a_flash(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🎲 Тасодуфӣ (бот интихоб кунад)", callback_data="a_flash_random")],
+        [InlineKeyboardButton(text="📋 Худам маҳсул интихоб мекунам", callback_data="a_flash_pick")],
+        [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")],
+    ])
+    await _safe_edit(
+        call,
+        f"⚡ <b>Оффери барқӣ — ҳозир зан</b>\n\n"
+        f"Як маҳсул бо <b>{db.FLASH_PERCENT:g}% тахфиф</b> барои "
+        f"<b>{db.FLASH_DURATION_MIN} дақиқа</b> фаъол мешавад ва дар канал "
+        f"эълон меравад.\n\n"
+        f"(Худкор ҳам ҳар рӯз кор мекунад — ин барои дастӣ задан аст.)\n\n"
+        f"Маҳсулро чӣ хел интихоб кунем?",
+        kb)
+
+
+@router.callback_query(F.data == "a_flash_random")
+async def a_flash_random(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    import autopay
+    await call.answer("⏳ Оффери барқӣ фаъол мешавад...", show_alert=False)
+    p = await autopay.fire_flash_offer(call.bot)
+    if p:
+        await _safe_edit(
+            call,
+            f"⚡ <b>Оффери барқӣ ФАЪОЛ шуд!</b>\n\n"
+            f"🎁 {esc(p.get('label') or str(p['amount']))}\n"
+            f"⏳ {db.FLASH_DURATION_MIN} дақиқа — дар канал эълон шуд ✅",
+            admin_menu())
+    else:
+        await call.answer("❌ Маҳсулот нест!", show_alert=True)
+
+
+@router.callback_query(F.data == "a_flash_pick")
+async def a_flash_pick(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    products = await db.get_products()
+    if not products:
+        await call.answer("❌ Маҳсулот нест!", show_alert=True)
+        return
+    rows = [[InlineKeyboardButton(
+        text=f"{p.get('label') or p['amount']} — {float(p['price']):.2f} сом",
+        callback_data=f"a_flash_set_{p['id']}")] for p in products]
+    rows.append([InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_flash")])
+    await _safe_edit(call, "📋 <b>Маҳсулро интихоб кунед барои оффери барқӣ:</b>",
+                     InlineKeyboardMarkup(inline_keyboard=rows))
+
+
+@router.callback_query(F.data.startswith("a_flash_set_"))
+async def a_flash_set(call: CallbackQuery):
+    if not is_admin(call.from_user.id):
+        return
+    import autopay
+    pid = int(call.data.rsplit("_", 1)[1])
+    await call.answer("⏳ Фаъол мешавад...", show_alert=False)
+    p = await autopay.fire_flash_offer(call.bot, product_id=pid)
+    if p:
+        await _safe_edit(
+            call,
+            f"⚡ <b>Оффери барқӣ ФАЪОЛ шуд!</b>\n\n"
+            f"🎁 {esc(p.get('label') or str(p['amount']))}\n"
+            f"⏳ {db.FLASH_DURATION_MIN} дақиқа — дар канал эълон шуд ✅",
+            admin_menu())
+    else:
+        await call.answer("❌ Маҳсул ёфт нашуд!", show_alert=True)
 
 
 @router.callback_query(F.data == "a_products_menu")

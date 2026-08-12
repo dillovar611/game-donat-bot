@@ -1430,6 +1430,48 @@ async def run_donate_group_from_balance(bot: Bot, orders: list):
             logger.error(f"Ҳисоботи сабад ба админ {admin_id} нарасид: {e}")
 
 
+async def fire_flash_offer(bot: Bot, product_id: int = None):
+    """Оффери барқиро фаъол мекунад: маҳсули муайян (product_id) ё ТАСОДУФӢ,
+    ва дар канал эълон мекунад. Ҳам аз ҳалқаи худкор (bot.py), ҳам аз панели
+    админ (admin.py) даъват мешавад. Маҳсули интихобшударо бармегардонад."""
+    try:
+        products = await db.get_products()
+    except Exception as e:
+        logger.error(f"Flash: маҳсулот гирифта нашуд: {e}")
+        return None
+    if not products:
+        return None
+    if product_id is not None:
+        p = next((x for x in products if int(x["id"]) == int(product_id)), None)
+        if not p:
+            return None
+    else:
+        p = random.choice(products)
+    await db.set_flash_offer(p["id"], db.FLASH_DURATION_MIN)
+    old_price = float(p["price"])
+    new_price = round(old_price * (1 - db.FLASH_PERCENT / 100), 2)
+    label = p.get("label") or f"💎 {p['amount']}"
+    text = pemoji.premiumize(
+        f"⚡️🔥 <b>ОФФЕРИ БАРҚӢ!</b> 🔥⚡️\n\n"
+        f"Танҳо <b>1 СОАТ</b> — зуд бошед!\n\n"
+        f"🎁 <b>{label}</b>\n"
+        f"💵 <s>{old_price:.2f}</s> → <b>{new_price:.2f} сом</b> "
+        f"(-{db.FLASH_PERCENT:g}%)\n\n"
+        f"⏳ Баъди 1 соат нарх ба ҳолати оддӣ бармегардад!\n"
+        f"👇 Ҳозир харед:"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🛒 Ҳозир харидан",
+                              url=f"https://t.me/{config.BOT_USERNAME}")],
+    ])
+    try:
+        await bot.send_message(config.CHANNEL_ID, text, reply_markup=kb, parse_mode="HTML")
+        logger.info(f"Flash offer фаъол шуд: маҳсул #{p['id']} ({label})")
+    except Exception as e:
+        logger.error(f"Flash offer эълон нашуд: {e}")
+    return p
+
+
 async def expiry_loop(bot: Bot, interval_seconds: int = 60):
     """
     Ҳар дақиқа:
