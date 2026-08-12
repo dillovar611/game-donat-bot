@@ -2563,11 +2563,27 @@ async def recheck_loop(bot: Bot, interval_seconds: int = 180):
                     continue
 
                 # Фармоиши "кӯҳна" = пеш аз оғози ин версияи бот сохта шуда.
-                # Соҳиб онҳоро ДАСТӢ ҳал кардааст — тафтишгар ба онҳо
-                # умуман даст намерасонад: на такрор, на тасдиқ, на паём.
-                # Тафтишгар ТАНҲО аз фармоишҳои НАВ сар мекунад.
+                # Одатан соҳиб онҳоро ДАСТӢ ҳал кардааст — тафтишгар ба онҳо
+                # такрор/тасдиқ намекунад.
+                # ВАЛЕ як истиснои МУҲИМ: агар фармоиш ҳанӯз ба админ ХАБАР
+                # НАШУДА бошад (admin_alerted=0), яъне донат пеш аз restart
+                # (масалан деплой) ноком шуда, вале огоҳии 30-дақиқа нарасида —
+                # ин пул дар «сӯрохи» афтодааст. Дар ин ҳолат ЯК бор ба админ
+                # хабар медиҳем (claim_admin_alert такрорро мебандад), то пули
+                # мизоҷ гум нашавад.
                 created_at = order.get("created_at")
                 if created_at and created_at < _BOT_START_TS:
+                    if not order.get("admin_alerted"):
+                        logger.warning(
+                            f"recheck_loop: #{order_id} пеш аз restart ноком монда "
+                            f"буд ва ба админ хабар нашуда буд — ҳоло хабар медиҳем"
+                        )
+                        sent = await _report_failure_to_admin(
+                            bot, order, "", api_order_id, uncertain=True)
+                        if not sent:
+                            # Шаб таъхир шуд (реҷаи хомӯшӣ) — settled намекунем,
+                            # то дафъаи оянда (баъди субҳ) боз кӯшиш шавад.
+                            continue
                     _recheck_settled.add(order_id)
                     continue
 
