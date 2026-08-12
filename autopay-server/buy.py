@@ -1557,6 +1557,20 @@ async def receive_check(message: Message, state: FSMContext):
                 await db.set_order_check(oid, file_id, check_hash)
                 order_ids.append(oid)
 
+        # Агар сабад аллакай ХУДКОР донат шуда бошад (пардохти ДС пеш аз чек
+        # омада, авто-сабад кор кард) — тугмаи «Тасдиқ» ба админ НАФИРИСТ
+        # (то спам/тугмаи ортиқӣ набошад). Мизоҷ хабари донатро аллакай гирифт.
+        try:
+            _grp = await db.get_orders_by_group(group_id)
+        except Exception:
+            _grp = None
+        if _grp and all(o.get("status") in ("confirmed", "donating", "rejected") for o in _grp):
+            await message.answer(
+                "✅ <b>Чек қабул шуд!</b>\n\n"
+                "🔄 Пардохти шумо аллакай тафтиш шуд — натиҷа дар боло 🙏",
+                parse_mode="HTML")
+            return
+
         ids_text = ", ".join(f"#{i}" for i in order_ids)
         await message.answer(
             "✅ <b>Чек қабул шуд!</b>\n\n"
