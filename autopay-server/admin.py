@@ -1835,6 +1835,59 @@ async def order_confirm(call: CallbackQuery):
     asyncio.create_task(_do_donate(call, order, call.message))
 
 
+# ============ ТАСДИҚИ ФАРМОИШ ҲАНГОМИ «КОМЕНТИ ТАКРОРӢ» ============
+@router.callback_query(F.data.startswith("stmatch_"))
+async def stale_comment_match(call: CallbackQuery):
+    """ИДЕЯИ 1: Вақте комент такрорӣ буд, бот ба админ фармоишҳои нави фаъоли
+    мизоҷро бо тугма нишон медиҳад. Админ тугмаро мезанад — ин пардохт ба
+    ҳамон фармоиш банд ва худкор донат мешавад (бе ҷустуҷӯи дастӣ)."""
+    if not is_admin(call.from_user.id):
+        await call.answer("❌ Иҷозат нест!", show_alert=True)
+        return
+    import autopay
+    try:
+        _, oid_s, cents_s = call.data.split("_")
+        order_id = int(oid_s)
+        summa = round(int(cents_s) / 100.0, 2)
+    except Exception:
+        await call.answer("❌ Хатои дода!", show_alert=True)
+        return
+
+    order = await db.get_order(order_id)
+    if not order:
+        await call.answer("❌ Фармоиш ёфт нашуд!", show_alert=True)
+        return
+    if order["status"] not in ("awaiting_autopay", "autopay_search", "expired"):
+        await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+        return
+
+    # Пардохти омадаро (kod-и ҳамин маблағ, ҳанӯз пайванднашуда) атомикӣ
+    # ба ин фармоиш банд мекунем — то дучанд банд нашавад.
+    kod = await db.claim_unmatched_kod(summa, order_id, autopay.MAX_AGE_MINUTES + 10)
+    if not kod:
+        await call.answer(
+            "⚠️ Пардохти мувофиқ ёфт нашуд (шояд аллакай банд/донат шуд).",
+            show_alert=True)
+        return
+    # Атомикӣ барои донат банд мекунем (то DCSCAN/DCNOTIF ҳамзамон дучанд накунад)
+    if not await db.claim_order_for_donate(order_id):
+        await call.answer("ℹ️ Ин фармоиш ҳозир аллакай коркард шуда истодааст!", show_alert=True)
+        return
+
+    await call.answer("⏳ Донат оғоз шуд...", show_alert=False)
+    try:
+        await call.message.edit_text(
+            f"✅ <b>Тасдиқ шуд — донат оғоз шуд.</b>\n\n"
+            f"🆔 Фармоиш: #{order_id}\n"
+            f"{order['label']} → <code>{order['game_id']}</code>\n"
+            f"💵 {summa:.2f} сом",
+            parse_mode="HTML"
+        )
+    except Exception:
+        pass
+    asyncio.create_task(autopay.run_donate_inner(call.bot, order, kod))
+
+
 # ==================== ТАСДИҚИ ГУРУҲ (САБАД) ====================
 @router.callback_query(F.data.startswith("okgroup_"))
 async def order_group_confirm(call: CallbackQuery):

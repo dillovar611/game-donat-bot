@@ -3051,6 +3051,22 @@ async def find_awaiting_order_by_price(price: float, payment_method: str,
             return await cur.fetchone()
 
 
+async def count_kods_matched_to_order(order_ref: int) -> int:
+    """Чанд пардохт (kod) аллакай ба ин фармоиш БАНД шудааст? ХОТИРАИ DC:
+    агар >0 бошад, яъне ин фармоиш аллакай як бор пардохт гирифтааст ва
+    коменти нав (card_X) ки боз ҳамин рақамро нишон медиҳад — ТАКРОРӢ аст
+    (DC коменти кӯҳнаро дубора истифода бурд). Ин аз санҷиши статус
+    боэътимодтар аст (статус метавонад дар мобайни гузариш бошад)."""
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                "SELECT COUNT(*) FROM dc_kods WHERE matched_order_id=%s",
+                (order_ref,)
+            )
+            row = await cur.fetchone()
+            return int(row[0]) if row else 0
+
+
 async def has_awaiting_order_by_price(price: float, payment_method: str,
                                        max_age_minutes: int = 15) -> bool:
     """Оё фармоиши 'awaiting_autopay' (чек ҳанӯз наомада) бо ин нарх ҳаст?"""

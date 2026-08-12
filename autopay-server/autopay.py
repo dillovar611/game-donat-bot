@@ -183,10 +183,21 @@ async def handle_dc_notification(message: Message):
     stale_done_order = None
     if order_ref:
         order = await db.get_order(order_ref)
+        # ХОТИРАИ DC: агар ба ҳамин фармоиш АЛЛАКАЙ як пардохт (kod) банд
+        # шуда бошад, ин комент ТАКРОРӢ аст — DC коменти кӯҳнаро дубора
+        # фиристод. Инро ФАВРАН (пеш аз санҷиши статус) мефаҳмем ва ба
+        # фармоиши тайёр даст намезанем; поён бо МАБЛАҒ фармоиши нави
+        # дурустро меёбем (донати дучанд НАМЕШАВАД).
+        comment_reused = False
+        if order:
+            try:
+                comment_reused = await db.count_kods_matched_to_order(order_ref) > 0
+            except Exception as e:
+                logger.error(f"DC memory (count_kods) хато: {e}")
         # Фармоиши САБАД (order_group_id дорад) — ҳамеша дастӣ (гурӯҳ)
         # тасдиқ мешавад. Автопардохт даст намезанад, вале пардохтро
         # "шинос" мешуморем (то огоҳии "ношинос" наравад).
-        if order and order.get("order_group_id"):
+        if order and order.get("order_group_id") and not comment_reused:
             # Пардохти САБАД: kod-ро танҳо РЕЗЕРВ мекунем (то тозакунӣ
             # фармоишро нест накунад). Огоҳии «чек нарасид»-ро ДАРҲОЛ
             # намефиристем — вагарна вақте мизоҷ чекро баъди чанд сония
@@ -204,7 +215,12 @@ async def handle_dc_notification(message: Message):
             logger.info(f"Autopay: пардохти сабад #{order_ref} — дастӣ тасдиқ мешавад (гурӯҳ)")
             return
         if order and order.get("payment_method") in ("dushanbe_city", "alif", "eskhata"):
-            if order.get("status") in ("autopay_search", "awaiting_autopay", "expired"):
+            if comment_reused:
+                # Комент такрорӣ (ин фармоиш аллакай пардохт гирифтааст) —
+                # даст намезанем; поён бо МАБЛАҒ фармоиши нави дурустро меёбем.
+                logger.info(f"Autopay: комент card_{order_ref} такрорӣ — бо маблағ мекобем")
+                stale_done_order = order
+            elif order.get("status") in ("autopay_search", "awaiting_autopay", "expired"):
                 # Маблағро месанҷем — бояд бо нархи фармоиш баробар бошад
                 if abs(float(order["price"]) - summa) > 0.011:
                     await _notify_admins_wrong_amount(message.bot, order, summa, kod)
@@ -233,7 +249,7 @@ async def handle_dc_notification(message: Message):
                 else:
                     logger.info(f"Autopay: пардохти #{order_ref} омад (статус: {order['status']}), чек интизор")
                 return
-            if order.get("status") == "paid":
+            elif order.get("status") == "paid":
                 # Фармоиш аллакай дар навбати админ аст. АВТОМАТ НАМЕКУНЕМ —
                 # шояд админ онро ДАСТӢ иҷро карда, вале тугмаро назада бошад
                 # (донати дучанд = зарар). Танҳо ба админ хабар медиҳем, ки
@@ -243,12 +259,13 @@ async def handle_dc_notification(message: Message):
                     return
                 await _notify_admin_payment_confirmed(message.bot, order, summa, kod)
                 return
-            # Расидем ин ҷо → фармоиш ҳаст, вале статусаш аллакай НИҲОӢ
-            # (confirmed/rejected/donating). Яъне комент card_X ТАКРОРӢ/КӮҲНА
-            # аст — DC коменти фармоиши пешинаро дубора истифода бурд. Автомат
-            # ба ин фармоиши тайёр даст намезанем (донати дучанд = зарар).
-            # Поён бо МАБЛАҒ фармоиши дурусти фаъолро меҷӯем.
-            stale_done_order = order
+            else:
+                # Расидем ин ҷо → фармоиш ҳаст, вале статусаш аллакай НИҲОӢ
+                # (confirmed/rejected/donating). Яъне комент card_X ТАКРОРӢ/КӮҲНА
+                # аст — DC коменти фармоиши пешинаро дубора истифода бурд. Автомат
+                # ба ин фармоиши тайёр даст намезанем (донати дучанд = зарар).
+                # Поён бо МАБЛАҒ фармоиши дурусти фаъолро меҷӯем.
+                stale_done_order = order
 
     # ==== Роҳи эҳтиётӣ: муқоисаи МАБЛАҒ (агар комент наомада бошад) ====
     order = await db.find_awaiting_order_by_price(summa, "dushanbe_city", MAX_AGE_MINUTES)
@@ -444,6 +461,7 @@ async def _notify_admin_stale_comment(bot: Bot, done_order: dict, summa: float, 
         f"🔑 Kod: <code>{kod}</code>\n"
         f"👤 Мизоҷ: <code>{user_id}</code>\n\n"
     )
+    kb = None
     if candidates:
         cand_txt = "\n".join(
             f"  • #{o['id']} — {esc(o['label'])} → <code>{o['game_id']}</code> "
@@ -453,9 +471,20 @@ async def _notify_admin_stale_comment(bot: Bot, done_order: dict, summa: float, 
         lines += (
             f"⚠️ Ин пул ба ягон фармоиши нодир худкор мувофиқ НАШУД, аммо ҳамин "
             f"мизоҷ фармоиши(ҳои) нави ФАЪОЛ дорад:\n{cand_txt}\n\n"
-            f"Тафтиш кунед: агар маблағ ба яке аз инҳо тааллуқ дошта бошад, "
-            f"дастӣ тасдиқ кунед. Донати худкор НАШУД (то дучанд нашавад)."
+            f"Агар маблағ ба яке аз инҳо тааллуқ дошта бошад, тугмаро зада "
+            f"ДАРҲОЛ тасдиқ кунед. Донати худкор НАШУД (то дучанд нашавад)."
         )
+        # ИДЕЯИ 1: тугмаи «Тасдиқ» барои ҳар фармоиши фаъол — админ як пахш
+        # кунад, ҳамон фармоиш бо ин пардохт худкор донат мешавад.
+        cents = int(round(summa * 100))
+        rows = [
+            [InlineKeyboardButton(
+                text=f"✅ Тасдиқ #{o['id']} ({float(o['price']):.2f})",
+                callback_data=f"stmatch_{o['id']}_{cents}"
+            )]
+            for o in candidates
+        ]
+        kb = InlineKeyboardMarkup(inline_keyboard=rows)
     else:
         lines += (
             f"Ин мизоҷ ҳозир фармоиши нави фаъол НАДОРАД. Эҳтимол пардохти "
@@ -463,7 +492,7 @@ async def _notify_admin_stale_comment(bot: Bot, done_order: dict, summa: float, 
         )
     for admin_id in config.ADMIN_IDS:
         try:
-            await bot.send_message(admin_id, lines, parse_mode="HTML")
+            await bot.send_message(admin_id, lines, parse_mode="HTML", reply_markup=kb)
         except Exception as e:
             logger.error(f"Огоҳии коменти такрорӣ ба {admin_id} нарасид: {e}")
 
