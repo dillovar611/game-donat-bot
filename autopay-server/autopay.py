@@ -639,7 +639,10 @@ async def _try_auto_donate_cart(bot: Bot, order: dict, summa: float) -> bool:
     for o in active:
         amt = int(o["amount"]) if o.get("amount") else 0
         cprice = cat.get(amt)
-        if cprice is None or float(o["price"]) < cprice * 0.8:
+        # Маҳсули берун аз каталог (ваучер/комбо/махсус) — Қулфи 2 (ҷамъ ==
+        # пардохт) кофист, чунки нархашон СОБИТ аст. Танҳо маҳсули каталогро
+        # (алмосҳо) месанҷем — фиреби «нархи кам, алмоси зиёд» маҳз ба онҳо тааллуқ.
+        if cprice is not None and float(o["price"]) < cprice * 0.8:
             logger.warning(
                 f"Auto-cart {gid}: #{o['id']} нархи шубҳанок "
                 f"({o['price']} vs каталог {cprice}) — дастӣ + огоҳӣ")
