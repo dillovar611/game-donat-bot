@@ -2357,6 +2357,46 @@ _REJECT_REASONS = {
 }
 
 
+def _kb_to_data(markup):
+    """Тугмаҳоро ба рӯйхати сода (JSON-friendly) табдил медиҳад — то дар
+    хотираи FSM (MySQLStorage, ки JSON нигоҳ медорад) бехатар сабт шаванд.
+    Пеш объекти InlineKeyboardMarkup рост дар FSM нигоҳ дошта мешуд, вале ӯ
+    JSON-round-trip-ро зинда намемонд ва «Бекор кардан» тугмаҳоро барқарор
+    карда наметавонист."""
+    if not markup or not getattr(markup, "inline_keyboard", None):
+        return None
+    out = []
+    for row in markup.inline_keyboard:
+        r = []
+        for btn in row:
+            d = {"t": btn.text}
+            if btn.callback_data:
+                d["cb"] = btn.callback_data
+            elif btn.url:
+                d["u"] = btn.url
+            r.append(d)
+        out.append(r)
+    return out
+
+
+def _data_to_kb(data):
+    """Рӯйхати сатрҳоро (аз _kb_to_data) дубора ба InlineKeyboardMarkup
+    табдил медиҳад."""
+    if not data:
+        return None
+    rows = []
+    for row in data:
+        r = []
+        for b in row:
+            if b.get("u"):
+                r.append(InlineKeyboardButton(text=b["t"], url=b["u"]))
+            else:
+                r.append(InlineKeyboardButton(text=b["t"], callback_data=b.get("cb", "noop")))
+        if r:
+            rows.append(r)
+    return InlineKeyboardMarkup(inline_keyboard=rows) if rows else None
+
+
 async def _heal_stale_order_message(bot, order_id: int, status: str, chat_id: int, msg_id: int):
     """Агар паёми кӯҳна (аз пеш аз ислоҳи хатогии тугмаҳо) ҳанӯз тугмаҳои
     фаъол дошта бошад, ҳангоми зер кардани онҳо инҷо тоза мекунем — то
@@ -2391,7 +2431,9 @@ async def order_reject(call: CallbackQuery, state: FSMContext):
         reject_order_id=order_id,
         reject_chat_id=call.message.chat.id,
         reject_msg_id=call.message.message_id,
-        reject_kb=call.message.reply_markup,
+        # Тугмаҳои аслиро ҳамчун рӯйхати сода нигоҳ медорем (JSON-friendly),
+        # то «Бекор кардан» онҳоро дуруст барқарор кунад.
+        reject_kb_data=_kb_to_data(call.message.reply_markup),
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [
@@ -2484,7 +2526,19 @@ async def order_reject_reason_button(call: CallbackQuery, state: FSMContext):
     data = await state.get_data()
 
     if code == "cancel":
-        original_kb = data.get("reject_kb")
+        original_kb = _data_to_kb(data.get("reject_kb_data"))
+        # Fallback: агар бо ягон сабаб тугмаҳои аслӣ гум шуда бошанд, ақаллан
+        # тугмаҳои стандартии «Тасдиқ / Рад»-ро барқарор мекунем (то паём бе
+        # тугма «гир» намонад).
+        if original_kb is None:
+            order = await db.get_order(order_id)
+            if order:
+                import autopay
+                original_kb = InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="✅ Тасдиқ — донат кун",
+                                          callback_data=autopay._confirm_cb(order))],
+                    [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order_id}")],
+                ])
         try:
             await call.message.edit_reply_markup(reply_markup=original_kb)
         except Exception as e:
