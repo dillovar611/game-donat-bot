@@ -136,6 +136,44 @@ def note_unknown_status(status: str, order_id: str = ""):
     logger.warning(f"ҲОЛАТИ НОШИНОСИ провайдер: {s!r} (фармоиш {order_id})")
 
 
+# ---- Сабаби ноком шудани донат (то admin.py/autopay.py нишон диҳанд) ----
+# Пеш сабаб танҳо дар лог мемонд ва соҳиб онро дида наметавонист. Акнун ҳар
+# фармоиши ноком сабаби ХОНДАШАВАНДАро нигоҳ медорад, то дар ҳисоботи админ пайдо шавад.
+_LAST_DONATE_ERROR: dict = {}
+
+
+def note_donate_error(order_id, reason: str):
+    """Сабаби ноком шудани донати як фармоишро сабт мекунад."""
+    if order_id is None or order_id == "":
+        return
+    try:
+        _LAST_DONATE_ERROR[str(order_id)] = (str(reason) or "")[:300]
+    except Exception:
+        return
+    # ҷилавгирӣ аз варами хотира
+    if len(_LAST_DONATE_ERROR) > 500:
+        for k in list(_LAST_DONATE_ERROR)[:250]:
+            _LAST_DONATE_ERROR.pop(k, None)
+
+
+def pop_donate_error(order_id) -> str:
+    """Сабаби нокомро мегирад ва аз хотира тоза мекунад (як бор истифода)."""
+    if order_id is None:
+        return ""
+    return _LAST_DONATE_ERROR.pop(str(order_id), "")
+
+
+def _fazer_err_text(result: dict) -> str:
+    """Аз ҷавоби FazerCards матни хатои хонданбобро мекашад."""
+    if not isinstance(result, dict):
+        return str(result)[:200]
+    for key in ("error", "message", "error_message", "detail"):
+        v = result.get(key)
+        if v:
+            return str(v)[:200]
+    return str(result)[:200]
+
+
 def _idem_key(prefix: str, order_id, retry_tag: str = "") -> str:
     """
     Калиди Idempotency месозад. Барои ҳар фармоиш собит аст (то такрори
@@ -368,6 +406,7 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
 
     if not offer_id:
         logger.error("auto_donate: offer_id холист")
+        note_donate_error(order_id, "offer_id (танзими маҳсулот) холӣ аст")
         return False, "", False, None
 
     # ---- Кӯшиши 1: FazerCards ----
@@ -411,6 +450,7 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
                     logger.info(f"[COST-DEBUG] auto_donate: completed, cost_usd={cost_usd!r} status_data_cost={_extract_cost_usd(status_data)!r} final_cost={final_cost!r}")
                     return True, api_order_id, False, final_cost
                 if status in ("failed", "cancelled", "error", "refunded"):
+                    note_donate_error(order_id, f"FazerCards рад кард (ҳолат: {status})")
                     break  # ба MooGold мегузарем
             else:
                 # 10 дақиқа гузашт, ҳанӯз "processing" (ё ҳамеша таймаут) —
@@ -423,12 +463,19 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
                 )
                 return False, api_order_id, not ever_confirmed, cost_usd
         else:
+            err = _fazer_err_text(result)
             logger.warning(f"FazerCards фармоиш нашуд, MooGold-ро санҷем: {result}")
+            note_donate_error(order_id, f"FazerCards фармоиш насохт: {err}")
     else:
         logger.warning("FAZER_KEY нест — рост ба MooGold мегузарем")
 
     # ---- Кӯшиши 2: MooGold (fallback) — арзиши воқеӣ маълум нест ----
     success, tagged = await _moogold_fallback(offer_id, player_id)
+    if not success:
+        # Ҳарду провайдер ноком — сабаби FazerCards-ро нигоҳ медорем (агар бошад),
+        # вагарна умумӣ. (MooGold сабаби ҷудогона намедиҳад.)
+        if order_id is not None and str(order_id) not in _LAST_DONATE_ERROR:
+            note_donate_error(order_id, "FazerCards ва MooGold ҳарду фармоиш насохтанд")
     return success, tagged, False, None
 
 

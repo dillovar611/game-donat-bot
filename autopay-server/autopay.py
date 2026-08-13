@@ -811,16 +811,38 @@ async def run_donate_group_auto(bot: Bot, orders: list):
             pass
 
     # ---- Ҳисоботи ҷамъбастӣ ба админ ----
-    res = [f"✅ {o['label']} — #{o['id']}" for o in ok_items] + \
-          [f"❌ {o['label']} — #{o['id']}" for o in fail_items]
+    res = [f"✅ {o['label']} — #{o['id']}" for o in ok_items]
+    fail_reasons = {}
+    for o in fail_items:
+        reason = ""
+        try:
+            reason = ff_api.pop_donate_error(o["id"])
+        except Exception:
+            pass
+        fail_reasons[o["id"]] = reason
+        res.append(f"❌ {o['label']} — #{o['id']}"
+                   + (f" — <i>{esc(reason)}</i>" if reason else ""))
     user = await db.get_user(user_id)
     uname = f"@{user['username']}" if user and user.get("username") else "—"
     head = ("⚡🛒 <b>АВТОТАСДИҚ — сабад (Душанбе Сити)</b>\n\n"
             f"👤 {esc(user.get('full_name') if user else '—')} ({esc(uname)})\n"
             f"🆔 <code>{user_id}</code>\n\n")
+    # Агар ҲАМА ноком шаванд ва сабаб якхела бошад — сарлавҳаи ташхисӣ илова
+    # мекунем (одатан аломати БАЛАНС/ключи провайдер ё офлайн будани хидмат)
+    tail = ""
+    if fail_items and not ok_items:
+        uniq = {r for r in fail_reasons.values() if r}
+        if len(uniq) == 1:
+            tail = (f"\n\n🩺 <b>Ҳамаи маҳсулот бо ЯК сабаб ноком шуданд:</b>\n"
+                    f"<i>{esc(next(iter(uniq)))}</i>\n"
+                    f"Эҳтимол баланси провайдер (FazerCards) тамом шуд, калид "
+                    f"нодуруст аст ё хидмат офлайн — санҷед.")
+        else:
+            tail = ("\n\n🩺 Ҳамаи маҳсулот ноком шуданд — эҳтимол баланси "
+                    "провайдер тамом шуд ё хидмат офлайн аст.")
     for admin_id in config.ADMIN_IDS:
         try:
-            await bot.send_message(admin_id, head + "\n".join(res), parse_mode="HTML")
+            await bot.send_message(admin_id, head + "\n".join(res) + tail, parse_mode="HTML")
         except Exception as e:
             logger.error(f"Ҳисоботи авто-сабад ба админ {admin_id} нарасид: {e}")
 
@@ -1116,6 +1138,13 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
     full_name = user.get("full_name") if user else "—"
     username = f"@{user['username']}" if user and user.get("username") else "—"
     api_line = f"🆔 ID FazerCards: <code>{api_order_id}</code>\n" if api_order_id else ""
+    # Сабаби ноком (агар провайдер додаа бошад) — то соҳиб дар ЯК нигоҳ фаҳмад
+    reason = ""
+    try:
+        reason = ff_api.pop_donate_error(order["id"])
+    except Exception:
+        pass
+    reason_line = f"🩺 Сабаб: <i>{esc(reason)}</i>\n" if reason else ""
     # Тугмаи "Дубора донат" бояд ба ҳандлери ДУРУСТИ хидмат равад (на ҳамеша
     # ba FF СНГ) — вагарна харидҳои FFID/PUBG/Stars/Premium-и аз баланс ба
     # API-и нодуруст мераванд ва боз ноком мешаванд
@@ -1163,6 +1192,7 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
         f"🆔 Фармоиш: #{order['id']}\n"
         f"{api_line}"
         f"🎁 {order['label']} → <code>{order['game_id']}</code>\n"
+        f"{reason_line}"
         f"{warning_line}\n"
         f"Пули мизоҷ ҚАБУЛ шудааст — ҳатман ҳал кунед!"
     )
@@ -1495,6 +1525,10 @@ async def _dispatch_donate_call(order: dict):
         )
     except Exception as e:
         logger.error(f"_dispatch_donate_call: ff_api хато барои #{order_id}: {e}")
+        try:
+            ff_api.note_donate_error(order_id, f"Хатои дохилӣ/шабака: {e}")
+        except Exception:
+            pass
         return False, "", True, None
 
 
