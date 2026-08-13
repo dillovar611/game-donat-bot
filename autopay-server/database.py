@@ -203,6 +203,7 @@ async def init_db():
                 "ALTER TABLE orders ADD COLUMN admin_alerted TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN auto_retried TINYINT DEFAULT 0",
                 "ALTER TABLE orders ADD COLUMN money_net_alerted TINYINT DEFAULT 0",
+                "ALTER TABLE orders ADD COLUMN check_sent_at DATETIME DEFAULT NULL",
             ):
                 try:
                     await cur.execute(ddl)
@@ -1452,7 +1453,8 @@ async def set_order_check(order_id: int, file_id: str, check_hash: str = None):
             # Муҳофизат: фармоиши аллакай тамомшуда (confirmed/donating/rejected)-ро
             # ба 'paid' барнагардон — вагарна дубора донат мешавад.
             await cur.execute(
-                "UPDATE orders SET check_file_id=%s, check_hash=%s, status='paid' "
+                "UPDATE orders SET check_file_id=%s, check_hash=%s, "
+                "check_sent_at=COALESCE(check_sent_at, NOW()), status='paid' "
                 "WHERE id=%s AND status NOT IN ('confirmed','donating','rejected')",
                 (file_id, check_hash, order_id)
             )
@@ -1589,6 +1591,53 @@ async def get_pending_orders(limit: int = 20):
                 (limit,)
             )
             return await cur.fetchall()
+
+
+async def find_kods_near_amount(summa: float, tol: float = 0.06,
+                                hours: int = 6, limit: int = 5) -> list:
+    """Пардохтҳои банкӣ (dc_kods)-ро, ки маблағашон ба `summa` НАЗДИК аст
+    (дар доираи ±tol) ва дар `hours` соати охир омадаанд, бармегардонад —
+    барои ёрӣ ба админ: «оё ин пул воқеан ба банк омад?». matched_order_id
+    низ бармегардад, то маълум шавад ин kod аллакай ба фармоише бандаст ё не."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT kod, summa, matched_order_id, received_at FROM dc_kods "
+                "WHERE summa BETWEEN %s AND %s "
+                "AND received_at >= NOW() - INTERVAL %s HOUR "
+                "ORDER BY ABS(summa - %s) ASC, received_at DESC LIMIT %s",
+                (round(summa - tol, 2), round(summa + tol, 2), hours, summa, limit)
+            )
+            return await cur.fetchall()
+
+
+async def get_user_order_stats(user_id: int) -> dict:
+    """Омори фармоишҳои мизоҷ — барои эътимод: чанд тасдиқшуда, чанд радшуда,
+    ҳамагӣ чандто ва санаи аввалин фармоиш."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT "
+                "COUNT(*) AS total, "
+                "SUM(status='confirmed') AS confirmed, "
+                "SUM(status='rejected') AS rejected, "
+                "MIN(created_at) AS first_order "
+                "FROM orders WHERE user_id=%s AND COALESCE(is_balance_topup,0)=0",
+                (user_id,)
+            )
+            row = await cur.fetchone()
+            return row or {"total": 0, "confirmed": 0, "rejected": 0, "first_order": None}
+
+
+async def get_last_kod_time():
+    """Вақти охирин пардохти банкӣ (dc_kods) — барои санҷиши саломатии
+    нотифайери DC: агар хеле кӯҳна бошад, шояд телефон/нотифайер офлайн аст."""
+    async with pool.acquire() as conn:
+        async with conn.cursor(aiomysql.DictCursor) as cur:
+            await cur.execute(
+                "SELECT received_at FROM dc_kods ORDER BY received_at DESC LIMIT 1")
+            row = await cur.fetchone()
+            return row["received_at"] if row else None
 
 
 async def find_orders_by_check_hash(check_hash: str, limit: int = 10):
@@ -3160,7 +3209,8 @@ async def set_autopay_check(order_id: int, file_id: str, check_hash: str = None)
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
-                "UPDATE orders SET check_file_id=%s, check_hash=%s, status='autopay_search' "
+                "UPDATE orders SET check_file_id=%s, check_hash=%s, "
+                "check_sent_at=COALESCE(check_sent_at, NOW()), status='autopay_search' "
                 "WHERE id=%s AND status IN ('awaiting_autopay','expired')",
                 (file_id, check_hash, order_id)
             )

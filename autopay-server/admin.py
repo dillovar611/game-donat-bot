@@ -1835,6 +1835,42 @@ async def order_confirm(call: CallbackQuery):
     asyncio.create_task(_do_donate(call, order, call.message))
 
 
+# ============ САНҶИШИ ТАКРОРИИ БАНК (аз хабари «пардохт наёфт») ============
+@router.callback_query(F.data.startswith("rescan_"))
+async def rescan_bank(call: CallbackQuery):
+    """Тугмаи «🔍 Банкро аз нав сан» — админ бе интизорӣ дубора мекобад, ки
+    оё пули ин фармоиш ба банк омад ё не (шояд баъди хабар омада бошад)."""
+    if not is_admin(call.from_user.id):
+        await call.answer("❌ Иҷозат нест!", show_alert=True)
+        return
+    try:
+        _, oid_s, cents_s = call.data.split("_")
+        price = round(int(cents_s) / 100.0, 2)
+    except Exception:
+        await call.answer("❌ Хатои дода!", show_alert=True)
+        return
+    try:
+        near = await db.find_kods_near_amount(price, tol=0.06, hours=6)
+    except Exception:
+        near = []
+    if not near:
+        await call.answer(
+            f"🏦 Дар банк пардохти наздик ба {price:.2f} НЕСТ (6 соат).\n"
+            f"Эҳтимол мизоҷ ҳанӯз нафиристод ё маблағро галат дод.",
+            show_alert=True)
+        return
+    exact = [k for k in near if abs(float(k["summa"]) - price) <= 0.011]
+    show = exact or near
+    txt = "🏦 Банк:\n" + "\n".join(
+        f"• {float(k['summa']):.2f} {k['received_at'].strftime('%H:%M') if k.get('received_at') else '?'}"
+        + (f" #{k['matched_order_id']}" if k.get("matched_order_id") else " озод")
+        for k in show[:3]
+    )
+    txt += ("\n✅ Маблағи ДАҚИҚ ҳаст — эҳтимол дуруст."
+            if exact else "\n≈ Танҳо наздик (дақиқаш не) — диққат.")
+    await call.answer(txt[:200], show_alert=True)
+
+
 # ============ ТАСДИҚИ ФАРМОИШ ҲАНГОМИ «КОМЕНТИ ТАКРОРӢ» ============
 @router.callback_query(F.data.startswith("stmatch_"))
 async def stale_comment_match(call: CallbackQuery):

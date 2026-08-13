@@ -497,6 +497,134 @@ async def _notify_admin_stale_comment(bot: Bot, done_order: dict, summa: float, 
             logger.error(f"Огоҳии коменти такрорӣ ба {admin_id} нарасид: {e}")
 
 
+_PM_LABELS = {"dushanbe_city": "🏙 Душанбе Сити", "alif": "💳 Алиф",
+              "eskhata": "🏦 Эсхата", "referral_balance": "💰 Аз баланс"}
+
+
+def _fmt_delay(seconds: float) -> str:
+    """Фарқи вақтро ба «Nдақ Mсон» табдил медиҳад."""
+    seconds = int(max(0, seconds))
+    m, s = divmod(seconds, 60)
+    if m <= 0:
+        return f"{s} сония"
+    if m < 60:
+        return f"{m} дақ {s} сон"
+    h, m = divmod(m, 60)
+    return f"{h} соат {m} дақ"
+
+
+async def _build_unfound_context(order: dict, user: dict) -> str:
+    """Контексти иловагӣ барои хабари «Автопардохт пардохтро НАЁФТ» — то
+    админ дар ЯК нигоҳ тасмим гирад: тариқи пардохт, вақтҳо, ҷустуҷӯи худкори
+    банк, эътимоди мизоҷ, огоҳии чеки такрорӣ ва саломатии нотифайер."""
+    price = float(order["price"])
+    lines = []
+
+    # (4) Тариқи пардохт
+    pm = _PM_LABELS.get(order.get("payment_method"), order.get("payment_method") or "—")
+    lines.append(f"💳 Тариқи пардохт: {pm}")
+
+    # (5) Вақти фармоиш, интизорӣ ва «баъди чанд вақт чек фиристод»
+    now = datetime.now()
+    created = order.get("created_at")
+    check_at = order.get("check_sent_at")
+    if created:
+        try:
+            lines.append(f"🕐 Фармоиш: {created.strftime('%H:%M:%S')} "
+                         f"(⏱ {_fmt_delay((now - created).total_seconds())} пеш)")
+        except Exception:
+            pass
+    if created and check_at:
+        try:
+            lines.append(
+                f"🧾 Чекро баъди {_fmt_delay((check_at - created).total_seconds())}-и "
+                f"фармоиш фиристод (соати {check_at.strftime('%H:%M:%S')})")
+        except Exception:
+            pass
+
+    # (6) Ёдоварии маблағи нодир
+    lines.append(f"🎯 Дар банк МАҲЗ <b>{price:.2f}</b> кобед (маблағи нодир)")
+
+    # (1) Ҷустуҷӯи ХУДКОРИ банк — оё пули наздик омад?
+    bank_hit = None
+    try:
+        near = await db.find_kods_near_amount(price, tol=0.06, hours=6)
+    except Exception as e:
+        near = []
+        logger.error(f"find_kods_near_amount хато: {e}")
+    if near:
+        exact = [k for k in near if abs(float(k["summa"]) - price) <= 0.011]
+        show = exact or near
+        bank_hit = show[0]
+        parts = []
+        for k in show[:3]:
+            t = k["received_at"].strftime('%H:%M') if k.get("received_at") else "?"
+            used = ""
+            if k.get("matched_order_id"):
+                used = (" ✅банди #%s" % k["matched_order_id"]
+                        if k["matched_order_id"] != order["id"] else " ✅банди ҳамин")
+            parts.append(f"{float(k['summa']):.2f} ({t}){used}")
+        tag = "✅ ЁФТ ШУД" if exact else "≈ наздик"
+        lines.append(f"🏦 Дар банк {tag}: " + ", ".join(parts))
+    else:
+        lines.append("🏦 Дар банк пардохти наздик <b>НЕСТ</b> (6 соат)")
+
+    # (2) Эътимоди мизоҷ
+    risk = None
+    try:
+        st = await db.get_user_order_stats(order["user_id"])
+        conf = int(st.get("confirmed") or 0)
+        rej = int(st.get("rejected") or 0)
+        total = int(st.get("total") or 0)
+        if total <= 1:
+            lines.append("👤 Мизоҷ: 🆕 <b>НАВ</b> (аввалин фармоиш) — эҳтиёт")
+            risk = "new"
+        else:
+            emoji = "🟢" if rej == 0 else ("🟡" if rej <= 2 else "🔴")
+            lines.append(f"👤 Мизоҷ: {emoji} {conf} тасдиқ, {rej} рад ({total} ҳамагӣ)")
+            if rej >= 3:
+                risk = "risky"
+    except Exception as e:
+        logger.error(f"get_user_order_stats хато: {e}")
+
+    # (3) Огоҳии чеки ТАКРОРӢ (зидди расми сохта/кӯҳна)
+    try:
+        if order.get("check_hash"):
+            reuse = await db.find_check_reuse(order["check_hash"], exclude_order_ids=(order["id"],))
+            if reuse:
+                ids = ", ".join(f"#{r['id']}" for r in reuse[:5])
+                lines.append(f"🚨 <b>ЧЕКИ ТАКРОРӢ!</b> Ҳамин расм дар: {ids} — эҳтимол сохта/кӯҳна!")
+                risk = "fraud"
+    except Exception as e:
+        logger.error(f"find_check_reuse хато: {e}")
+
+    # (7) Саломатии нотифайери DC (танҳо агар пули банк ёфт нашуд — сабабро фаҳмонад)
+    if not bank_hit:
+        try:
+            last = await db.get_last_kod_time()
+            if last:
+                gap = (now - last).total_seconds()
+                if gap > 20 * 60:
+                    lines.append(
+                        f"⚠️ Нотифайери DC {_fmt_delay(gap)} боз ХОМӮШ аст "
+                        f"(охирин пардохт: {last.strftime('%H:%M')}) — шояд телефон офлайн; "
+                        f"айби мизоҷ набошад")
+        except Exception as e:
+            logger.error(f"get_last_kod_time хато: {e}")
+
+    # Сарлавҳаи ХАВФ — ҷамъбасти сигналҳо
+    if risk == "fraud":
+        head = "🚨 <b>ЭҲТИЁТ — эҳтимоли ҚАЛЛОБӢ!</b>\n"
+    elif bank_hit and abs(float(bank_hit["summa"]) - price) <= 0.011:
+        head = "🟢 <b>Эҳтимол ДУРУСТ (пул дар банк ҳаст)</b>\n"
+    elif risk in ("new", "risky"):
+        head = "🟠 <b>Диққат — мизоҷи хавфнок ва пул дар банк нест</b>\n"
+    else:
+        head = ""
+
+    return head + "\n".join(lines)
+
+
 async def _notify_admin_cart_paid(bot: Bot, order: dict):
     """Пардохти САБАД омад, вале мизоҷ ЧЕК нафиристод. Сабад дастӣ тасдиқ
     мешавад — пас ба админ гурӯҳро бо тугмаи «Тасдиқи гурӯҳ» мефиристем, то
@@ -1696,6 +1824,11 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
 
                 user = await db.get_user(order["user_id"])
                 username = f"@{user['username']}" if user and user.get("username") else "—"
+                try:
+                    extra = await _build_unfound_context(order, user)
+                except Exception as e:
+                    logger.error(f"_build_unfound_context хато: {e}")
+                    extra = ""
                 caption = (
                     f"🔍 <b>Автопардохт пардохтро НАЁФТ — дастӣ тафтиш кунед!</b>\n\n"
                     f"👤 Харидор: {esc(user.get('full_name') if user else '—')}\n"
@@ -1704,16 +1837,26 @@ async def expiry_loop(bot: Bot, interval_seconds: int = 60):
                     f"💵 Маблағи интизорӣ: <b>{float(order['price']):.2f} сомонӣ</b>\n\n"
                     f"🆔 Фармоиш: #{order['id']}\n"
                     f"🎁 {order['label']} → <code>{order['game_id']}</code>\n\n"
+                    f"{extra}\n\n"
                     f"Чекро тафтиш кунед: агар пул воқеан омада бошад — «Тасдиқ»."
                 )
                 # Тугмаи тасдиқ бояд ба ҳандлери ДУРУСТИ хизмат равад —
                 # вагарна фармоиши FFID/FFBR/PUBG/Stars/Premium ба API-и
                 # FF СНГ мерафт ва донат ноком мешуд
-                kb = InlineKeyboardMarkup(inline_keyboard=[
+                _cents = int(round(float(order["price"]) * 100))
+                rows = [
                     [InlineKeyboardButton(text="✅ Тасдиқ — донат кун",
                                           callback_data=_confirm_cb(order))],
+                    [InlineKeyboardButton(text="🔍 Банкро аз нав сан",
+                                          callback_data=f"rescan_{order['id']}_{_cents}")],
                     [InlineKeyboardButton(text="❌ Рад кардан", callback_data=f"no_{order['id']}")],
-                ])
+                ]
+                # (9) Тугмаи «Ба мизоҷ навиштан» — танҳо агар username дошта бошад
+                if user and user.get("username"):
+                    rows.insert(2, [InlineKeyboardButton(
+                        text="💬 Ба мизоҷ навиштан",
+                        url=f"https://t.me/{user['username']}")])
+                kb = InlineKeyboardMarkup(inline_keyboard=rows)
                 for admin_id in config.ADMIN_IDS:
                     try:
                         if order.get("check_file_id"):
