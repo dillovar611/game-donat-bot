@@ -1857,22 +1857,26 @@ async def stale_comment_match(call: CallbackQuery):
     if not order:
         await call.answer("❌ Фармоиш ёфт нашуд!", show_alert=True)
         return
-    if order["status"] not in ("awaiting_autopay", "autopay_search", "expired"):
-        await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
+    status = order["status"]
+    # Кадом ҳолатҳоро донат кардан мумкин:
+    #  • 'paid' = чек омада, дар навбати админ (пул ёфт шуд, донат нашуд)
+    #    → run_donate_for_escalated (худаш paid→donating банд мекунад).
+    #  • awaiting/autopay_search/expired = ҳанӯз дар ҷустуҷӯи пардохт
+    #    → run_donate (худаш awaiting→paid→donating банд мекунад).
+    #  • donating/confirmed/rejected = аллакай ниҳоӣ — даст намезанем.
+    if status not in ("paid", "awaiting_autopay", "autopay_search", "expired"):
+        await call.answer(
+            f"ℹ️ Ин фармоиш аллакай: {status} — даст намезанем "
+            f"(донати дучанд нашавад).", show_alert=True)
         return
 
-    # Пардохти омадаро (kod-и ҳамин маблағ, ҳанӯз пайванднашуда) атомикӣ
-    # ба ин фармоиш банд мекунем — то дучанд банд нашавад.
+    # Пардохти омадаро (kod-и ҳамин маблағ, ҳанӯз пайванднашуда) ба ин фармоиш
+    # мебандем. Агар ёфт нашавад (масалан аллакай банд шуд), синтетикӣ месозем —
+    # донат ба ҳар ҳол иҷро мешавад, зеро админ ДАСТӢ тасдиқ кард. (Банди
+    # атомикии зидди дучанд ДОХИЛИ run_donate/run_donate_for_escalated аст.)
     kod = await db.claim_unmatched_kod(summa, order_id, autopay.MAX_AGE_MINUTES + 10)
     if not kod:
-        await call.answer(
-            "⚠️ Пардохти мувофиқ ёфт нашуд (шояд аллакай банд/донат шуд).",
-            show_alert=True)
-        return
-    # Атомикӣ барои донат банд мекунем (то DCSCAN/DCNOTIF ҳамзамон дучанд накунад)
-    if not await db.claim_order_for_donate(order_id):
-        await call.answer("ℹ️ Ин фармоиш ҳозир аллакай коркард шуда истодааст!", show_alert=True)
-        return
+        kod = f"STMATCH{order_id}-{int(round(summa * 100))}"
 
     await call.answer("⏳ Донат оғоз шуд...", show_alert=False)
     try:
@@ -1885,7 +1889,10 @@ async def stale_comment_match(call: CallbackQuery):
         )
     except Exception:
         pass
-    asyncio.create_task(autopay.run_donate_inner(call.bot, order, kod))
+    if status == "paid":
+        asyncio.create_task(autopay.run_donate_for_escalated(call.bot, order, kod))
+    else:
+        asyncio.create_task(autopay.run_donate(call.bot, order, kod))
 
 
 # ==================== ТАСДИҚИ ГУРУҲ (САБАД) ====================
