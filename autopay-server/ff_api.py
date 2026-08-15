@@ -164,14 +164,16 @@ def pop_donate_error(order_id) -> str:
 
 
 def _fazer_err_text(result: dict) -> str:
-    """Аз ҷавоби FazerCards матни хатои хонданбобро мекашад."""
+    """Аз ҷавоби FazerCards матни хатои хонданбобро мекашад. Агар FazerCards
+    матни хато НАДИҲАД (error холӣ), сатри холӣ бармегардонад — то ба ҷои
+    dict-и хом ({'ok': False, ...}) паёми фаҳмо гузошта шавад."""
     if not isinstance(result, dict):
         return str(result)[:200]
     for key in ("error", "message", "error_message", "detail"):
         v = result.get(key)
         if v:
             return str(v)[:200]
-    return str(result)[:200]
+    return ""
 
 
 def _idem_key(prefix: str, order_id, retry_tag: str = "") -> str:
@@ -465,7 +467,13 @@ async def auto_donate(player_id: str, offer_id: str, existing_order_id: str = ""
         else:
             err = _fazer_err_text(result)
             logger.warning(f"FazerCards фармоиш нашуд, MooGold-ро санҷем: {result}")
-            note_donate_error(order_id, f"FazerCards фармоиш насохт: {err}")
+            if err:
+                note_donate_error(order_id, f"FazerCards фармоиш насохт: {err}")
+            else:
+                note_donate_error(
+                    order_id,
+                    "FazerCards рад кард, вале сабаб надод — эҳтимол ID-и бозӣ "
+                    "нодуруст ё маҳсулот дастнорас")
     else:
         logger.warning("FAZER_KEY нест — рост ба MooGold мегузарем")
 

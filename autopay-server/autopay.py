@@ -1145,6 +1145,21 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
     except Exception:
         pass
     reason_line = f"🩺 Сабаб: <i>{esc(reason)}</i>\n" if reason else ""
+    # Санҷиши ХУДКОРИ ID-и бозӣ (танҳо FF СНГ — game_id рақамӣ) — ҷавоби фаврӣ
+    # ба саволи «оё ID-и FF хато аст?». Агар номи аккаунт барояд → ID дуруст;
+    # агар холӣ → эҳтимол ID нодуруст (сабаби маъмули радди FazerCards).
+    id_check_line = ""
+    try:
+        gid = order.get("game_id") or ""
+        if gid.isdigit():
+            name = await ff_api.get_nickname(gid)
+            if name:
+                id_check_line = f"🎮 Санҷиши ID: <b>{esc(name)}</b> ✅ (ID дуруст)\n"
+            else:
+                id_check_line = ("🎮 Санҷиши ID: ⚠️ дар FazerCards ЁФТ НАШУД — "
+                                 "эҳтимол ID-и бозӣ НОДУРУСТ аст\n")
+    except Exception as e:
+        logger.error(f"ID validate дар failure alert хато барои #{order['id']}: {e}")
     # Тугмаи "Дубора донат" бояд ба ҳандлери ДУРУСТИ хидмат равад (на ҳамеша
     # ba FF СНГ) — вагарна харидҳои FFID/PUBG/Stars/Premium-и аз баланс ба
     # API-и нодуруст мераванд ва боз ноком мешаванд
@@ -1193,6 +1208,7 @@ async def _admin_report_failure(bot: Bot, order: dict, kod: str, api_order_id: s
         f"{api_line}"
         f"🎁 {order['label']} → <code>{order['game_id']}</code>\n"
         f"{reason_line}"
+        f"{id_check_line}"
         f"{warning_line}\n"
         f"Пули мизоҷ ҚАБУЛ шудааст — ҳатман ҳал кунед!"
     )
