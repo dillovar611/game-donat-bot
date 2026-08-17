@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 _DIR = os.path.dirname(os.path.abspath(__file__))
 BASE = os.path.join(_DIR, "chats")
 
+# КАЛИДИ АСОСӢ: агар False бошад, бойгонии сӯҳбатҳо ТАМОМАН ХОМӮШ аст —
+# ҳељ маълумоти мизоҷ (матн, расм, овоз) ба диск сабт намешавад ва папкаи
+# chats/ дигар сохта намешавад (барои махфияти пурра). Ҷавобдиҳии бот ба ин
+# вобаста НЕСТ — фақат бойгонии дидани соҳиб хомӯш мешавад.
+ARCHIVE_ENABLED = False
+
 
 def cleanup_old_media(days: int = 7) -> tuple:
     """Расмҳои (чекҳои) аз `days` рӯз кӯҳнатарро аз папкаи chats нест мекунад —
@@ -200,6 +206,9 @@ async def record(bot, message, chat_id: int, who: str, name: str,
     Расми фиристодашуда ба папкаи ҳамон мизоҷ бор карда мешавад.
     Хатогӣ ҳељ гоҳ ба боти асосӣ намебарояд — сабт набояд ҷавобдиҳиро вайрон кунад.
     """
+    # Бойгонӣ хомӯш аст → ҳељ чиз ба диск сабт намешавад (махфияти пурра).
+    if not ARCHIVE_ENABLED:
+        return
     try:
         text = message.text or message.caption or ""
         entry = {
@@ -290,6 +299,8 @@ def record_edit(chat_id: int, message_id: int, new_text: str, src: str = "biz"):
     Ислоҳи паёмро сабт мекунад ва матни КӮҲНАро бармегардонад
     (ё None, агар паёми аслӣ дар сабт набошад).
     """
+    if not ARCHIVE_ENABLED:
+        return None
     try:
         old = None
         for ev in _read_events(chat_id):
@@ -317,6 +328,8 @@ def record_delete(chat_id: int, message_ids: list, src: str = "biz"):
     вақте мизоҷ паёми овозиашро нест мекунад, огоҳӣ холӣ мебарояд, дар
     ҳоле ки маҳз ҳамон ҳолат аз ҳама муҳим аст.
     """
+    if not ARCHIVE_ENABLED:
+        return []
     out = []
     try:
         state = {}
