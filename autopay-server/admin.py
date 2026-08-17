@@ -543,7 +543,7 @@ async def a_balance_report(call: CallbackQuery):
     text = (
         f"📊 <b>Ҳисоботи балансҳо</b>\n\n"
         f"💳 Ҳамагӣ дар балансҳо: <b>{summary['total']:.2f} сом</b>\n"
-        f"   <i>(ин пули мизоҷон аст — қарзи шумо)</i>\n"
+        f"   <i>(ин маблағи мизоҷон аст — қарзи шумо)</i>\n"
         f"👥 Соҳибони баланс: <b>{total_holders}</b> нафар\n\n"
         f"📥 Имрӯз пур шуд: <b>{summary['topup_today']:.2f} сом</b>\n"
         f"📤 Имрӯз харҷ шуд: <b>{summary['spent_today']:.2f} сом</b>\n"
@@ -767,7 +767,7 @@ async def a_giveaway(call: CallbackQuery):
         call,
         f"🎁 <b>Тӯҳфаи тасодуфӣ</b>\n\n"
         f"Ҳар <b>{every_n}</b>-умин фармоиши тасдиқшуда, яке аз он {every_n} харидор "
-        f"тасодуфан интихоб мешавад ва тӯҳфаро БЕПУЛ мегирад (худкор).\n\n"
+        f"тасодуфан интихоб мешавад ва тӯҳфаро БЕМАБЛАҒ мегирад (худкор).\n\n"
         f"🎁 Маҳсулоти тӯҳфа: <b>{product_line}</b>\n\n"
         f"Агар маҳсулот танзим нашуда бошад, тӯҳфа фиристода намешавад.",
         kb
@@ -1062,7 +1062,7 @@ async def a_toggle_quiet(call: CallbackQuery):
 
 
 # ==================== 🧹 БАСТАНИ ФАРМОИШҲОИ КӮҲНА ====================
-# «Бастан» = ба ҳолати 'archived' гузаронидан. Пул, таърих ва расми чек
+# «Бастан» = ба ҳолати 'archived' гузаронидан. Маблағ, таърих ва расми чек
 # ГУМ НАМЕШАВАД — фармоиш танҳо аз рӯйхати «кор» бароварда мешавад, то
 # рақамҳо ҳақиқиро нишон диҳанд.
 _ARCHIVE_CHOICES = [7, 30, 90]
@@ -1082,7 +1082,7 @@ async def a_archive_menu(call: CallbackQuery):
         "Фармоишҳое, ки мизоҷ чек фиристодааст, вале ҳељ гоҳ дар бот "
         "«Тасдиқ» ё «Рад» пахш нашудааст, абадӣ дар рӯйхат мемонанд ва "
         "рақамҳоро вайрон мекунанд.\n",
-        "🔒 <b>Пул ва таърих ГУМ НАМЕШАВАД</b> — фармоиш танҳо ба архив "
+        "🔒 <b>Маблағ ва таърих ГУМ НАМЕШАВАД</b> — фармоиш танҳо ба архив "
         "мегузарад ва аз рӯйхати «кор» мебарояд. Дар ҷустуҷӯи фармоиш "
         "аз рӯи рақам ҳамеша ёфт мешавад.\n",
         "<b>Ҳозир дар навбат:</b>",
@@ -1136,7 +1136,7 @@ async def a_archive_ask(call: CallbackQuery):
         f"⚠️ <b>Тасдиқ кунед</b>\n\n"
         f"<b>{st['count']}</b> фармоиши аз <b>{days} рӯз</b> кӯҳнатар "
         f"(ҷамъан {st['sum']:.2f} сом) ба архив мегузаранд.\n\n"
-        f"🔒 Ҳељ чиз нест намешавад — на пул, на чек, на таърих. Онҳо "
+        f"🔒 Ҳељ чиз нест намешавад — на маблағ, на чек, на таърих. Онҳо "
         f"танҳо аз рӯйхати «Кор барои ман» мебароянд.\n\n"
         f"Давом диҳем?",
         kb
@@ -1244,7 +1244,7 @@ async def a_health(call: CallbackQuery):
         gap = (rate - srate) if rate is not None else 0
         service_block = (
             f"🤝 <b>Фоизи хизматрасонӣ: {srate}%</b>\n"
-            f"<i>аз ҳар 100 мизоҷе, ки пул дод, чандто алмосашро гирифт "
+            f"<i>аз ҳар 100 мизоҷе, ки маблағ дод, чандто алмосашро гирифт "
             f"(фармоишҳои ҳанӯз ҳалнашуда низ ҳисоб мешаванд)</i>\n"
         )
         if gap >= 5:
@@ -1332,7 +1332,7 @@ async def a_prememoji(call: CallbackQuery, state: FSMContext):
         "• Ё аз ягон канал паёме, ки эмоҷии премиум дорад, ба ман <b>forward</b> кунед.\n\n"
         "Ман кӯшиш мекунам ҳамон эмоҷиро <b>баргардонам</b> — то фаҳмем "
         "боти шумо иҷозат дорад ё не.\n\n"
-        "<i>Ин санҷиш ба фармоишу пул ҳеҷ дахл надорад.</i>",
+        "<i>Ин санҷиш ба фармоишу маблағ ҳеҷ дахл надорад.</i>",
         kb,
     )
     await call.answer()
@@ -1839,7 +1839,7 @@ async def order_confirm(call: CallbackQuery):
 @router.callback_query(F.data.startswith("rescan_"))
 async def rescan_bank(call: CallbackQuery):
     """Тугмаи «🔍 Банкро аз нав сан» — админ бе интизорӣ дубора мекобад, ки
-    оё пули ин фармоиш ба банк омад ё не (шояд баъди хабар омада бошад)."""
+    оё маблағи ин фармоиш ба банк омад ё не (шояд баъди хабар омада бошад)."""
     if not is_admin(call.from_user.id):
         await call.answer("❌ Иҷозат нест!", show_alert=True)
         return
@@ -1895,7 +1895,7 @@ async def stale_comment_match(call: CallbackQuery):
         return
     status = order["status"]
     # Кадом ҳолатҳоро донат кардан мумкин:
-    #  • 'paid' = чек омада, дар навбати админ (пул ёфт шуд, донат нашуд)
+    #  • 'paid' = чек омада, дар навбати админ (маблағ ёфт шуд, донат нашуд)
     #    → run_donate_for_escalated (худаш paid→donating банд мекунад).
     #  • awaiting/autopay_search/expired = ҳанӯз дар ҷустуҷӯи пардохт
     #    → run_donate (худаш awaiting→paid→donating банд мекунад).
@@ -2049,7 +2049,7 @@ async def order_group_reject(call: CallbackQuery):
         return
 
     # Банди АТОМИКӢ барои ҳар фармоиш — то агар ду админ ҳамзамон рад кунанд,
-    # такрор нашавад. ДИҚҚАТ: пул ба баланс ХУДКОР БАРГАРДОНИДА НАМЕШАВАД
+    # такрор нашавад. ДИҚҚАТ: маблағ ба баланс ХУДКОР БАРГАРДОНИДА НАМЕШАВАД
     # (қоидаи соҳиб) — агар лозим бошад, соҳиб дастӣ ҳал мекунад.
     rejected_any = False
     for order in pending:
@@ -2298,7 +2298,7 @@ async def order_manual(call: CallbackQuery):
         await call.answer(f"ℹ️ Ин фармоиш аллакай: {order['status']}", show_alert=True)
         return
     # Агар донати ХУДКОР ҳозир дар ҷараён бошад, дастӣ тасдиқ накунед —
-    # вагарна мизоҷ ду маротиба маҳсулот мегирад ва шумо ду бор пул медиҳед
+    # вагарна мизоҷ ду маротиба маҳсулот мегирад ва шумо ду бор маблағ медиҳед
     if order["status"] == "donating":
         await call.answer(
             "⏳ Донати худкор ҳанӯз дар ҷараён аст — 1-2 дақиқа сабр кунед, "
@@ -2460,7 +2460,7 @@ async def order_reject(call: CallbackQuery, state: FSMContext):
 
 async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, msg_id: int) -> bool:
     """Фармоишро рад мекунад: статус, хабар ба мизоҷ ва навсозии паёми
-    фармоиш дар панели админ. ДИҚҚАТ: пул ба баланс ХУДКОР БАРГАРДОНИДА
+    фармоиш дар панели админ. ДИҚҚАТ: маблағ ба баланс ХУДКОР БАРГАРДОНИДА
     НАМЕШАВАД (қоидаи соҳиб) — агар лозим бошад, соҳиб дастӣ ҳал мекунад."""
     order = await db.get_order(order_id)
     if not order:
@@ -2499,7 +2499,7 @@ async def _finalize_reject(bot, order_id: int, reason_clean: str, chat_id: int, 
         f"🎁 {esc(order.get('label') or '—')} → <code>{esc(order.get('game_id') or '—')}</code>\n"
         f"💵 {float(order.get('price') or 0):.2f} сом · {esc(pm)}"
     )
-    # Фармоиши аз БАЛАНС — пул худкор барнамегардад (қоидаи соҳиб), пас
+    # Фармоиши аз БАЛАНС — маблағ худкор барнамегардад (қоидаи соҳиб), пас
     # ёдрас мекунем, то фаромӯш нашавад
     if order.get("payment_method") == "referral_balance":
         caption += (f"\n\n💰 <b>Диққат:</b> ин фармоиш АЗ БАЛАНС пардохт "
@@ -2780,7 +2780,7 @@ async def a_daily_report(call: CallbackQuery):
         f"   3 рӯзи охир: <b>{stats['new_3d']}</b>\n"
         f"   7 рӯзи охир: <b>{stats['new_7d']}</b>\n"
         f"   1 моҳи охир: <b>{stats['new_30d']}</b>\n\n"
-        f"💰 <b>Савдо:</b>\n"
+        f"💰 <b>Фурӯш:</b>\n"
         f"   Имрӯз: <b>{stats['sales_today']:.2f} сом</b>\n"
         f"   Дина: <b>{stats['sales_yesterday']:.2f} сом</b>\n"
         f"   Тағйир нисбат ба дина: {change_str}\n"
@@ -2851,7 +2851,7 @@ async def a_weekly_report(call: CallbackQuery):
 
     text = (
         f"📅 <b>Гузориши ҳафтаина</b> ({week_start} – {week_end})\n\n"
-        f"💰 <b>Савдо:</b>\n"
+        f"💰 <b>Фурӯш:</b>\n"
         f"   Ин ҳафта: <b>{stats['sales_week']:.2f} сом</b>\n"
         f"   Ҳафтаи гузашта: <b>{stats['sales_prev_week']:.2f} сом</b>\n"
         f"   Тағйир: {change_str}\n\n"
@@ -3482,7 +3482,7 @@ async def a_order_check(call: CallbackQuery):
     file_id = order.get("check_file_id")
     if not file_id:
         if order.get("payment_method") == "referral_balance":
-            msg = "ℹ️ Ин фармоиш АЗ БАЛАНС пардохт шудааст — чеки расм надорад (пул аллакай дар балансаш буд)."
+            msg = "ℹ️ Ин фармоиш АЗ БАЛАНС пардохт шудааст — чеки расм надорад (маблағ аллакай дар балансаш буд)."
         elif order.get("status") == "confirmed":
             msg = "ℹ️ Ин фармоиш тавассути автопардохт тасдиқ шуд — чеки расм захира нашудааст."
         else:
@@ -5917,7 +5917,7 @@ async def a_ml_find_custom_run(message: Message, state: FSMContext):
 
 
 # ==================== САНҶИШИ НОМИ МАЙДОНҲОИ ML ====================
-# Бо номи НОДУРУСТИ майдон донат ноком мешавад, вале пули мизоҷ аллакай
+# Бо номи НОДУРУСТИ майдон донат ноком мешавад, вале маблағи мизоҷ аллакай
 # гирифта шудааст — пас пеш аз фурӯш ҳатман санҷидан лозим.
 class MLFieldTestState(StatesGroup):
     ids = State()
@@ -5934,7 +5934,7 @@ async def a_ml_test_fields(call: CallbackQuery, state: FSMContext):
         "(аз они худатон ё дӯстатон):\n\n"
         "Формат: <code>Player ID | Server ID</code>\n"
         "Мисол: <code>123456789 | 2001</code>\n\n"
-        "ℹ️ Ин санҷиш ҳељ пул сарф намекунад ва ҳељ донат намекунад — "
+        "ℹ️ Ин санҷиш ҳељ маблағ сарф намекунад ва ҳељ донат намекунад — "
         "танҳо номи аккаунтро мепурсад.",
         InlineKeyboardMarkup(inline_keyboard=[
             [InlineKeyboardButton(text="🔙 Бекор", callback_data="ml_settings")]

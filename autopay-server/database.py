@@ -12,12 +12,12 @@ TJ_TZ = ZoneInfo("Asia/Dushanbe")
 
 logger = logging.getLogger(__name__)
 
-pool = None  # пул дар create_pool() сохта мешавад
+pool = None  # маблағ дар create_pool() сохта мешавад
 
 
 # ==================== ПАЙВАСТ ====================
 async def create_pool():
-    """Пули пайвастро месозад. Session timezone ба вақти Тоҷикистон
+    """Маблағи пайвастро месозад. Session timezone ба вақти Тоҷикистон
     (+05:00) гузошта мешавад, то NOW()/CURRENT_TIMESTAMP/CURDATE() дар
     MySQL бо вақти сервери Тоҷикистон корбар кунанд, новобаста аз
     минтақаи вақти системавии сервери боти мо."""
@@ -1207,7 +1207,7 @@ async def claim_failed_order_for_autoretry(order_id: int) -> bool:
 
 
 async def count_stale_paid_orders(days: int) -> dict:
-    """Чандто фармоиши 'пардохтшуда'-и аз N рӯз кӯҳнатар ҳаст ва ҷамъи пулаш."""
+    """Чандто фармоиши 'пардохтшуда'-и аз N рӯз кӯҳнатар ҳаст ва ҷамъи маблағаш."""
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(
@@ -1226,7 +1226,7 @@ async def archive_stale_paid_orders(days: int, limit: int = 1000) -> dict:
 
     'archived' статуси НАВ аст — ҳељ як дархости мавҷуда онро намегирад
     (ҳамаашон рӯйхати аниқи статусҳоро мепурсанд), пас ҳисоботҳо ва
-    ҳисоби фоида бетағйир мемонанд. Пул ва таърих гум НАМЕШАВАД — танҳо
+    ҳисоби фоида бетағйир мемонанд. Маблағ ва таърих гум НАМЕШАВАД — танҳо
     фармоиш аз рӯйхати "кор" бароварда мешавад.
     """
     async with pool.acquire() as conn:
@@ -1386,7 +1386,7 @@ async def get_system_health(hours: int = 24, watch_since=None, recent_days: int 
     if total > 0:
         out["success_rate"] = round(out["confirmed"] * 100.0 / total, 1)
 
-    # Фоизи ХИЗМАТРАСОНӢ — аз ҳар 100 мизоҷе, ки ПУЛ ДОД, чандто хизмат
+    # Фоизи ХИЗМАТРАСОНӢ — аз ҳар 100 мизоҷе, ки МАБЛАҒ ДОД, чандто хизмат
     # гирифт. Фармоишҳои ҳанӯз ҳалнашуда (интизори тасдиқ) низ ҳисоб
     # мешаванд, чунки барои мизоҷ онҳо "нагирифтам" маъно доранд.
     # Радшудаҳо (чеки қалбакӣ ва ғ.) ба ҳисоб намераванд — онҳо
@@ -1481,12 +1481,12 @@ async def get_stale_paid_orders(minutes: int = 20, created_after=None):
 
 
 async def get_paid_cart_pending_no_check(minutes: int = 5, created_after=None):
-    """Фармоишҳои САБАД, ки пул ОМАД (kod резерв шудааст), вале мизоҷ то ҳол
+    """Фармоишҳои САБАД, ки маблағ ОМАД (kod резерв шудааст), вале мизоҷ то ҳол
     ЧЕК нафиристодааст (status='pending', check_file_id IS NULL) ва аз
     `minutes` дақиқа зиёд гузашт. Барои огоҳии ТАЪХИРИИ админ — то дар
     ҳолати оддӣ (мизоҷ чекро баъди чанд сония мефиристад) огоҳии бармаҳал
     наравад ва админ ду паём нагирад. Танҳо фармоише бармегардад, ки kod ба
-    он резерв шудааст (яъне пул воқеан омад — на сабади партофташуда)."""
+    он резерв шудааст (яъне маблағ воқеан омад — на сабади партофташуда)."""
     q = ("SELECT DISTINCT o.* FROM orders o "
          "JOIN dc_kods k ON k.matched_order_id = o.id "
          "WHERE o.order_group_id IS NOT NULL AND o.status='pending' "
@@ -1532,9 +1532,9 @@ async def get_long_waiting_paid(min_minutes: int = 60, max_hours: int = 48,
 
 async def get_unalerted_money_orders(min_minutes: int = 15, max_hours: int = 48,
                                      limit: int = 50) -> list:
-    """ТӮРИ БЕХАТАРИИ УМУМӢ (зидди гум шудани пул баъди restart).
+    """ТӮРИ БЕХАТАРИИ УМУМӢ (зидди гум шудани маблағ баъди restart).
 
-    Ҳар фармоише, ки ПУЛ гирифтааст, вале то ҳол ба ниҳоят нарасидааст
+    Ҳар фармоише, ки МАБЛАҒ гирифтааст, вале то ҳол ба ниҳоят нарасидааст
     (status: paid/donating/failed), аз min_minutes зиёд боз аст, аз max_hours
     кӯҳнатар нест ВА бо ин тӯр ҳанӯз ба админ хабар нашудааст
     (money_net_alerted=0). Ин ҷо БЕ филтри _BOT_START_TS — то фармоишҳое, ки
@@ -1566,7 +1566,7 @@ async def claim_money_net_alert(order_id: int) -> bool:
 
 
 async def count_unfinished_money_orders(max_hours: int = 48) -> int:
-    """Чанд фармоиши ПУЛ-гирифта вале ноанҷом (paid/donating/failed) ҳозир
+    """Чанд фармоиши МАБЛАҒ-гирифта вале ноанҷом (paid/donating/failed) ҳозир
     ҳаст — барои гузориши баъди restart/деплой."""
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
@@ -1597,7 +1597,7 @@ async def find_kods_near_amount(summa: float, tol: float = 0.06,
                                 hours: int = 6, limit: int = 5) -> list:
     """Пардохтҳои банкӣ (dc_kods)-ро, ки маблағашон ба `summa` НАЗДИК аст
     (дар доираи ±tol) ва дар `hours` соати охир омадаанд, бармегардонад —
-    барои ёрӣ ба админ: «оё ин пул воқеан ба банк омад?». matched_order_id
+    барои ёрӣ ба админ: «оё ин маблағ воқеан ба банк омад?». matched_order_id
     низ бармегардад, то маълум шавад ин kod аллакай ба фармоише бандаст ё не."""
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
@@ -2076,9 +2076,9 @@ async def get_daily_report() -> dict:
     Гузориши рӯзонаи бот барои фиристодан ба админ дар соати 00:00
     (вақти Тоҷикистон):
     - Корбарони нав: имрӯз / 3 рӯз / 7 рӯз / 1 моҳ
-    - Савдои имрӯз ва дина (бо сом)
+    - Фурӯши имрӯз ва дина (бо сом)
     - Шумораи фармоишҳои ✅ тасдиқшуда ва ❌ радшуда (имрӯз)
-    - Фоизи тағйир дар савдо нисбат ба дина
+    - Фоизи тағйир дар фурӯш нисбат ба дина
     """
     # Санаи "имрӯз" БО ВАҦТИ ТОЧИКИСТОН (на вақти сервери MySQL/Python),
     # то гузориш дар атрофи нисфишабӣ нодуруст набарояд.
@@ -2111,7 +2111,7 @@ async def get_daily_report() -> dict:
             )
             new_30d = (await cur.fetchone())["c"]
 
-            # ---- Савдо (фармоишҳои тасдиқшуда, ба ғайр аз пуркунии баланс) ----
+            # ---- Фурӯш (фармоишҳои тасдиқшуда, ба ғайр аз пуркунии баланс) ----
             await cur.execute(
                 "SELECT COALESCE(SUM(price),0) AS s FROM orders "
                 "WHERE status='confirmed' AND is_balance_topup=0 AND created_at >= %s",
@@ -2635,7 +2635,7 @@ async def fsm_get_data(key: str):
 
 
 async def get_db_now():
-    """Вақти ҶОРИИ база (бо time_zone-и пул: +05:00). Барои он ки
+    """Вақти ҶОРИИ база (бо time_zone-и маблағ: +05:00). Барои он ки
     _BOT_START_TS бо created_at-и база ҳамоҳанг бошад (на бо вақти системаи
     хости бот, ки метавонад TZ-и дигар дошта бошад)."""
     async with pool.acquire() as conn:
@@ -3398,7 +3398,7 @@ async def find_reserved_order_for_user(user_id: int, max_age_minutes: int = 120)
     """Фармоиши мизоҷ, ки пардохташ дар банк ЁФТ ШУДА (dc_kods.matched_order_id
     = order.id) вале ҳанӯз чек нарасида (awaiting_autopay/expired). Барои он ки
     агар мизоҷ чекро ба фармоиши ГАЛАТ (#1112) фиристад, бот чекро ба фармоиши
-    ДУРУСТ (#1111, ки пулаш омада) бандад."""
+    ДУРУСТ (#1111, ки маблағаш омада) бандад."""
     async with pool.acquire() as conn:
         async with conn.cursor(aiomysql.DictCursor) as cur:
             await cur.execute(

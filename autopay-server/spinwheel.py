@@ -594,11 +594,11 @@ def render_spin_gif(names, winner_idx, gift_label, total_wins,
         d2 = ImageDraw.Draw(img)
         if win:
             _cput(img, d2, PT + 26, "🏅 " + winner, _font(44), WHITE, W)
-            _cput(img, d2, PT + 96, "🎁 " + gift_label + " — БЕПУЛ!", _font(28), GREEN, W)
+            _cput(img, d2, PT + 96, "🎁 " + gift_label + " — БЕМАБЛАҒ!", _font(28), GREEN, W)
             _cput(img, d2, PT + 140, "🏆 " + tail, _font(16), (195, 175, 250), W)
         else:
             _cput(img, d2, PT + 34, "ИНТИХОБИ ТАСОДУФӢ...", _font(34), CYA, W)
-            _cput(img, d2, PT + 96, gift_label + " — БЕПУЛ!", _font(26), GREEN, W)
+            _cput(img, d2, PT + 96, gift_label + " — БЕМАБЛАҒ!", _font(26), GREEN, W)
             _cput(img, d2, PT + 140, "Ҳар харидор дар рӯйхат аст", _font(16),
                   (195, 175, 250), W)
         _cput(img, d2, BT + 24, "ФАРМОИШ ДИҲЕД!", _font(30), WHITE, W)
