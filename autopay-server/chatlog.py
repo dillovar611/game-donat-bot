@@ -38,7 +38,10 @@ def cleanup_old_media(days: int = 7) -> tuple:
     if not os.path.isdir(BASE) or days < 0:
         return (0, 0)
     cutoff = time.time() - days * 86400
-    exts = (".jpg", ".jpeg", ".png", ".webp")
+    # Расм + медиа (овоз/видео/ҳуҷҷат) — ҳама файлҳои вазнин. Матн (.jsonl,
+    # .txt) даст нахӯрда мемонад.
+    exts = (".jpg", ".jpeg", ".png", ".webp", ".ogg", ".mp4", ".mp3",
+            ".m4a", ".wav", ".bin", ".pdf", ".zip")
     removed, freed = 0, 0
     for root, _dirs, files in os.walk(BASE):
         for fn in files:
@@ -209,13 +212,12 @@ async def record(bot, message, chat_id: int, who: str, name: str,
             "src": src,
         }
         if message.photo:
-            entry["photo"] = await _save_media(
-                bot, message.photo[-1].file_id, chat_id,
-                "photos", f"{message.message_id}_{int(time.time())}.jpg")
-            if not entry["photo"]:
-                # Худи расм наомад — вале паём набояд ХОЛӢ намояд,
-                # вагарна дар бойгонӣ гӯё чизе нафиристода бошад
-                entry["file"] = "📸 расм"
+            # РАСМҲОРО ба диск НИГОҲ НАМЕДОРЕМ — то квотаи ҳисоб пур нашавад
+            # (бо ~2000 фармоиш/рӯз расмҳо ба чанд ГБ мерасиданд). Чекҳо
+            # аллакай дар чати админи боти асосӣ ҳастанд. Дар матни сӯҳбат
+            # танҳо аломат мемонад, то фаҳмо бошад ки мизоҷ расм фиристод.
+            entry["photo"] = ""
+            entry["file"] = "📸 расм фиристод"
         elif message.sticker:
             entry["text"] = text or f"[стикер {message.sticker.emoji or ''}]".strip()
         else:
