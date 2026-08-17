@@ -1,0 +1,364 @@
+package tj.dilovar.dcnotifier
+
+import android.accessibilityservice.AccessibilityService
+import android.app.ActivityManager
+import android.app.KeyguardManager
+import android.content.Context
+import android.os.Handler
+import android.os.Looper
+import android.view.accessibility.AccessibilityEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Locale
+
+/**
+ * Мехонад экрани барномаи DC City (tj.dc.next1) дар ҳамин телефон, вақте
+ * ScanScheduler онро худкор мекушояд:
+ *   1. Агар экрани PIN бошад — рамзи нигоҳдоштаро (SecurePrefs) худкор
+ *      "пахш" мекунад (мисли ангушти соҳиби телефон).
+ *   2. Агар саҳифаи асосӣ бошад — ба таби "Таърих" мегузарад.
+ *   3. Дар саҳифаи амалиётҳо — хатҳои амалиётро мехонад, ҳар кадоме нав
+ *      бошад (пештар надида)-ро ба канал мефиристад, бо тамғаи "вобаста
+ *      ба фармоиш" / "вобастагӣ надорад". Ҳар санҷиш як хабар мефиристад
+ *      (агар чизи нав набошад ҳам — то маълум шавад, ки санҷиш зинда аст).
+ *   4. Баъд бармегардад ба хонаи телефон (DC-ро дар пасизамина мемонад).
+ *
+ * ДИҚҚАТ: тамғагузорӣ дар ин ҷо танҳо аз рӯи ШАКЛИ матн аст (эҳтимолӣ),
+ * на аз рӯи мутобиқати воқеӣ бо базаи фармоишҳо дар сервер — сервер
+ * метавонад минбаъд аз ин рӯйхат санҷиши дақиқтар кунад.
+ */
+class DcAccessibilityService : AccessibilityService() {
+
+    companion object {
+        private const val DC_PACKAGE = "tj.dc.next1"
+        // Танҳо дар давоми ин муддат баъд аз он ки МО худамон DC-ро кушодем,
+        // ба экран дахолат мекунем (PIN, гузариш ба таб, бастан). Агар
+        // корбар худаш DC-ро дастӣ кушояд (берун аз ин пенҷара), барнома
+        // ҳељ дахолат намекунад — танҳо тамошо мекунад, бе халал
+        private const val OWN_SCAN_WINDOW_MS = 90_000L
+
+        private val CARD_REF_RE = Regex("card_(\\d+)", RegexOption.IGNORE_CASE)
+        // ДИҚҚАТ: бояд ҳатман "TJS" пас аз рақам биёяд — вагарна санаи
+        // амалиёт (масалан "16.07.26") низ ба ин шакл рост меояд (16.07)
+        // ва ҳамчун маблағ хато хонда мешавад
+        private val AMOUNT_RE = Regex("(\\d{1,3}[.,]\\d{2})\\s*TJS", RegexOption.IGNORE_CASE)
+        private val TIME_RE = Regex("\\b\\d{2}:\\d{2}:\\d{2}\\b")
+
+        @Volatile
+        var instance: DcAccessibilityService? = null
+
+        /** Аз ScanScheduler даъват мешавад, вақте вақти сканкунӣ расид. */
+        fun triggerOpenApp(ctx: Context) {
+            try {
+                ctx.getSharedPreferences("cfg", Context.MODE_PRIVATE)
+                    .edit().putLong("own_scan_triggered_at", System.currentTimeMillis()).apply()
+
+                // DC City-ро пеш аз кушодан ПУРРА мекушем — вагарна, агар
+                // он аллакай дар хотира буда бошад, рӯйхати амалиётҳоро аз
+                // ҲОЛАТИ КӮҲНАИ дар хотира мондаро нишон медиҳад (на
+                // маълумоти навтарин аз сервери DC), ва DCSCAN амалиёти
+                // навро намебинад. Кушодани АЗ НАВ (cold start) маҷбур
+                // мекунад, ки барнома маълумотро аз нав гирад — мисли он
+                // ки соҳиби телефон худаш барномаро аз Recent apps пок
+                // карда, аз нав кушода бошад (рафтори комилан оддии одам).
+                try {
+                    val am = ctx.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+                    am.killBackgroundProcesses(DC_PACKAGE)
+                } catch (e: Exception) {}
+
+                val handler = Handler(Looper.getMainLooper())
+                handler.postDelayed({
+                    try {
+                        val launch = ctx.packageManager.getLaunchIntentForPackage(DC_PACKAGE) ?: return@postDelayed
+                        launch.addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                                android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                        ctx.startActivity(launch)
+                    } catch (e: Exception) {}
+                }, 400)
+            } catch (e: Exception) {}
+        }
+    }
+
+    private val handler = Handler(Looper.getMainLooper())
+    private var lastUnmatchedDiagAt = 0L
+    private var lastLockedDiagAt = 0L
+    private var wentToHistoryTab = false
+    private var pendingHandleRunnable: Runnable? = null
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        instance = this
+    }
+
+    override fun onDestroy() {
+        instance = null
+        super.onDestroy()
+    }
+
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        val pkg = event?.packageName?.toString() ?: return
+        if (pkg != DC_PACKAGE) return
+
+        // Агар ин DC-ро МО худамон накушода бошем (яъне корбар худаш кушодааст),
+        // ҳељ дахолат намекунем — на PIN, на гузариш, на бастан
+        val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        val triggeredAt = prefs.getLong("own_scan_triggered_at", 0)
+        if (System.currentTimeMillis() - triggeredAt > OWN_SCAN_WINDOW_MS) return
+
+        // DEBOUNCE: RecyclerView-и рӯйхати амалиётҳо якчанд event пай дар пай
+        // мефиристад, то даме ки пурра "ором" (settle) шавад — агар мо дар
+        // ҳамон лаҳза (event-и АВВАЛИН) дарахтро хонем, феҳристи он ҳанӯз
+        // нимрасида буда метавонад (view-ҳои recycler ҳанӯз бо матни кӯҳна),
+        // ки боиси омехта шудани рамзи фармоиш байни амалиётҳои ҳамсоя
+        // мешавад. Барои ин ҳар event коркардро ба 500мс АҚИБ мепартояд —
+        // коркарди воқеӣ танҳо баъд аз он ки 500мс дигар event наомад,
+        // иҷро мешавад, бо дарахти ТОЗАИ ҳамон лаҳза (на лаҳзаи event).
+        pendingHandleRunnable?.let { handler.removeCallbacks(it) }
+        val runnable = Runnable {
+            // Агар телефон қулф бошад (масалан alarm экранро бедор кард,
+            // вале корбар PIN/пайпона ворид накардааст), DC ҲАРГИЗ воқеан
+            // намекушояд — Android аз рӯи амният намегузорад ягон барнома
+            // аз пеши lock screen гузарад бе иҷозати дастии соҳиб. Дар ин
+            // ҳолат rootInActiveWindow на DC-ро, балки экрани қулфро
+            // бармегардонад (матни тасодуфӣ — фоизи батарея ва ғайра) — то
+            // ин ҳамчун "Экрани ношинос" гумроҳкунанда фиристода нашавад,
+            // фавран бозмегардем бо як паёми возеҳ (на ҳар бор — то спам
+            // нашавад).
+            val km = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
+            if (km?.isKeyguardLocked == true) {
+                val now = System.currentTimeMillis()
+                if (now - lastLockedDiagAt > 5 * 60_000) {
+                    lastLockedDiagAt = now
+                    Sender.enqueue(
+                        applicationContext,
+                        "🔒 Телефон қулф буд дар вақти санҷиш — DC кушода нашуд (Android инро аз амният манъ мекунад). Санҷиши навбатӣ кӯшиш мекунад."
+                    )
+                    Sender.flushAsync(applicationContext)
+                }
+                return@Runnable
+            }
+            val root = rootInActiveWindow ?: return@Runnable
+            try {
+                handleScreen(root)
+            } catch (e: Exception) {
+            } finally {
+                root.recycle()
+            }
+        }
+        pendingHandleRunnable = runnable
+        handler.postDelayed(runnable, 500)
+    }
+
+    override fun onInterrupt() {}
+
+    private fun handleScreen(root: AccessibilityNodeInfo) {
+        val allText = mutableListOf<String>()
+        collectText(root, allText)
+        val joined = allText.joinToString("\n")
+
+        when {
+            joined.contains("Рамзи дастрасиро ворид кунед") -> enterPin(root)
+            !wentToHistoryTab && (joined.contains("Пардохти хизматҳо") || joined.contains("Барномаҳо")) -> {
+                // Саҳифаи асосӣ — ба таби "Таърих" меравем
+                if (clickNodeWithText(root, "Таърих")) {
+                    wentToHistoryTab = true
+                }
+            }
+            joined.contains("Амалиётҳо") || joined.contains("Выписка") -> {
+                val groups = mutableListOf<List<String>>()
+                collectTransactionGroups(root, groups)
+                processTransactions(groups)
+            }
+            else -> {
+                // Экрани ношинос — то 60 сония як бор хабар медиҳем (на ҳар event),
+                // то бидонем дар кадом саҳифа монда истодаем, бе спам
+                val now = System.currentTimeMillis()
+                if (now - lastUnmatchedDiagAt > 60_000) {
+                    lastUnmatchedDiagAt = now
+                    val preview = joined.take(300)
+                    Sender.enqueue(applicationContext, "❔ Экрани ношинос дар DC:\n$preview")
+                    Sender.flushAsync(applicationContext)
+                }
+            }
+        }
+    }
+
+    private fun collectText(node: AccessibilityNodeInfo?, out: MutableList<String>) {
+        if (node == null) return
+        val t = node.text?.toString()
+        if (!t.isNullOrBlank()) out.add(t.trim())
+        val d = node.contentDescription?.toString()
+        if (!d.isNullOrBlank()) out.add(d.trim())
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            try {
+                collectText(child, out)
+            } finally {
+                child.recycle()
+            }
+        }
+    }
+
+    /** Гурӯҳи хурдтарини зершохаеро меёбад, ки дар дохилаш ҳам маблағ ҳам
+     * вақт дорад — ин ба таври дуруст ба ҳар "қуттии" алоҳидаи амалиёт
+     * дар рӯйхати UI мувофиқат мекунад (аз рӯи сохтори ДАРАХТ, на тахмини
+     * масофаи сатр — бинобар ин амалиёти ҳамсоя дигар омехта намешавад). */
+    private fun collectTransactionGroups(node: AccessibilityNodeInfo?, groups: MutableList<List<String>>) {
+        if (node == null) return
+        val childGroups = mutableListOf<List<String>>()
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            try {
+                collectTransactionGroups(child, childGroups)
+            } finally {
+                child.recycle()
+            }
+        }
+        if (childGroups.isNotEmpty()) {
+            groups.addAll(childGroups)
+            return
+        }
+        val myText = mutableListOf<String>()
+        collectText(node, myText)
+        val joined = myText.joinToString(" ")
+        if (myText.size >= 2 && AMOUNT_RE.containsMatchIn(joined) && TIME_RE.containsMatchIn(joined)) {
+            groups.add(myText)
+        }
+    }
+
+    private fun findNodesWithText(root: AccessibilityNodeInfo, text: String): List<AccessibilityNodeInfo> {
+        val result = mutableListOf<AccessibilityNodeInfo>()
+        fun walk(node: AccessibilityNodeInfo?) {
+            if (node == null) return
+            val t = node.text?.toString()
+            if (t != null && t.trim() == text) result.add(node)
+            for (i in 0 until node.childCount) {
+                walk(node.getChild(i))
+            }
+        }
+        walk(root)
+        return result
+    }
+
+    private fun clickNodeWithText(root: AccessibilityNodeInfo, text: String): Boolean {
+        val nodes = findNodesWithText(root, text)
+        for (n in nodes) {
+            var target: AccessibilityNodeInfo? = n
+            // агар худи нод "clickable" набошад, аз волидайн меҷӯем
+            var depth = 0
+            while (target != null && !target.isClickable && depth < 5) {
+                target = target.parent
+                depth++
+            }
+            if (target != null && target.isClickable) {
+                val ok = target.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                if (ok) return true
+            }
+        }
+        return false
+    }
+
+    /** PIN-и нигоҳдоштаро рақам ба рақам "пахш" мекунад. */
+    private fun enterPin(root: AccessibilityNodeInfo) {
+        val pin = SecurePrefs.getPin(applicationContext)
+        if (pin.isBlank() || pin.length !in 4..6) return
+        handler.post {
+            for ((idx, ch) in pin.withIndex()) {
+                handler.postDelayed({
+                    val r = rootInActiveWindow ?: return@postDelayed
+                    try {
+                        clickNodeWithText(r, ch.toString())
+                    } finally {
+                        r.recycle()
+                    }
+                }, idx * 350L)
+            }
+        }
+    }
+
+    /** Ҳар гурӯҳ (қуттии як амалиёт, аз рӯи сохтори дарахти UI) коркард
+     * мешавад — дар дохили ҳамон гурӯҳ маблағ, вақт ва card_XXX ҷустуҷӯ
+     * мешаванд, бе омехта шудан бо амалиётҳои ҳамсоя. */
+    private fun processTransactions(groups: List<List<String>>) {
+        val prefs = getSharedPreferences("cfg", Context.MODE_PRIVATE)
+        val seen = try {
+            JSONObject(prefs.getString("scan_seen", "{}") ?: "{}")
+        } catch (e: Exception) {
+            JSONObject()
+        }
+        val foundArr = org.json.JSONArray()
+
+        for (group in groups) {
+            val joined = group.joinToString(" ")
+            // Аз рӯи МАТНИ ПУРРАИ гурӯҳ меҷӯем (на ҳар сатр алоҳида), то
+            // агар "TJS" дар нодаи ҳамсоя бошад ҳам ёфта шавад; аввалин
+            // мувофиқат гирифта мешавад (сатри "Захисление", на "Баланс")
+            val amount = AMOUNT_RE.find(joined)?.groupValues?.get(1) ?: continue
+            val time = TIME_RE.find(joined)?.value ?: continue
+            val orderId = CARD_REF_RE.find(joined)?.groupValues?.get(1)
+            val hasAlifRef = joined.contains("DC WALLET", ignoreCase = true)
+
+            val hash = "$orderId|$amount|$time".hashCode().toString()
+            if (!seen.has(hash)) {
+                seen.put(hash, System.currentTimeMillis())
+                val tag = classify(orderId, hasAlifRef)
+                val body = buildString {
+                    if (orderId != null) append("Фармоиши #$orderId\n")
+                    append("Маблағ: $amount TJS\n")
+                    append("Вақт: $time")
+                }
+                foundArr.put("$tag\n$body")
+            }
+        }
+
+        // тозакунии hash-ҳои кӯҳна (>7 рӯз)
+        val freshSeen = JSONObject()
+        val nowTs = System.currentTimeMillis()
+        val keys = seen.keys()
+        while (keys.hasNext()) {
+            val k = keys.next()
+            val t = seen.optLong(k, 0)
+            if (nowTs - t < 7L * 24 * 60 * 60 * 1000) freshSeen.put(k, t)
+        }
+        prefs.edit().putString("scan_seen", freshSeen.toString()).apply()
+
+        // Ҳар санҷиш як хабар мефиристад — то маълум шавад, ки санҷиш зинда аст
+        sendBatch(foundArr)
+
+        // Кор тамом — ба хонаи телефон бармегардем, DC-ро дар пасизамина мемонем
+        handler.postDelayed({
+            try {
+                performGlobalAction(GLOBAL_ACTION_HOME)
+            } catch (e: Exception) {}
+            wentToHistoryTab = false
+            // Санҷиш тамом шуд — агар корбар ҳозир DC-ро дастӣ кушояд,
+            // дигар ин "санҷиши худӣ" ҳисоб намешавад
+            getSharedPreferences("cfg", Context.MODE_PRIVATE)
+                .edit().putLong("own_scan_triggered_at", 0).apply()
+        }, 800)
+    }
+
+    private fun classify(orderId: String?, hasAlifRef: Boolean): String {
+        return when {
+            orderId != null -> "✅ Вобаста ба фармоиш #$orderId"
+            hasAlifRef -> "❓ Аз Алиф (бе рамз — санҷиши маблағ лозим)"
+            else -> "⚠️ Вобастагӣ ба бот надорад"
+        }
+    }
+
+    private fun sendBatch(arr: org.json.JSONArray) {
+        val time = SimpleDateFormat("dd.MM HH:mm", Locale.getDefault()).format(java.util.Date())
+        val sb = StringBuilder()
+        if (arr.length() == 0) {
+            sb.append("DCSCAN [$time] — санҷиш иҷро шуд, амалиёти нав ёфт нашуд.")
+        } else {
+            sb.append("DCSCAN [$time] — ${arr.length()} амалиёти нав ёфт шуд:\n\n")
+            for (i in 0 until arr.length()) {
+                sb.append("${i + 1}. ${arr.getString(i)}\n\n")
+            }
+        }
+        Sender.enqueue(applicationContext, sb.toString())
+        Sender.flushAsync(applicationContext)
+    }
+}

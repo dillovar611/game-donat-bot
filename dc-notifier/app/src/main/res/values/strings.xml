@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">DC Notifier</string>
+    <string name="accessibility_service_description">Барои хондани саҳифаи амалиётҳо дар барномаи DC City ва фиристодани онҳо ба каналi Telegram, вақте ки санҷиши даврӣ иҷро мешавад.</string>
+</resources>
