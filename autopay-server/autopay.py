@@ -2831,8 +2831,8 @@ async def recheck_loop(bot: Bot, interval_seconds: int = 180):
             await _report_unknown_statuses(bot)
 
             # Огоҳиҳои дигар — ҳар кадом ҷудо, то хатои яке бақияро нахобонад
-            for watch in (_audit_carts, _watch_losses, _watch_payment_feed,
-                          _watch_problem_customers, _watch_resellers):
+            for watch in (_audit_carts, _watch_payment_feed,
+                          _watch_problem_customers):
                 try:
                     await watch(bot)
                 except Exception as e:

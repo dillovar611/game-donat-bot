@@ -2756,8 +2756,7 @@ async def a_daily_report(call: CallbackQuery):
     weekday_labels = " ".join(_WEEKDAY_SHORT_TJ[d["date"].weekday()] for d in stats.get("last_7_days_sales", []))
 
     top_products_lines = "\n".join(
-        f"   {i + 1}. {esc(p['label'])} — {p['count']} фармоиш, {p['revenue']:.2f} сом"
-        + (f" (фоида {p['margin_percent']:.1f}%)" if p.get("margin_percent") is not None else "")
+        f"   {i + 1}. {esc(p['label'])} — {p['count']} фармоиш"
         for i, p in enumerate(stats.get("top_products", []))
     ) or "   —"
 
@@ -2782,30 +2781,25 @@ async def a_daily_report(call: CallbackQuery):
         f"📦 <b>Фармоишҳои имрӯз:</b>\n"
         f"   ✅ Тасдиқшуда: <b>{stats['confirmed_today']}</b>\n"
         f"   ❌ Радшуда: <b>{stats['rejected_today']}</b>\n"
-        f"   📊 Фоизи радкунӣ: <b>{stats['rejection_rate']:.1f}%</b>\n"
-        f"   💵 Миёнаи арзиши фармоиш: <b>{stats['avg_order_value']:.2f} сом</b>\n\n"
+        f"   📊 Фоизи радкунӣ: <b>{stats['rejection_rate']:.1f}%</b>\n\n"
         f"🔁 <b>Харидорон имрӯз:</b>\n"
         f"   Такрорӣ: <b>{stats['repeat_customers_today']}</b>\n"
         f"   Нав: <b>{stats['new_customers_today']}</b>\n\n"
-        f"👤 <b>ГурӴҳбандии харидорон (ҳама вақт):</b>\n"
+        f"👤 <b>Гурӯҳбандии харидорон (ҳама вақт):</b>\n"
         f"   1 харид: <b>{stats['buyers_1']}</b> нафар\n"
         f"   2–5 харид: <b>{stats['buyers_2_5']}</b> нафар\n"
-        f"   5+ харид (VIP): <b>{stats['buyers_5plus']}</b> нафар\n"
-        f"   💵 Миёнаи харид ба як корбар: <b>{stats['avg_spent_per_buyer']:.2f} сом</b>\n\n"
+        f"   5+ харид (VIP): <b>{stats['buyers_5plus']}</b> нафар\n\n"
         f"⏰ <b>Соати пик (30 рӯзи охир):</b> "
         f"<b>{peak_hour_str}</b> ({stats['peak_hour_count']} фармоиш)\n"
         f"📅 <b>Рӯзи беҳтарин (30 рӯзи охир):</b> "
-        f"<b>{stats['best_weekday']}</b> ({stats['best_weekday_sales']:.2f} сом)\n\n"
-        f"📊 <b>Тамоюли 7 рӯз:</b> <code>{sparkline}</code>\n"
-        f"   <code>{weekday_labels}</code>\n\n"
+        f"<b>{stats['best_weekday']}</b>\n\n"
         f"🏆 <b>Топ-5 маҳсулот (7 рӯз):</b>\n"
         f"{top_products_lines}\n\n"
         f"💳 <b>Пардохт аз рӯи усул (имрӯз):</b>\n"
         f"{payment_lines}\n\n"
         f"⚠️ <b>Фармоишҳои \"номуайян\" (таймаути FazerCards) имрӯз:</b> <b>{stats['uncertain_today']}</b>\n"
         f"🔄 <b>Пардохти дерина наҷотёфта (имрӯз):</b> <b>{stats['late_recovered_today']}</b>\n"
-        f"😴 <b>Мизоҷони хомӯшшуда (14+ рӯз бе харид):</b> <b>{stats['dormant_customers']}</b>\n"
-        f"💵 <b>Фоидаи холис имрӯз:</b> <b>~{stats['profit_today']:.2f} сом</b>{coverage}{margin_line}"
+        f"😴 <b>Мизоҷони хомӯшшуда (14+ рӯз бе харид):</b> <b>{stats['dormant_customers']}</b>"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")]
@@ -2826,10 +2820,8 @@ async def a_weekly_report(call: CallbackQuery):
             return f"📉 {pct:.1f}%"
         return "➖ 0%"
 
-    change_str = _fmt_change(stats["change_pct"])
     top_products_lines = "\n".join(
-        f"   {i + 1}. {esc(p['label'])} — {p['count']} фармоиш, {p['revenue']:.2f} сом"
-        + (f" (фоида {p['margin_percent']:.1f}%)" if p.get("margin_percent") is not None else "")
+        f"   {i + 1}. {esc(p['label'])} — {p['count']} фармоиш"
         for i, p in enumerate(stats.get("top_products", []))
     ) or "   —"
 
@@ -2846,14 +2838,11 @@ async def a_weekly_report(call: CallbackQuery):
         f"📅 <b>Гузориши ҳафтаина</b> ({week_start} – {week_end})\n\n"
         f"📦 <b>Фармоишҳо:</b>\n"
         f"   ✅ Тасдиқшуда: <b>{stats['confirmed_week']}</b>\n"
-        f"   ❌ Радшуда: <b>{stats['rejected_week']}</b>\n"
-        f"   💵 Миёнаи арзиши фармоиш: <b>{stats['avg_order_value']:.2f} сом</b>\n\n"
+        f"   ❌ Радшуда: <b>{stats['rejected_week']}</b>\n\n"
         f"👥 <b>Мизоҷони нав ин ҳафта:</b> <b>{stats['new_customers_week']}</b>\n"
-        f"📅 <b>Рӯзи беҳтарини ҳафта:</b> <b>{stats['best_weekday']}</b> "
-        f"({stats['best_weekday_sales']:.2f} сом)\n\n"
+        f"📅 <b>Рӯзи беҳтарини ҳафта:</b> <b>{stats['best_weekday']}</b>\n\n"
         f"🏆 <b>Топ-5 маҳсулот:</b>\n"
-        f"{top_products_lines}\n\n"
-        f"💵 <b>Фоидаи холис ин ҳафта:</b> <b>~{stats['profit_week']:.2f} сом</b>{coverage}{margin_line}"
+        f"{top_products_lines}"
     )
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔙 Бозгашт", callback_data="a_back")]
