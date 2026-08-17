@@ -827,12 +827,6 @@ def _format_daily_report(stats: dict) -> str:
         f"   3 рӯзи охир: <b>{stats['new_3d']}</b>\n"
         f"   7 рӯзи охир: <b>{stats['new_7d']}</b>\n"
         f"   1 моҳи охир: <b>{stats['new_30d']}</b>\n\n"
-        f"💰 <b>Фурӯш:</b>\n"
-        f"   Имрӯз: <b>{stats['sales_today']:.2f} сом</b>\n"
-        f"   Дина: <b>{stats['sales_yesterday']:.2f} сом</b>\n"
-        f"   Тағйир нисбат ба дина: {change_str}\n"
-        f"   7 рӯзи охир: <b>{stats['sales_7d']:.2f} сом</b> ({change_7d_str})\n"
-        f"   30 рӯзи охир: <b>{stats['sales_30d']:.2f} сом</b> ({change_30d_str})\n\n"
         f"📦 <b>Фармоишҳои имрӯз:</b>\n"
         f"   ✅ Тасдиқшуда: <b>{stats['confirmed_today']}</b>\n"
         f"   ❌ Радшуда: <b>{stats['rejected_today']}</b>\n"
@@ -889,10 +883,6 @@ def _format_weekly_report(stats: dict) -> str:
 
     return (
         f"📅 <b>Гузориши ҳафтаина</b> ({week_start} – {week_end})\n\n"
-        f"💰 <b>Фурӯш:</b>\n"
-        f"   Ин ҳафта: <b>{stats['sales_week']:.2f} сом</b>\n"
-        f"   Ҳафтаи гузашта: <b>{stats['sales_prev_week']:.2f} сом</b>\n"
-        f"   Тағйир: {change_str}\n\n"
         f"📦 <b>Фармоишҳо:</b>\n"
         f"   ✅ Тасдиқшуда: <b>{stats['confirmed_week']}</b>\n"
         f"   ❌ Радшуда: <b>{stats['rejected_week']}</b>\n"

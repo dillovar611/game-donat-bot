@@ -2629,8 +2629,7 @@ async def a_stats(call: CallbackQuery):
         call,
         f"📊 <b>Омор</b>\n\n"
         f"👥 Корбарон: <b>{stats['users']}</b>\n"
-        f"✅ Фармоишҳои анҷомёфта: <b>{stats['orders']}</b>\n"
-        f"💰 Фурӯши умумӣ: <b>{stats['total']:.2f} сом</b>",
+        f"✅ Фармоишҳои анҷомёфта: <b>{stats['orders']}</b>",
         kb
     )
 
@@ -2780,12 +2779,6 @@ async def a_daily_report(call: CallbackQuery):
         f"   3 рӯзи охир: <b>{stats['new_3d']}</b>\n"
         f"   7 рӯзи охир: <b>{stats['new_7d']}</b>\n"
         f"   1 моҳи охир: <b>{stats['new_30d']}</b>\n\n"
-        f"💰 <b>Фурӯш:</b>\n"
-        f"   Имрӯз: <b>{stats['sales_today']:.2f} сом</b>\n"
-        f"   Дина: <b>{stats['sales_yesterday']:.2f} сом</b>\n"
-        f"   Тағйир нисбат ба дина: {change_str}\n"
-        f"   7 рӯзи охир: <b>{stats['sales_7d']:.2f} сом</b> ({change_7d_str})\n"
-        f"   30 рӯзи охир: <b>{stats['sales_30d']:.2f} сом</b> ({change_30d_str})\n\n"
         f"📦 <b>Фармоишҳои имрӯз:</b>\n"
         f"   ✅ Тасдиқшуда: <b>{stats['confirmed_today']}</b>\n"
         f"   ❌ Радшуда: <b>{stats['rejected_today']}</b>\n"
@@ -2851,10 +2844,6 @@ async def a_weekly_report(call: CallbackQuery):
 
     text = (
         f"📅 <b>Гузориши ҳафтаина</b> ({week_start} – {week_end})\n\n"
-        f"💰 <b>Фурӯш:</b>\n"
-        f"   Ин ҳафта: <b>{stats['sales_week']:.2f} сом</b>\n"
-        f"   Ҳафтаи гузашта: <b>{stats['sales_prev_week']:.2f} сом</b>\n"
-        f"   Тағйир: {change_str}\n\n"
         f"📦 <b>Фармоишҳо:</b>\n"
         f"   ✅ Тасдиқшуда: <b>{stats['confirmed_week']}</b>\n"
         f"   ❌ Радшуда: <b>{stats['rejected_week']}</b>\n"
