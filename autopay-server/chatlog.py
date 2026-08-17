@@ -29,6 +29,33 @@ logger = logging.getLogger(__name__)
 _DIR = os.path.dirname(os.path.abspath(__file__))
 BASE = os.path.join(_DIR, "chats")
 
+
+def cleanup_old_media(days: int = 7) -> tuple:
+    """Расмҳои (чекҳои) аз `days` рӯз кӯҳнатарро аз папкаи chats нест мекунад —
+    то диски сервер пур нашавад (ин расмҳо метавонанд ба чанд ГБ бирасанд).
+    Матни сӯҳбатҳо (messages.jsonl, sohbat.txt) ДАСТ НАХӮРДА мемонанд.
+    Бармегардонад: (шумораи файлҳои нестшуда, ҳаҷми озодшуда бо байт)."""
+    if not os.path.isdir(BASE) or days < 0:
+        return (0, 0)
+    cutoff = time.time() - days * 86400
+    exts = (".jpg", ".jpeg", ".png", ".webp")
+    removed, freed = 0, 0
+    for root, _dirs, files in os.walk(BASE):
+        for fn in files:
+            if not fn.lower().endswith(exts):
+                continue
+            fp = os.path.join(root, fn)
+            try:
+                st = os.stat(fp)
+                if st.st_mtime < cutoff:
+                    size = st.st_size
+                    os.remove(fp)
+                    removed += 1
+                    freed += size
+            except Exception:
+                continue
+    return (removed, freed)
+
 try:
     from PIL import Image, ImageDraw, ImageFont
     _PIL_OK = True

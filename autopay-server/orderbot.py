@@ -1415,6 +1415,28 @@ async def handle_business_connection(event):
     logger.info(f"Business connection: id={event.id} user={event.user.id} is_enabled={event.is_enabled}")
 
 
+# Расмҳои (чекҳои) сӯҳбатро чанд рӯз нигоҳ медорем, баъд худкор нест мекунем —
+# то диски сервер пур нашавад (папкаи chats метавонад ба чанд ГБ бирасад).
+CHAT_MEDIA_KEEP_DAYS = 7
+
+
+async def _media_cleanup_loop():
+    """Ҳар 6 соат расмҳои чеки аз CHAT_MEDIA_KEEP_DAYS рӯз кӯҳнатарро аз папкаи
+    chats худкор нест мекунад — то диск пур нашавад (матни сӯҳбатҳо мемонанд)."""
+    await asyncio.sleep(120)  # то бот пурра сар шавад
+    while True:
+        try:
+            removed, freed = await asyncio.to_thread(
+                chatlog.cleanup_old_media, CHAT_MEDIA_KEEP_DAYS)
+            if removed:
+                logger.info(
+                    f"🧹 Тозакунии chats: {removed} расм нест шуд, "
+                    f"{freed / 1024 / 1024:.1f}MB озод шуд")
+        except Exception as e:
+            logger.error(f"Хатои тозакунии chats: {e}")
+        await asyncio.sleep(6 * 3600)
+
+
 async def main():
     await create_pool()
     me = await bot.get_me()
@@ -1424,6 +1446,7 @@ async def main():
     asyncio.create_task(nightly_report_loop())
     asyncio.create_task(weekly_backup_loop())
     asyncio.create_task(watch_loop())
+    asyncio.create_task(_media_cleanup_loop())
     logger.info(f"📁 Бойгонии сӯҳбатҳо: {chatlog.BASE}")
     await dp.start_polling(
         bot,
